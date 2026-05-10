@@ -1,13 +1,11 @@
 # Reference defaults (embedded). Override with --defaults-file merged on top.
+#
+# [common].tmp_dir：单实例根目录（sock / pid / lsptd.log 均在其下）。多实例须使用不同的 tmp_dir。
+[common]
+tmp_dir = "/tmp/lsptd"
 
 [daemon]
-socket_path = "/tmp/lsptd.sock"
-log_file = "/tmp/lsptd.log"
-pid_file = "/tmp/lsptd.pid"
 pid_record_suffix = "\n"
-
-[client]
-socket_path = "/tmp/lsptd.sock"
 
 # gRPC 实际走 Unix 套接字；tonic 客户端仍需要一个形式上合法的 HTTP URI 作 Endpoint，并不发起 TCP。
 [protocol.grpc]

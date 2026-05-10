@@ -7,8 +7,8 @@ mod embed;
 mod error;
 
 pub use config::{
-    load_merged, ClientSection, DaemonSection, GrpcSection, LogServerSection, LsptConfig,
-    ProtocolSection,
+    load_merged, ClientSection, CommonSection, DaemonSection, GrpcSection, LogServerSection,
+    LsptConfig, ProtocolSection,
 };
 pub use error::LsptError;
 

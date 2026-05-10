@@ -399,15 +399,20 @@ impl Lspt for LsptSvc {
 }
 
 #[cfg(unix)]
-async fn run(cfg: LsptConfig) -> Result<(), LsptError> {
-    let LsptConfig {
-        daemon,
-        protocol,
-        log_server,
-        ..
-    } = cfg;
+fn unix_process_exists(pid: u32) -> bool {
+    if pid == 0 {
+        return false;
+    }
+    let ret = unsafe { libc::kill(pid as libc::pid_t, 0) };
+    if ret == 0 {
+        return true;
+    }
+    std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+}
 
-    let worker_output_dir = log_server.worker_output_dir.trim().to_string();
+#[cfg(unix)]
+async fn run(cfg: LsptConfig) -> Result<(), LsptError> {
+    let worker_output_dir = cfg.log_server.worker_output_dir.trim().to_string();
     if worker_output_dir.is_empty() {
         return Err(LsptError::Cli(
             "[log_server].worker_output_dir must be set (non-empty directory; producer YAML \"output\" is relative to it)"
@@ -417,18 +422,36 @@ async fn run(cfg: LsptConfig) -> Result<(), LsptError> {
     let worker_out_path = Path::new(&worker_output_dir);
     fs::create_dir_all(worker_out_path).map_err(|e| LsptError::unix_io(worker_out_path.to_path_buf(), e))?;
 
-    let socket_path = daemon.socket_path.clone();
-    let control_socket_path = daemon.socket_path;
-    let client_connect_uri = protocol.grpc.client_connect_uri.clone();
-    let log_path = daemon.log_file;
-    let pid_path = daemon.pid_file;
-    let pid_suffix = daemon.pid_record_suffix;
+    let pid_suffix = cfg.daemon.pid_record_suffix.clone();
+    let max_dec = cfg.protocol.grpc.max_decoding_message_size_bytes as usize;
+    let max_enc = cfg.protocol.grpc.max_encoding_message_size_bytes as usize;
+    let ping_reply: Arc<str> = Arc::from(cfg.protocol.grpc.ping_reply_text.clone().into_boxed_str());
+    let client_connect_uri = cfg.protocol.grpc.client_connect_uri.clone();
 
-    let max_dec = protocol.grpc.max_decoding_message_size_bytes as usize;
-    let max_enc = protocol.grpc.max_encoding_message_size_bytes as usize;
-    let ping_reply: Arc<str> = Arc::from(protocol.grpc.ping_reply_text.into_boxed_str());
+    let tmp_dir = cfg.tmp_dir_path();
+    fs::create_dir_all(&tmp_dir).map_err(|e| LsptError::unix_io(tmp_dir.clone(), e))?;
 
-    let sock = Path::new(&socket_path);
+    let pid_path_buf = cfg.daemon_pid_path();
+    if pid_path_buf.exists() {
+        let raw = fs::read_to_string(&pid_path_buf).unwrap_or_default();
+        let trimmed = raw.trim();
+        if let Ok(old) = trimmed.parse::<u32>() {
+            if unix_process_exists(old) {
+                return Err(LsptError::Cli(format!(
+                    "lsptd already running (pid {old}) under {}. Use a different [common].tmp_dir for another instance, or stop the existing process.",
+                    tmp_dir.display()
+                )));
+            }
+        }
+        let _ = fs::remove_file(&pid_path_buf);
+    }
+
+    let socket_path_buf = cfg.daemon_socket_path();
+    let control_socket_path = socket_path_buf.to_string_lossy().into_owned();
+    let log_path_buf = cfg.daemon_log_path();
+    let log_path = log_path_buf.to_string_lossy().into_owned();
+
+    let sock = socket_path_buf.as_path();
     if sock.exists() {
         fs::remove_file(sock).map_err(|e| LsptError::unix_io(sock.to_path_buf(), e))?;
     }
@@ -443,13 +466,13 @@ async fn run(cfg: LsptConfig) -> Result<(), LsptError> {
         .map_err(|e| LsptError::write_file(log_path.clone(), e))?;
 
     let pid_body = format!("{}{}", std::process::id(), pid_suffix);
-    fs::write(pid_path.as_str(), pid_body)
-        .map_err(|e| LsptError::write_file(pid_path.clone(), e))?;
+    fs::write(pid_path_buf.as_path(), pid_body)
+        .map_err(|e| LsptError::write_file(pid_path_buf.to_string_lossy().into_owned(), e))?;
     let _pid_guard = PidFileGuard {
-        path: Path::new(&pid_path).to_path_buf(),
+        path: pid_path_buf,
     };
 
-    writeln!(log, "lsptd grpc on {}", socket_path)
+    writeln!(log, "lsptd grpc on {}", sock.display())
         .map_err(|e| LsptError::write_file(log_path.clone(), e))?;
     log.flush()
         .map_err(|e| LsptError::write_file(log_path.clone(), e))?;
@@ -457,7 +480,7 @@ async fn run(cfg: LsptConfig) -> Result<(), LsptError> {
     let svc = LsptSvc {
         inner: Arc::new(LsptSvcState {
             ping_reply,
-            log_server,
+            log_server: cfg.log_server,
             control_socket_path,
             client_connect_uri,
             worker_output_dir,

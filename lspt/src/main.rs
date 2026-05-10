@@ -13,7 +13,7 @@ use lspt_proto::{
 use tonic::transport::Endpoint;
 use tower::service_fn;
 
-use lspt_config::{load_merged, LsptConfig, LsptError};
+use lspt_config::{load_merged, LsptError};
 
 #[derive(Parser)]
 #[command(
@@ -27,7 +27,7 @@ struct Cli {
     #[arg(long, value_name = "PATH", env = "LSPT_DEFAULTS_FILE")]
     defaults_file: Option<PathBuf>,
 
-    /// 覆盖合并配置中的 gRPC Unix 套接字路径（等价于 [client].socket_path）
+    /// 覆盖由 [common].tmp_dir 推导的 Unix 套接字路径（默认 {tmp_dir}/lsptd.sock）
     #[arg(short = 'S', long = "sock", value_name = "PATH")]
     socket: Option<PathBuf>,
 
@@ -68,26 +68,22 @@ async fn main() {
 }
 
 #[cfg(unix)]
-fn merge_cli_config(cli: &Cli, mut cfg: LsptConfig) -> LsptConfig {
-    if let Some(p) = &cli.socket {
-        cfg.client.socket_path = p.display().to_string();
-    }
-    cfg
-}
-
-#[cfg(unix)]
 async fn run() -> Result<(), LsptError> {
     let cli = Cli::parse();
-    let cfg = merge_cli_config(&cli, load_merged(cli.defaults_file.as_deref())?);
+    let cfg = load_merged(cli.defaults_file.as_deref())?;
 
-    let sock_path = cfg.client.socket_path.clone();
+    let sock_path = if let Some(p) = &cli.socket {
+        p.display().to_string()
+    } else {
+        cfg.client_socket_path()
+    };
     let max_dec = cfg.protocol.grpc.max_decoding_message_size_bytes as usize;
     let max_enc = cfg.protocol.grpc.max_encoding_message_size_bytes as usize;
 
     if !Path::new(&sock_path).exists() {
         return Err(LsptError::Cli(format!(
             "unix socket \"{sock_path}\" does not exist. Start lsptd first, or pass -S/--sock PATH pointing at the daemon socket, \
-             or set [client].socket_path via --defaults-file / LSPT_DEFAULTS_FILE."
+             or set [common].tmp_dir via --defaults-file / LSPT_DEFAULTS_FILE (same as lsptd)."
         )));
     }
 
@@ -106,7 +102,7 @@ async fn run() -> Result<(), LsptError> {
         .map_err(|e| {
             LsptError::Grpc(format!(
                 "transport error on unix socket {sock_path}: {e}. \
-                 Try -S/--sock with the same path as lsptd [daemon].socket_path, or fix --defaults-file."
+                 Try -S/--sock matching lsptd's socket, or fix [common].tmp_dir in --defaults-file."
             ))
         })?;
 
