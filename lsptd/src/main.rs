@@ -251,6 +251,7 @@ impl Lspt for LsptSvc {
         let id = uuid::Uuid::new_v4().to_string();
         let hb_iv = self.inner.log_server.heartbeat_interval_secs.max(1).to_string();
         let child = tokio::process::Command::new(exe)
+            .current_dir(&self.inner.worker_output_dir)
             .arg("worker")
             .arg("-f")
             .arg(&path)
@@ -258,10 +259,6 @@ impl Lspt for LsptSvc {
             .env("LSPT_SERVER_ID", &id)
             .env("LSPT_HEARTBEAT_INTERVAL_SECS", &hb_iv)
             .env("LSPT_CLIENT_CONNECT_URI", &self.inner.client_connect_uri)
-            .env(
-                "LSPT_WORKER_OUTPUT_DIR",
-                &self.inner.worker_output_dir,
-            )
             .spawn()
             .map_err(|e| tonic::Status::internal(format!("spawn worker: {e}")))?;
 

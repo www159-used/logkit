@@ -1,0 +1,49 @@
+# 纯 LEEF 2.0：无 syslog / RFC5424 前缀，仅 LEEF 头 + 属性载荷。
+# https://www.ibm.com/docs/en/dsm?topic=overview-leef-event-components
+#
+# 头：LEEF:2.0|Vendor|Product|Version|EventID|Delimiter|
+# 属性之间用 ^（与 Delimiter 一致）。若需 Tab：头末段改为 x09，模板里 ^ 改为 \t。
+output: leef-v2.log
+min-interval: 100
+template: >-
+  LEEF:2.0|{{vendor}}|{{product}}|{{prod_ver}}|{{event_id}}|^|src={{src}}^dst={{dst}}^sev={{sev}}^cat={{cat}}^dhost={{dhost}}^usrName={{user}}^msg={{msg}}
+fields:
+  vendor:
+    type: pick
+    values:
+      - AcmeSec
+      - DemoVendor
+      - WidgetSoft
+  product:
+    type: lorem-word
+  prod_ver:
+    type: pick
+    values: ["1.0.0", "2.4.9", "10.1.3-rc1"]
+  event_id:
+    type: integer
+    min: 1000
+    max: 65535
+  src:
+    type: ipv4
+  dst:
+    type: ipv4
+  sev:
+    type: integer
+    min: 1
+    max: 10
+  cat:
+    type: pick
+    values:
+      - anomaly
+      - Auth.Failure
+      - Malware
+      - Firewall
+      - VPN
+  dhost:
+    type: hostname
+  user:
+    type: username
+  msg:
+    type: sentence
+    min: 4
+    max: 12

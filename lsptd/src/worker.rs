@@ -1,15 +1,15 @@
 //! producer **仅**支持 **YAML**（路径须 `.yaml` / `.yml`）：`template`（必填）、`fields`、`min-interval`、`output`；不再支持 `sample-file` 旧格式。
 //! - 长模板可用 YAML 块标量（`>` / `>-`）折行，避免一行过长。
-//! - 由 **lsptd** 拉起的 worker 会收到 **`LSPT_WORKER_OUTPUT_DIR`**（见 TOML `[log_server].worker_output_dir`，必填），此时 **`output` 必填**，
-//!   且为相对该目录的相对路径（不得 `..`）。日志文件 **`append`** 打开。
-//! - 手动运行 `lsptd worker` 时无该环境变量：`output` 相对配置文件所在目录；省略则写标准输出。
+//! - 由 **lsptd** 拉起的 worker 在 spawn 时 **`current_dir` 已设为** TOML `[log_server].worker_output_dir`（必填）；
+//!   producer YAML 的 **`output` 相对该目录（即子进程初始 pwd）**，日志文件 **`append`** 打开。
+//! - 手动运行 `lsptd worker` 时继承 shell 的 pwd：**`output` 相对当前工作目录**；省略则写标准输出。
 //!
 //! 随机抽样等走 [`fake::Fake`]，不直接 `use rand`。
 
 use std::env;
 use std::fs::{self, OpenOptions};
 use std::io::{BufWriter, Write};
-use std::path::{Component, Path};
+use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -151,56 +151,19 @@ impl LogSink {
     }
 }
 
-fn relative_output_allowed(rel: &str) -> bool {
-    let p = Path::new(rel);
-    if p.is_absolute() {
-        return false;
-    }
-    !p.components()
-        .any(|c| matches!(c, Component::ParentDir | Component::RootDir))
-}
-
-/// `LSPT_WORKER_OUTPUT_DIR` 由 lsptd 设置：此时 `output` 必填且相对该目录。否则 `output` 相对配置文件目录，可省略（stdout）。
+/// `output` 相对 **进程当前工作目录**（pwd）：lsptd 拉起 worker 时已 `current_dir(worker_output_dir)`；手跑则继承 shell。省略 `output` 则 stdout。
 fn log_sink(config_path: &str, output_rel: Option<&str>) -> LogSink {
-    if let Ok(base) = env::var("LSPT_WORKER_OUTPUT_DIR") {
-        let base = base.trim();
-        if !base.is_empty() {
-            let Some(r) = output_rel else {
-                eprintln!(
-                    "LSPT_WORKER_OUTPUT_DIR is set: producer config must set non-empty \"output\" (relative path under that directory)"
-                );
-                std::process::exit(1);
-            };
-            if !relative_output_allowed(r) {
-                eprintln!("output must be a relative path without parent components (no \"..\") when LSPT_WORKER_OUTPUT_DIR is set");
-                std::process::exit(1);
-            }
-            let path = Path::new(base).join(r);
-            if let Some(parent) = path.parent() {
-                fs::create_dir_all(parent).unwrap_or_else(|e| {
-                    eprintln!("create_dir_all {}: {e}", parent.display());
-                    std::process::exit(1);
-                });
-            }
-            let f = OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&path)
-                .unwrap_or_else(|e| {
-                    eprintln!("open output {}: {e}", path.display());
-                    std::process::exit(1);
-                });
-            return LogSink::File(BufWriter::new(f));
-        }
-    }
-
-    let cfg_dir = Path::new(config_path)
-        .parent()
-        .unwrap_or_else(|| Path::new("."));
+    let cwd = env::current_dir().unwrap_or_else(|e| {
+        eprintln!("current_dir: {e} (fall back to directory of config file)");
+        Path::new(config_path)
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .to_path_buf()
+    });
     match output_rel {
         None => LogSink::Stdout,
         Some(r) => {
-            let path = cfg_dir.join(r);
+            let path = cwd.join(r);
             if let Some(parent) = path.parent() {
                 let _ = fs::create_dir_all(parent);
             }

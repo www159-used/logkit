@@ -2,7 +2,9 @@ use std::collections::BTreeMap;
 
 use chrono::Local;
 use fake::{Fake, Faker};
-use fake::faker::internet::raw::{IPv4, UserAgent, Username};
+use fake::faker::company::raw::CompanyName;
+use fake::faker::internet::raw::{DomainSuffix, IPv4, UserAgent, Username};
+use fake::faker::lorem::raw::Word;
 use fake::faker::lorem::en::Words;
 use fake::faker::name::raw::Name;
 use fake::locales::EN;
@@ -46,6 +48,14 @@ pub enum FieldSpec {
     Url,
     /// 随机 URL 的请求路径部分（含 query、fragment），用于 `\"GET {{dst}} HTTP/1.1\"` 等
     UrlPath,
+    /// 随机 **FQDN 形**主机标签：`{lorem-word}-{lorem-word}.{domain-suffix}`（小写），适合 syslog HOSTNAME
+    Hostname,
+    /// `fake` 顶级域后缀（`internet::DomainSuffix`），如 `com`、`org`
+    DomainSuffix,
+    /// 单个随机英文词（`lorem::Word`），小写；适合短小 APP-NAME、标记等
+    LoremWord,
+    /// `fake` 公司名（`company::CompanyName`），可含空格；注意 syslog APP-NAME 语义上通常为无空单词
+    CompanyName,
     /// 随机 User-Agent 字符串（`fake` internet）
     UserAgent,
     /// `fake` **登录名/句柄**（`internet::Username`），与 `name-en` 的全名风格不同；适合 HTTP `%u`、账号 id
@@ -83,6 +93,10 @@ impl FieldSpec {
                 }
                 Box::new(SentenceSlot { min, max })
             }
+            FieldSpec::Hostname => Box::new(HostnameSlot),
+            FieldSpec::DomainSuffix => Box::new(DomainSuffixSlot),
+            FieldSpec::LoremWord => Box::new(LoremWordSlot),
+            FieldSpec::CompanyName => Box::new(CompanyNameSlot),
             FieldSpec::UserAgent => Box::new(UserAgentSlot),
             FieldSpec::Username => Box::new(UsernameSlot),
             FieldSpec::Url => Box::new(UrlSlot),
@@ -206,6 +220,46 @@ impl TemplateSlot for UrlPathSlot {
             out.push_str(f);
         }
         out
+    }
+}
+
+struct HostnameSlot;
+
+impl TemplateSlot for HostnameSlot {
+    fn next_value(&mut self) -> String {
+        let a: String = Word(EN).fake();
+        let b: String = Word(EN).fake();
+        let suf: String = DomainSuffix(EN).fake();
+        format!(
+            "{}-{}.{}",
+            a.to_lowercase(),
+            b.to_lowercase(),
+            suf.to_lowercase()
+        )
+    }
+}
+
+struct DomainSuffixSlot;
+
+impl TemplateSlot for DomainSuffixSlot {
+    fn next_value(&mut self) -> String {
+        DomainSuffix(EN).fake()
+    }
+}
+
+struct LoremWordSlot;
+
+impl TemplateSlot for LoremWordSlot {
+    fn next_value(&mut self) -> String {
+        Word(EN).fake::<String>().to_lowercase()
+    }
+}
+
+struct CompanyNameSlot;
+
+impl TemplateSlot for CompanyNameSlot {
+    fn next_value(&mut self) -> String {
+        CompanyName(EN).fake()
     }
 }
 

@@ -19,7 +19,7 @@ pub struct TemplateConfig {
     /// 每条日志间隔（毫秒），默认 1000。
     #[serde(rename = "min-interval", default = "default_min_interval_ms")]
     pub min_interval_ms: u64,
-    /// 日志文件相对路径；见 worker 与 `LSPT_WORKER_OUTPUT_DIR` 语义。
+    /// 日志文件相对路径（相对 worker 进程 **当前工作目录**；lsptd 拉起子进程时已 `cd` 到 `worker_output_dir`）。
     #[serde(default)]
     pub output: Option<String>,
 }
@@ -180,6 +180,22 @@ fields: {}
         );
         assert!(c.template.contains("part2"));
         assert!(c.template.contains("part3"));
+    }
+
+    #[test]
+    fn hostname_slot_contains_two_labels_and_suffix() {
+        let cfg = TemplateConfig {
+            template: "{{h}}".to_string(),
+            fields: [("h".to_string(), crate::FieldSpec::Hostname)]
+                .into_iter()
+                .collect(),
+            min_interval_ms: 1000,
+            output: None,
+        };
+        let mut r = TemplateRunner::try_new(cfg).unwrap();
+        let line = r.next_line().unwrap();
+        assert!(line.contains('.'), "{line:?}");
+        assert!(line.contains('-'), "{line:?}");
     }
 
     #[test]
