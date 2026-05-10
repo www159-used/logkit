@@ -36,39 +36,11 @@ fn fake_uniform_index(len: usize) -> usize {
 
 /// 从切片中均匀随机选一项。
 #[allow(dead_code)] // Handlebars / `generators` 配置将使用
-fn fake_choose<'a, T>(items: &'a [T]) -> Option<&'a T> {
+fn fake_choose<T>(items: &[T]) -> Option<&T> {
     if items.is_empty() {
         None
     } else {
         Some(&items[fake_uniform_index(items.len())])
-    }
-}
-
-#[cfg(test)]
-mod fake_pick_tests {
-    use super::*;
-
-    #[test]
-    fn uniform_index_stays_in_range() {
-        for _ in 0..300 {
-            let len = 20;
-            let i = fake_uniform_index(len);
-            assert!(i < len);
-        }
-    }
-
-    #[test]
-    fn choose_none_on_empty() {
-        let empty: &[u8] = &[];
-        assert!(fake_choose(empty).is_none());
-    }
-
-    #[test]
-    fn choose_some_from_slice() {
-        let v = [1u8, 2, 3];
-        for _ in 0..50 {
-            assert!(matches!(fake_choose(&v), Some(1) | Some(2) | Some(3)));
-        }
     }
 }
 
@@ -276,4 +248,32 @@ pub fn run(argv: Vec<String>) {
         .build()
         .expect("worker tokio runtime")
         .block_on(async_main(argv));
+}
+
+#[cfg(test)]
+mod fake_pick_tests {
+    use super::*;
+
+    #[test]
+    fn uniform_index_stays_in_range() {
+        for _ in 0..300 {
+            let len = 20;
+            let i = fake_uniform_index(len);
+            assert!(i < len);
+        }
+    }
+
+    #[test]
+    fn choose_none_on_empty() {
+        let empty: &[u8] = &[];
+        assert!(fake_choose(empty).is_none());
+    }
+
+    #[test]
+    fn choose_some_from_slice() {
+        let v = [1u8, 2, 3];
+        for _ in 0..50 {
+            assert!(matches!(fake_choose(&v), Some(1) | Some(2) | Some(3)));
+        }
+    }
 }

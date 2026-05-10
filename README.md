@@ -1,6 +1,13 @@
 # logkit
 
-Rust 工作区：**logspout-daemon**（gRPC over Unix 套接字的守护进程）与 **logspout**（命令行客户端），用于按模板生成日志并由 worker 子进程输出；含 **logspout-config**、**logspout-proto** 与 **logspout-dsl**（模板运行时）。
+## 功能
+
+### logspout
+
+迁移自某个logspout
+起因是没有arm的包，后来发现go的交叉编译非常丝滑
+最后发现端口暴露不太优雅，正好最近在做mysql和heka采集相关的，所以动了port rust的念头
+整体使用cs架构
 
 ## 构建
 

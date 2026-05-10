@@ -145,7 +145,10 @@ impl FieldSpec {
                     arms.push(match b {
                         OneOfBranch::Literal(s) => OneOfArm::Literal(s),
                         OneOfBranch::Template(OneOfTemplateBranch { template, fields }) => {
-                            OneOfArm::Nested(make_composite_template_slot(template, fields)?)
+                            OneOfArm::Nested(Box::new(make_composite_template_slot(
+                                template,
+                                fields,
+                            )?))
                         }
                     });
                 }
@@ -172,7 +175,7 @@ fn make_composite_template_slot(
 
 enum OneOfArm {
     Literal(String),
-    Nested(CompositeTemplateSlot),
+    Nested(Box<CompositeTemplateSlot>),
 }
 
 struct OneOfSlot {
