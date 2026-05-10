@@ -9,7 +9,7 @@ use crate::builtins::{slots_from_fields, FieldSpec};
 use crate::facade::TemplateSlot;
 use crate::{ConfigParseError, Error};
 
-/// Worker producer 配置：`template` + 可选 `fields`、`min-interval`、`output`（仅 `.yaml` / `.yml`）。
+/// Worker producer 配置：`template` + 可选 `fields`、`min-interval`、`max-size`、`output`（仅 `.yaml` / `.yml`）。
 #[derive(Debug, Clone, Deserialize)]
 pub struct TemplateConfig {
     /// Handlebars 源字符串（无须外置文件）。占位符须与 `fields` 键一致；**勿**用 `len` 等名，会与 handlebars 内置 helper（如 `{{len …}}`）冲突。
@@ -19,13 +19,20 @@ pub struct TemplateConfig {
     /// 每条日志间隔（毫秒），默认 1000。
     #[serde(rename = "min-interval", default = "default_min_interval_ms")]
     pub min_interval_ms: u64,
-    /// 日志文件相对路径（相对 worker 进程 **当前工作目录**；lsptd 拉起子进程时已 `cd` 到 `worker_output_dir`）。
+    /// 有 `output` 时：文件累计字节超过该值则 **截断为空** 再继续 append；**`0` 表示不限制**（默认）。
+    #[serde(rename = "max-size", default = "default_max_size_bytes")]
+    pub max_size_bytes: u64,
+    /// 日志文件相对路径（相对 worker 进程 **cwd**；lsptd 拉起子进程时已 `current_dir(worker_output_dir)`）。
     #[serde(default)]
     pub output: Option<String>,
 }
 
 fn default_min_interval_ms() -> u64 {
     1000
+}
+
+fn default_max_size_bytes() -> u64 {
+    0
 }
 
 /// 仅接受路径扩展名为 `.yaml` / `.yml`，内容按 YAML 反序列化为 [`TemplateConfig`]。
@@ -105,6 +112,7 @@ mod tests {
             .into_iter()
             .collect(),
             min_interval_ms: 1000,
+            max_size_bytes: 0,
             output: None,
         };
         let mut r = TemplateRunner::try_new(cfg).unwrap();
@@ -120,6 +128,7 @@ mod tests {
                 .into_iter()
                 .collect(),
             min_interval_ms: 1000,
+            max_size_bytes: 0,
             output: None,
         };
         let mut r = TemplateRunner::try_new(cfg).unwrap();
@@ -139,8 +148,30 @@ fields:
 "#;
         let c: TemplateConfig = serde_yaml::from_str(y).unwrap();
         assert_eq!(c.min_interval_ms, 1);
+        assert_eq!(c.max_size_bytes, 0);
         let mut r = TemplateRunner::try_new(c).unwrap();
         assert_eq!(r.next_line().unwrap(), "x=0");
+    }
+
+    #[test]
+    fn deserialize_producer_yaml_max_size_defaults_to_zero() {
+        let y = r#"
+template: "x"
+fields: {}
+"#;
+        let c: TemplateConfig = serde_yaml::from_str(y).unwrap();
+        assert_eq!(c.max_size_bytes, 0);
+    }
+
+    #[test]
+    fn deserialize_producer_yaml_max_size_nonzero() {
+        let y = r#"
+template: "x"
+max-size: 65536
+fields: {}
+"#;
+        let c: TemplateConfig = serde_yaml::from_str(y).unwrap();
+        assert_eq!(c.max_size_bytes, 65536);
     }
 
     #[test]
@@ -192,6 +223,7 @@ fields: {}
                 .into_iter()
                 .collect(),
             min_interval_ms: 1000,
+            max_size_bytes: 0,
             output: None,
         };
         let mut r = TemplateRunner::try_new(cfg).unwrap();
@@ -247,6 +279,7 @@ fields:
             .into_iter()
             .collect(),
             min_interval_ms: 1,
+            max_size_bytes: 0,
             output: None,
         };
         let mut r = TemplateRunner::try_new(c).unwrap();
@@ -294,6 +327,7 @@ fields:
             .into_iter()
             .collect(),
             min_interval_ms: 1,
+            max_size_bytes: 0,
             output: None,
         };
         assert!(TemplateRunner::try_new(c).is_err());
@@ -310,6 +344,7 @@ fields:
             .into_iter()
             .collect(),
             min_interval_ms: 1000,
+            max_size_bytes: 0,
             output: None,
         };
         let mut r = TemplateRunner::try_new(cfg).unwrap();

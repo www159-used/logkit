@@ -1026,6 +1026,7 @@ dependencies = [
 name = "lsptd"
 version = "0.1.0"
 dependencies = [
+ "clap",
  "fake",
  "http",
  "hyper-util",

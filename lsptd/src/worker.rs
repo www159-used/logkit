@@ -1,14 +1,15 @@
-//! producer **仅**支持 **YAML**（路径须 `.yaml` / `.yml`）：`template`（必填）、`fields`、`min-interval`、`output`；不再支持 `sample-file` 旧格式。
+//! producer **仅**支持 **YAML**（路径须 `.yaml` / `.yml`）：`template`（必填）、`fields`、`min-interval`、`max-size`、`output`；不再支持 `sample-file` 旧格式。
+//! - **`max-size`**（字节）：有 `output` 时，文件大于该值则 **清空后再 append**；**`0` 或不写表示不限制**。
 //! - 长模板可用 YAML 块标量（`>` / `>-`）折行，避免一行过长。
 //! - 由 **lsptd** 拉起的 worker 在 spawn 时 **`current_dir` 已设为** TOML `[log_server].worker_output_dir`（必填）；
-//!   producer YAML 的 **`output` 相对该目录（即子进程初始 pwd）**，日志文件 **`append`** 打开。
-//! - 手动运行 `lsptd worker` 时继承 shell 的 pwd：**`output` 相对当前工作目录**；省略则写标准输出。
+//!   producer YAML 的 **`output` 相对该目录（进程 cwd）**，日志文件 **`append`** 打开。
+//! - 手动运行 `lsptd worker` 时继承 shell 的 cwd：**`output` 相对当前工作目录**；省略则写标准输出。
 //!
 //! 随机抽样等走 [`fake::Fake`]，不直接 `use rand`。
 
 use std::env;
 use std::fs::{self, OpenOptions};
-use std::io::{BufWriter, Write};
+use std::io::{BufWriter, Seek, SeekFrom, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -134,16 +135,36 @@ fn spawn_heartbeat_if_env(events: Arc<AtomicU64>) {
 
 enum LogSink {
     Stdout,
-    File(BufWriter<std::fs::File>),
+    File(FileLogSink),
+}
+
+struct FileLogSink {
+    writer: BufWriter<std::fs::File>,
+    max_size: u64,
 }
 
 impl LogSink {
     fn emit_line(&mut self, line: &str) {
         match self {
             LogSink::Stdout => println!("{}", line),
-            LogSink::File(w) => {
-                if let Err(e) = writeln!(w, "{}", line).and_then(|_| w.flush()) {
+            LogSink::File(sink) => {
+                if let Err(e) = writeln!(&mut sink.writer, "{}", line).and_then(|_| sink.writer.flush())
+                {
                     eprintln!("write output: {e}");
+                    std::process::exit(1);
+                }
+                if sink.max_size == 0 {
+                    return;
+                }
+                let f = sink.writer.get_mut();
+                let Ok(meta) = f.metadata() else {
+                    return;
+                };
+                if meta.len() <= sink.max_size {
+                    return;
+                }
+                if let Err(e) = f.set_len(0).and_then(|_| f.seek(SeekFrom::Start(0))) {
+                    eprintln!("truncate output: {e}");
                     std::process::exit(1);
                 }
             }
@@ -151,8 +172,9 @@ impl LogSink {
     }
 }
 
-/// `output` 相对 **进程当前工作目录**（pwd）：lsptd 拉起 worker 时已 `current_dir(worker_output_dir)`；手跑则继承 shell。省略 `output` 则 stdout。
-fn log_sink(config_path: &str, output_rel: Option<&str>) -> LogSink {
+/// `output` 相对 **进程当前工作目录（cwd）**：lsptd 拉起子进程时已 `current_dir(worker_output_dir)`；手跑则继承 shell。省略 `output` 则 stdout。
+/// `max_size`：**`0`** 表示不因体积截断；否则每行 flush 后若文件 **大于** `max_size` 字节则清空再继续。
+fn log_sink(config_path: &str, output_rel: Option<&str>, max_size: u64) -> LogSink {
     let cwd = env::current_dir().unwrap_or_else(|e| {
         eprintln!("current_dir: {e} (fall back to directory of config file)");
         Path::new(config_path)
@@ -175,7 +197,10 @@ fn log_sink(config_path: &str, output_rel: Option<&str>) -> LogSink {
                     eprintln!("open output {}: {e}", path.display());
                     std::process::exit(1);
                 });
-            LogSink::File(BufWriter::new(f))
+            LogSink::File(FileLogSink {
+                writer: BufWriter::new(f),
+                max_size,
+            })
         }
     }
 }
@@ -212,17 +237,21 @@ async fn async_main(argv: Vec<String>) {
     }
 
     let interval_ms = cfg.min_interval_ms;
-    let output_rel = cfg
+    let max_size = cfg.max_size_bytes;
+    let output_path = cfg
         .output
         .as_ref()
-        .map(|s| s.trim())
+        .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
-    let mut sink = log_sink(&config_path, output_rel);
 
     let mut runner = lspt_ext::TemplateRunner::try_new(cfg).unwrap_or_else(|e| {
         eprintln!("producer config: {e}");
         std::process::exit(1);
     });
+    // 此处起运行态只使用内存中的 `TemplateRunner`/`TemplateConfig`；`-f` 指向的 YAML 仅用于启动阶段读入，
+    // 之后不再读取其内容（`config_path` 仍可能参与 `log_sink` 等回退路径语义）。
+
+    let mut sink = log_sink(&config_path, output_path.as_deref(), max_size);
     let events = Arc::new(AtomicU64::new(0));
     spawn_heartbeat_if_env(events.clone());
 

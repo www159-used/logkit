@@ -1,3 +1,0 @@
-# 与内嵌 conf.ref.toml 合并；随 pack 复制到 dist/lspt-bundle/etc/。路径可按部署修改。
-[log_server]
-worker_output_dir = "/tmp/lspt-bundle-worker-out"

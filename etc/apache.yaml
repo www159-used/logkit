@@ -1,6 +1,7 @@
 # 标准 Apache Combined Log 形状：%h %l %u %t …；%l 固定「-」；%u / Referer 用 type:one-of
 # 在「-」与动态子模板间 lazy 多选（仅选中翼求值），更接近真实访问日志。
-output: apache-combined.log
+output: apache.log
+max-size: 0
 min-interval: 100
 template: >-
   {{src_ip}} - {{user}} [{{timestamp}}] "{{method}} {{dst}} HTTP/1.1" {{status}} {{bytes}}

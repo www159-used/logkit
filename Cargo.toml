@@ -1,3 +1,6 @@
 [workspace]
 resolver = "2"
 members = ["lspt-config", "lspt-proto", "lspt", "lsptd", "lspt-ext"]
+
+[workspace.dependencies]
+clap = { version = "4", features = ["derive", "env"] }

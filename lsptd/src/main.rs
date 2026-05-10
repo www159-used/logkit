@@ -3,17 +3,17 @@
 mod worker;
 
 use std::collections::HashMap;
-use std::env;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use clap::{Parser, Subcommand};
 use lspt_proto::lspt_server::{Lspt, LsptServer};
 use lspt_proto::{
-    EchoReply, EchoRequest, HeartbeatReply, HeartbeatRequest, ListServersReply,
-    ListServersRequest, LogServerEntry, PingReply, PingRequest, ServerStatDetail,
+    CatLogServerReply, CatLogServerRequest, EchoReply, EchoRequest, HeartbeatReply, HeartbeatRequest,
+    ListServersReply, ListServersRequest, LogServerEntry, PingReply, PingRequest, ServerStatDetail,
     StartLogServerReply, StartLogServerRequest, StatServerReply, StatServerRequest,
     StopLogServerReply, StopLogServerRequest,
 };
@@ -23,7 +23,32 @@ use tokio::sync::Mutex;
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::Server;
 
-use lspt_config::{load_merged, parse_cli_args, LogServerSection, LsptConfig, LsptError};
+use lspt_config::{load_merged, LogServerSection, LsptConfig, LsptError};
+
+#[derive(Parser)]
+#[command(
+    name = "lsptd",
+    version,
+    about = "lsptd — gRPC 控制面（Unix 套接字）；子命令 worker 造日志",
+    disable_help_subcommand = true
+)]
+struct LsptdCli {
+    /// 与 lspt 共用的 TOML；也可由环境变量 LSPT_DEFAULTS_FILE 提供
+    #[arg(long, value_name = "PATH", env = "LSPT_DEFAULTS_FILE")]
+    defaults_file: Option<PathBuf>,
+
+    #[command(subcommand)]
+    command: Option<LsptdCmd>,
+}
+
+#[derive(Subcommand)]
+enum LsptdCmd {
+    /// 造日志 worker（通常由守护进程 spawn；可手跑调试）
+    Worker {
+        #[arg(short = 'f', value_name = "CONFIG.yaml")]
+        config: String,
+    },
+}
 
 struct PidFileGuard {
     path: std::path::PathBuf,
@@ -36,7 +61,12 @@ impl Drop for PidFileGuard {
 }
 
 struct RunningServer {
-    config_path: String,
+    /// `lspt start` 传入的展示标签（多为用户本地路径）
+    config_label: String,
+    /// gRPC 投递的 YAML 全文（内存副本；`cat` 直接返回，不依赖托管文件是否仍存在）
+    producer_yaml: String,
+    /// 托管于 worker_output_dir/.lspt/{id}.yaml，供子进程 `worker -f` **启动时读一次** 后载入内存
+    config_storage_path: String,
     child: Child,
     spawned_at: Instant,
     last_heartbeat: Instant,
@@ -57,59 +87,6 @@ struct LsptSvcState {
 #[derive(Clone)]
 struct LsptSvc {
     inner: Arc<LsptSvcState>,
-}
-
-fn collect_rel_paths_prefixed(cwd: &Path, prefix: &str) -> std::io::Result<Vec<String>> {
-    let mut out = Vec::new();
-    let mut stack = vec![cwd.to_path_buf()];
-    while let Some(dir) = stack.pop() {
-        for e in fs::read_dir(&dir)? {
-            let e = e?;
-            let p = e.path();
-            if p.is_dir() {
-                stack.push(p);
-            } else if p.is_file() {
-                let Ok(rel) = p.strip_prefix(cwd) else {
-                    continue;
-                };
-                let s = rel.to_string_lossy().replace('\\', "/");
-                if s.starts_with(prefix) {
-                    out.push(s);
-                }
-            }
-        }
-    }
-    out.sort();
-    Ok(out)
-}
-
-/// `path` 已是非空。若为现有普通文件则原样返回；否则按 **lsptd 进程 cwd** 下相对路径前缀匹配唯一文件。
-fn resolve_config_path_arg(path: &str) -> Result<String, tonic::Status> {
-    let p = Path::new(path);
-    if p.is_file() {
-        return Ok(path.to_string());
-    }
-    if p.exists() {
-        return Err(tonic::Status::invalid_argument(format!(
-            "config_path exists but is not a regular file: {path}"
-        )));
-    }
-    let cwd = env::current_dir().map_err(|e| {
-        tonic::Status::internal(format!("current_dir for config prefix resolution: {e}"))
-    })?;
-    let candidates = collect_rel_paths_prefixed(&cwd, path).map_err(|e| {
-        tonic::Status::internal(format!("scan cwd for config prefix {path:?}: {e}"))
-    })?;
-    match candidates.len() {
-        0 => Err(tonic::Status::invalid_argument(format!(
-            "no file under lsptd cwd matches path prefix {path:?}"
-        ))),
-        1 => Ok(candidates[0].clone()),
-        _ => Err(tonic::Status::invalid_argument(format!(
-            "ambiguous config path prefix {path:?} matches:\n{}",
-            candidates.join("\n")
-        ))),
-    }
 }
 
 enum IdPick {
@@ -145,7 +122,9 @@ fn reap_exited(guard: &mut HashMap<String, RunningServer>) {
         }
     }
     for id in dead {
-        guard.remove(&id);
+        if let Some(r) = guard.remove(&id) {
+            let _ = fs::remove_file(&r.config_storage_path);
+        }
     }
 }
 
@@ -183,7 +162,7 @@ impl Lspt for LsptSvc {
                 let healthy = r.last_heartbeat.elapsed() <= timeout;
                 LogServerEntry {
                     id: id.clone(),
-                    config_path: r.config_path.clone(),
+                    config_path: r.config_label.clone(),
                     alive: true,
                     healthy,
                 }
@@ -217,7 +196,7 @@ impl Lspt for LsptSvc {
                 let eps_rt = events_est / uptime;
                 ServerStatDetail {
                     id: id.clone(),
-                    config_path: r.config_path.clone(),
+                    config_path: r.config_label.clone(),
                     alive: true,
                     healthy,
                     eps: eps_rt,
@@ -239,22 +218,47 @@ impl Lspt for LsptSvc {
         req: tonic::Request<StartLogServerRequest>,
     ) -> Result<tonic::Response<StartLogServerReply>, tonic::Status> {
         let msg = req.into_inner();
-        let path = msg.config_path;
-        if path.is_empty() {
+        let yaml = msg.producer_yaml;
+        if yaml.trim().is_empty() {
             return Err(tonic::Status::invalid_argument(
-                "config_path required (producer .yaml / .yml path)",
+                "producer_yaml required (non-empty producer .yaml / .yml body)",
             ));
         }
-        let path = resolve_config_path_arg(&path)?;
+        lspt_ext::parse_template_config(Path::new("producer.yaml"), &yaml).map_err(|e| {
+            tonic::Status::invalid_argument(format!("producer YAML: {e}"))
+        })?;
+
+        let label = msg.config_label;
+        let config_label = if label.trim().is_empty() {
+            "(no label)".to_string()
+        } else {
+            label
+        };
+
+        let id = uuid::Uuid::new_v4().to_string();
+        let worker_out = PathBuf::from(&self.inner.worker_output_dir);
+        let storage_dir = worker_out.join(".lspt");
+        tokio::fs::create_dir_all(&storage_dir).await.map_err(|e| {
+            tonic::Status::internal(format!("create_dir_all {}: {e}", storage_dir.display()))
+        })?;
+        let storage_rel = storage_dir.join(format!("{id}.yaml"));
+        tokio::fs::write(&storage_rel, yaml.as_bytes()).await.map_err(|e| {
+            tonic::Status::internal(format!("write {}: {e}", storage_rel.display()))
+        })?;
+        let abs_s = fs::canonicalize(&storage_rel).map_err(|e| {
+            tonic::Status::internal(format!("canonicalize {}: {e}", storage_rel.display()))
+        })?
+        .to_string_lossy()
+        .into_owned();
+
         let exe = std::env::current_exe()
             .map_err(|e| tonic::Status::internal(format!("current_exe: {e}")))?;
-        let id = uuid::Uuid::new_v4().to_string();
         let hb_iv = self.inner.log_server.heartbeat_interval_secs.max(1).to_string();
         let child = tokio::process::Command::new(exe)
             .current_dir(&self.inner.worker_output_dir)
             .arg("worker")
             .arg("-f")
-            .arg(&path)
+            .arg(&abs_s)
             .env("LSPT_CONTROL_SOCKET", &self.inner.control_socket_path)
             .env("LSPT_SERVER_ID", &id)
             .env("LSPT_HEARTBEAT_INTERVAL_SECS", &hb_iv)
@@ -267,7 +271,9 @@ impl Lspt for LsptSvc {
         guard.insert(
             id.clone(),
             RunningServer {
-                config_path: path,
+                config_label,
+                producer_yaml: yaml,
+                config_storage_path: abs_s,
                 child,
                 spawned_at: now,
                 last_heartbeat: now,
@@ -306,13 +312,49 @@ impl Lspt for LsptSvc {
         let Some(mut running) = guard.remove(&id) else {
             return Err(tonic::Status::not_found("no such log-server id"));
         };
+        let storage = running.config_storage_path.clone();
         running
             .child
             .kill()
             .await
             .map_err(|e| tonic::Status::internal(format!("kill log server (worker): {e}")))?;
+        let _ = fs::remove_file(&storage);
         Ok(tonic::Response::new(StopLogServerReply {
             status: "stopped".into(),
+        }))
+    }
+
+    async fn cat_log_server(
+        &self,
+        req: tonic::Request<CatLogServerRequest>,
+    ) -> Result<tonic::Response<CatLogServerReply>, tonic::Status> {
+        let id = req.into_inner().id;
+        if id.is_empty() {
+            return Err(tonic::Status::invalid_argument("id required"));
+        }
+        let mut guard = self.inner.servers.lock().await;
+        reap_exited(&mut guard);
+        let id = match pick_server_id(&guard, &id) {
+            IdPick::One(s) => s,
+            IdPick::None => {
+                return Err(tonic::Status::not_found("no such log-server id"));
+            }
+            IdPick::Many(ids) => {
+                return Err(tonic::Status::invalid_argument(format!(
+                    "id prefix {id:?} matches multiple servers:\n{}",
+                    ids.join("\n")
+                )));
+            }
+        };
+        let Some(running) = guard.get(&id) else {
+            return Err(tonic::Status::not_found("no such log-server id"));
+        };
+        let label = running.config_label.clone();
+        let yaml = running.producer_yaml.clone();
+        drop(guard);
+        Ok(tonic::Response::new(CatLogServerReply {
+            config_path: label,
+            yaml,
         }))
     }
 
@@ -332,7 +374,9 @@ impl Lspt for LsptSvc {
         };
         match running.child.try_wait() {
             Ok(Some(status)) => {
-                guard.remove(&id);
+                if let Some(r) = guard.remove(&id) {
+                    let _ = fs::remove_file(&r.config_storage_path);
+                }
                 Err(tonic::Status::failed_precondition(format!(
                     "log server worker exited: {status}"
                 )))
@@ -435,9 +479,10 @@ async fn run(cfg: LsptConfig) -> Result<(), LsptError> {
 
 #[cfg(unix)]
 fn main() {
-    let argv: Vec<String> = env::args().collect();
-    if argv.len() >= 2 && argv[1] == "worker" {
-        worker::run(argv);
+    let cli = LsptdCli::parse();
+    if let Some(LsptdCmd::Worker { config }) = cli.command {
+        let exe = std::env::args().next().unwrap_or_else(|| "lsptd".to_string());
+        worker::run(vec![exe, "worker".into(), "-f".into(), config]);
         return;
     }
 
@@ -445,9 +490,8 @@ fn main() {
         .enable_all()
         .build()
         .expect("lsptd tokio runtime");
-    let args: Vec<String> = env::args().skip(1).collect();
     rt.block_on(async {
-        match parse_cli_args(args).and_then(|(path, _)| load_merged(path.as_deref())) {
+        match load_merged(cli.defaults_file.as_deref()) {
             Ok(cfg) => {
                 if let Err(e) = run(cfg).await {
                     eprintln!("{e}");

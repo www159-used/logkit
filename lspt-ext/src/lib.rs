@@ -1,4 +1,4 @@
-//! 声明式模板造日志：**`template`** + **`fields`**（每项 `type` 对应 [`TemplateSlot`]；**`type: template`** 子树、**`type: one-of`** 在 **字面量 / 内联 template** 间 lazy 多选），以及可选 **`min-interval`**、**`output`**（由 worker 解析；**仅** `.yaml` / `.yml`）。
+//! 声明式模板造日志：**`template`** + **`fields`**（每项 `type` 对应 [`TemplateSlot`]；**`type: template`** / **`type: one-of`** 等），以及可选 **`min-interval`**、**`max-size`（`0` 不限制）**、**`output`**（由 worker 解析；**仅** `.yaml` / `.yml`）。
 //!
 //! [`TemplateSlot`]: crate::TemplateSlot
 

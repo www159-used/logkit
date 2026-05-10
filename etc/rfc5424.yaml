@@ -3,6 +3,7 @@
 # HOSTNAME / APP-NAME：fake（hostname / lorem-word）；若需 NILVALUE "-" 可改回 pick 混用。
 # MSG：sentence；勿用字段名 len、if 等 handlebars 保留字。
 output: rfc5424-syslog.log
+max-size: 0
 min-interval: 100
 template: >-
   <{{prival}}>1

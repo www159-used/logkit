@@ -1,4 +1,4 @@
-//! lspt — CLI：`ping` / `echo` / `list` / `start` / `stop` / `stat`。
+//! lspt — CLI：`ping` / `echo` / `list` / `start` / `stop` / `stat` / `cat`。
 
 use std::path::{Path, PathBuf};
 
@@ -7,8 +7,8 @@ use http::Uri;
 use hyper_util::rt::TokioIo;
 use lspt_proto::lspt_client::LsptClient;
 use lspt_proto::{
-    EchoRequest, ListServersRequest, PingRequest, StartLogServerRequest, StatServerRequest,
-    StopLogServerRequest,
+    CatLogServerRequest, EchoRequest, ListServersRequest, PingRequest, StartLogServerRequest,
+    StatServerRequest, StopLogServerRequest,
 };
 use tonic::transport::Endpoint;
 use tower::service_fn;
@@ -51,6 +51,10 @@ enum Commands {
     },
     Stat {
         id_prefix: Option<String>,
+    },
+    /// 打印运行中实例的 producer YAML（id 支持唯一前缀，与 stop 相同）
+    Cat {
+        id: String,
     },
 }
 
@@ -132,8 +136,9 @@ async fn run() -> Result<(), LsptError> {
                 .list_servers(ListServersRequest {})
                 .await
                 .map_err(|s| LsptError::Grpc(s.to_string()))?;
+            println!("id\talive\thealthy");
             for s in r.into_inner().servers {
-                println!("{}\t{}\t{}\t{}", s.id, s.config_path, s.alive, s.healthy);
+                println!("{}\t{}\t{}", s.id, s.alive, s.healthy);
             }
         }
         Commands::Stat { id_prefix } => {
@@ -166,8 +171,14 @@ async fn run() -> Result<(), LsptError> {
             if config_path.is_empty() {
                 return Err(LsptError::Cli("start needs producer YAML path (.yaml or .yml)".into()));
             }
+            let producer_yaml = std::fs::read_to_string(&config_path).map_err(|e| {
+                LsptError::Cli(format!("read {config_path}: {e}"))
+            })?;
             let r = client
-                .start_log_server(StartLogServerRequest { config_path })
+                .start_log_server(StartLogServerRequest {
+                    producer_yaml,
+                    config_label: config_path,
+                })
                 .await
                 .map_err(|s| LsptError::Grpc(s.to_string()))?;
             let inner = r.into_inner();
@@ -182,6 +193,17 @@ async fn run() -> Result<(), LsptError> {
                 .await
                 .map_err(|s| LsptError::Grpc(s.to_string()))?;
             println!("{}", r.into_inner().status);
+        }
+        Commands::Cat { id } => {
+            if id.is_empty() {
+                return Err(LsptError::Cli("cat needs <id>".into()));
+            }
+            let r = client
+                .cat_log_server(CatLogServerRequest { id })
+                .await
+                .map_err(|s| LsptError::Grpc(s.to_string()))?;
+            let inner = r.into_inner();
+            print!("{}", inner.yaml);
         }
     }
     Ok(())

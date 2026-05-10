@@ -9,6 +9,7 @@ service Lspt {
   rpc ListServers(ListServersRequest) returns (ListServersReply);
   rpc StartLogServer(StartLogServerRequest) returns (StartLogServerReply);
   rpc StopLogServer(StopLogServerRequest) returns (StopLogServerReply);
+  rpc CatLogServer(CatLogServerRequest) returns (CatLogServerReply);
   rpc Heartbeat(HeartbeatRequest) returns (HeartbeatReply);
   // id_prefix 为空则返回全部；否则 id 前缀匹配（可匹配多条）
   rpc StatServer(StatServerRequest) returns (StatServerReply);
@@ -32,6 +33,7 @@ message ListServersRequest {}
 
 message LogServerEntry {
   string id = 1;
+  // 展示标签（start 时的 config_label，非托管文件路径）
   string config_path = 2;
   bool alive = 3;
   bool healthy = 4;
@@ -42,7 +44,10 @@ message ListServersReply {
 }
 
 message StartLogServerRequest {
-  string config_path = 1;
+  // producer YAML 全文（由 lspt 客户端读取本地文件后填入）
+  string producer_yaml = 1;
+  // 展示用标签，如用户侧路径 `etc/apache.yaml`
+  string config_label = 2;
 }
 
 message StartLogServerReply {
@@ -56,6 +61,16 @@ message StopLogServerRequest {
 
 message StopLogServerReply {
   string status = 1;
+}
+
+message CatLogServerRequest {
+  string id = 1;
+}
+
+message CatLogServerReply {
+  // 与 list 一致，为 config_label
+  string config_path = 1;
+  string yaml = 2;
 }
 
 message HeartbeatRequest {
@@ -72,6 +87,7 @@ message StatServerRequest {
 
 message ServerStatDetail {
   string id = 1;
+  // 展示标签（start 时的 config_label）
   string config_path = 2;
   bool alive = 3;
   bool healthy = 4;
