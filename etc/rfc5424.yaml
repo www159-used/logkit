@@ -36,15 +36,33 @@ fields:
   # fake UUID；若要 "-" / 自定义串可改用 pick
   msgid:
     type: uuid-v4
-  # NILVALUE "-" 为主；少量带 SD-ID 的 STRUCTURED-DATA（需为合法 sd-element 语法）
+  # STRUCTURED-DATA：type:one-of 多为 NILVALUE「-」，少数行带动态 SD（仅选中翼求值，counter 不在「-」行递增）
   structured_data:
-    type: pick
-    values:
+    type: one-of
+    branches:
       - "-"
       - "-"
       - "-"
-      - '[exampleSDID@32473 iut="3" eventSource="Application" eventID="1011"]'
-      - '[origin ip="192.0.2.10" service="api-gateway"]'
+      - template: >-
+          [exampleSDID@32473 iut="{{iut}}" eventSource="{{src}}" eventID="{{eid}}" seq="{{seq}}"]
+        fields:
+          iut:
+            type: integer
+            min: 1
+            max: 9
+          src:
+            type: template
+            template: "{{p}}-{{q}}"
+            fields:
+              p:
+                type: lorem-word
+              q:
+                type: lorem-word
+          eid:
+            type: pick
+            values: ["1011", "1012", "2000"]
+          seq:
+            type: counter
   msg:
     type: sentence
     min: 5

@@ -1,4 +1,5 @@
-# 标准 Apache Combined Log 形状：%h %l %u %t …；%l 多为 \"-\"，%u 此处用 `fake` Username；Referer 可为 \"-\"。
+# 标准 Apache Combined Log 形状：%h %l %u %t …；%l 固定「-」；%u / Referer 用 type:one-of
+# 在「-」与动态子模板间 lazy 多选（仅选中翼求值），更接近真实访问日志。
 output: apache-combined.log
 min-interval: 100
 template: >-
@@ -8,13 +9,20 @@ fields:
   src_ip:
     type: ipv4
   user:
-    type: username
+    type: one-of
+    branches:
+      - "-"
+      - "-"
+      - template: "{{u}}"
+        fields:
+          u:
+            type: username
   timestamp:
     type: timestamp
     format: "%d/%b/%Y:%H:%M:%S %z"
   method:
     type: pick
-    values: [GET, POST]
+    values: [GET, GET, GET, POST]
   dst:
     type: url-path
   status:
@@ -24,11 +32,17 @@ fields:
   bytes:
     type: counter
   referer:
-    type: pick
-    values:
+    type: one-of
+    branches:
       - "-"
       - "-"
-      - "https://www.example.com/start.html"
-      - "https://partner.example.net/app"
+      - "-"
+      - template: "https://{{host}}{{path}}"
+        fields:
+          host:
+            type: pick
+            values: ["www.example.com", "partner.example.net", "cdn.example.org"]
+          path:
+            type: url-path
   ua:
     type: user-agent

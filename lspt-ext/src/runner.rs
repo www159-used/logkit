@@ -56,6 +56,7 @@ impl TemplateRunner {
         }
         let mut hb = Handlebars::new();
         hb.set_strict_mode(false);
+        hb.register_escape_fn(handlebars::no_escape);
         hb.register_template_string("inline", &cfg.template)?;
         let slots = slots_from_fields(cfg.fields)?;
         Ok(Self {
@@ -78,6 +79,7 @@ impl TemplateRunner {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
     use std::path::Path;
 
     use super::*;
@@ -196,6 +198,105 @@ fields: {}
         let line = r.next_line().unwrap();
         assert!(line.contains('.'), "{line:?}");
         assert!(line.contains('-'), "{line:?}");
+    }
+
+    #[test]
+    fn field_type_template_nested_renders_sd_shape() {
+        let y = r#"
+template: "{{sd}}"
+min-interval: 1
+fields:
+  sd:
+    type: template
+    template: '[id iut="{{iut}}" src="{{src}}"]'
+    fields:
+      iut:
+        type: integer
+        min: 3
+        max: 3
+      src:
+        type: template
+        template: "{{a}}.{{b}}"
+        fields:
+          a:
+            type: lorem-word
+          b:
+            type: lorem-word
+"#;
+        let c: TemplateConfig = serde_yaml::from_str(y).unwrap();
+        let mut r = TemplateRunner::try_new(c).unwrap();
+        let line = r.next_line().unwrap();
+        assert!(
+            line.starts_with("[id iut=\"3\" src=\"") && line.ends_with("\"]"),
+            "{line:?}"
+        );
+        assert!(line.contains('.'), "{line:?}");
+    }
+
+    #[test]
+    fn field_type_template_empty_subfields_ok() {
+        let c = TemplateConfig {
+            template: "{{x}}".to_string(),
+            fields: [(
+                "x".to_string(),
+                crate::FieldSpec::Template {
+                    template: "fixed".to_string(),
+                    fields: BTreeMap::new(),
+                },
+            )]
+            .into_iter()
+            .collect(),
+            min_interval_ms: 1,
+            output: None,
+        };
+        let mut r = TemplateRunner::try_new(c).unwrap();
+        assert_eq!(r.next_line().unwrap(), "fixed");
+    }
+
+    #[test]
+    fn field_type_one_of_lazy_counter_only_on_template_branch() {
+        let y = r#"
+template: "{{x}}"
+min-interval: 1
+fields:
+  x:
+    type: one-of
+    branches:
+      - "-"
+      - template: "{{c}}"
+        fields:
+          c:
+            type: counter
+"#;
+        let c: TemplateConfig = serde_yaml::from_str(y).unwrap();
+        let mut r = TemplateRunner::try_new(c).unwrap();
+        let mut next_expected: u64 = 0;
+        for _ in 0..800 {
+            let line = r.next_line().unwrap();
+            if line == "-" {
+                continue;
+            }
+            let n: u64 = line.parse().expect("non-dash must be counter digits");
+            assert_eq!(n, next_expected, "counter must only advance when template branch is picked");
+            next_expected = next_expected.wrapping_add(1);
+        }
+        assert!(next_expected >= 100, "expected many template-branch picks in 800 trials");
+    }
+
+    #[test]
+    fn field_type_one_of_empty_branches_rejected() {
+        let c = TemplateConfig {
+            template: "{{x}}".to_string(),
+            fields: [(
+                "x".to_string(),
+                crate::FieldSpec::OneOf { branches: vec![] },
+            )]
+            .into_iter()
+            .collect(),
+            min_interval_ms: 1,
+            output: None,
+        };
+        assert!(TemplateRunner::try_new(c).is_err());
     }
 
     #[test]

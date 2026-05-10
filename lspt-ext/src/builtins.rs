@@ -9,11 +9,30 @@ use fake::faker::lorem::en::Words;
 use fake::faker::name::raw::Name;
 use fake::locales::EN;
 use fake::uuid::UUIDv4;
+use handlebars::Handlebars;
 use serde::Deserialize;
+use serde_json::{Map, Value};
 use url::Url;
 
 use crate::facade::TemplateSlot;
 use crate::Error;
+
+/// [`FieldSpec::OneOf`] 的单个分支：YAML 中可写 **字符串字面量**，或 **`template` + `fields`** 子树（与 `type: template` 同形）。
+/// 每轮 **均匀** 随机选一翼；**仅被选翼会求值**（未选中的 `template` 子树及其 `counter` 等不会跑）。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum OneOfBranch {
+    Literal(String),
+    Template(OneOfTemplateBranch),
+}
+
+/// `one-of` 中带 `template` / `fields` 的分支（映射 YAML 里含 `template` 键的映射表）。
+#[derive(Debug, Clone, Deserialize)]
+pub struct OneOfTemplateBranch {
+    pub template: String,
+    #[serde(default)]
+    pub fields: BTreeMap<String, FieldSpec>,
+}
 
 /// 配置里 `fields.<name>` 的描述：内置 `type` 门面，由 [`into_slot`] 转成 [`TemplateSlot`]。
 #[derive(Debug, Clone, Deserialize)]
@@ -62,6 +81,17 @@ pub enum FieldSpec {
     Username,
     /// 从 0 起每轮递增 1（`u64`，溢出后按环绕继续）
     Counter,
+    /// 子模板：用 Handlebars 渲染 **`template`**，占位符仅来自本节点的 **`fields`**（可再嵌套 `template`，形成树）。
+    /// 适合 RFC 5424 `STRUCTURED-DATA` 等需拼多段、多层的场景。
+    Template {
+        template: String,
+        #[serde(default)]
+        fields: BTreeMap<String, FieldSpec>,
+    },
+    /// 多选一：分支为 **字面量字符串** 或 **内联 template 子树**；仅选中分支参与本行生成（lazy）。
+    OneOf {
+        branches: Vec<OneOfBranch>,
+    },
 }
 
 fn default_ts_format() -> String {
@@ -70,39 +100,92 @@ fn default_ts_format() -> String {
 
 impl FieldSpec {
     pub fn into_slot(self) -> Result<Box<dyn TemplateSlot>, Error> {
-        Ok(match self {
-            FieldSpec::UuidV4 => Box::new(UuidV4Slot),
-            FieldSpec::NameEn => Box::new(NameEnSlot),
-            FieldSpec::Ipv4 => Box::new(Ipv4Slot),
-            FieldSpec::Timestamp { format } => Box::new(TimestampSlot { format }),
+        match self {
+            FieldSpec::UuidV4 => Ok(Box::new(UuidV4Slot)),
+            FieldSpec::NameEn => Ok(Box::new(NameEnSlot)),
+            FieldSpec::Ipv4 => Ok(Box::new(Ipv4Slot)),
+            FieldSpec::Timestamp { format } => Ok(Box::new(TimestampSlot { format })),
             FieldSpec::Pick { values } => {
                 if values.is_empty() {
                     return Err(Error::EmptyPickList);
                 }
-                Box::new(PickSlot { values })
+                Ok(Box::new(PickSlot { values }))
             }
             FieldSpec::Integer { min, max } => {
                 if min > max {
                     return Err(Error::InvalidIntegerRange { min, max });
                 }
-                Box::new(IntegerSlot { min, max })
+                Ok(Box::new(IntegerSlot { min, max }))
             }
             FieldSpec::Sentence { min, max } => {
                 if min > max {
                     return Err(Error::InvalidSentenceRange { min, max });
                 }
-                Box::new(SentenceSlot { min, max })
+                Ok(Box::new(SentenceSlot { min, max }))
             }
-            FieldSpec::Hostname => Box::new(HostnameSlot),
-            FieldSpec::DomainSuffix => Box::new(DomainSuffixSlot),
-            FieldSpec::LoremWord => Box::new(LoremWordSlot),
-            FieldSpec::CompanyName => Box::new(CompanyNameSlot),
-            FieldSpec::UserAgent => Box::new(UserAgentSlot),
-            FieldSpec::Username => Box::new(UsernameSlot),
-            FieldSpec::Url => Box::new(UrlSlot),
-            FieldSpec::UrlPath => Box::new(UrlPathSlot),
-            FieldSpec::Counter => Box::new(CounterSlot { n: 0 }),
-        })
+            FieldSpec::Hostname => Ok(Box::new(HostnameSlot)),
+            FieldSpec::DomainSuffix => Ok(Box::new(DomainSuffixSlot)),
+            FieldSpec::LoremWord => Ok(Box::new(LoremWordSlot)),
+            FieldSpec::CompanyName => Ok(Box::new(CompanyNameSlot)),
+            FieldSpec::UserAgent => Ok(Box::new(UserAgentSlot)),
+            FieldSpec::Username => Ok(Box::new(UsernameSlot)),
+            FieldSpec::Url => Ok(Box::new(UrlSlot)),
+            FieldSpec::UrlPath => Ok(Box::new(UrlPathSlot)),
+            FieldSpec::Counter => Ok(Box::new(CounterSlot { n: 0 })),
+            FieldSpec::Template { template, fields } => Ok(Box::new(make_composite_template_slot(
+                template,
+                fields,
+            )?)),
+            FieldSpec::OneOf { branches } => {
+                if branches.is_empty() {
+                    return Err(Error::EmptyOneOfBranches);
+                }
+                let mut arms = Vec::with_capacity(branches.len());
+                for b in branches {
+                    arms.push(match b {
+                        OneOfBranch::Literal(s) => OneOfArm::Literal(s),
+                        OneOfBranch::Template(OneOfTemplateBranch { template, fields }) => {
+                            OneOfArm::Nested(make_composite_template_slot(template, fields)?)
+                        }
+                    });
+                }
+                Ok(Box::new(OneOfSlot { arms }))
+            }
+        }
+    }
+}
+
+fn make_composite_template_slot(
+    template: String,
+    fields: BTreeMap<String, FieldSpec>,
+) -> Result<CompositeTemplateSlot, Error> {
+    if template.trim().is_empty() {
+        return Err(Error::EmptyTemplate);
+    }
+    let mut hb = Handlebars::new();
+    hb.set_strict_mode(false);
+    hb.register_escape_fn(handlebars::no_escape);
+    hb.register_template_string("slot", template.as_str())?;
+    let slots = slots_from_fields(fields)?;
+    Ok(CompositeTemplateSlot { hb, slots })
+}
+
+enum OneOfArm {
+    Literal(String),
+    Nested(CompositeTemplateSlot),
+}
+
+struct OneOfSlot {
+    arms: Vec<OneOfArm>,
+}
+
+impl TemplateSlot for OneOfSlot {
+    fn next_value(&mut self) -> String {
+        let i = fake_index(self.arms.len());
+        match &mut self.arms[i] {
+            OneOfArm::Literal(s) => s.clone(),
+            OneOfArm::Nested(c) => c.next_value(),
+        }
     }
 }
 
@@ -272,6 +355,24 @@ impl TemplateSlot for CounterSlot {
         let out = self.n;
         self.n = self.n.wrapping_add(1);
         out.to_string()
+    }
+}
+
+/// 嵌套模板槽：每轮先递归取子字段字符串，再渲染为本字段的一条字符串。
+struct CompositeTemplateSlot {
+    hb: Handlebars<'static>,
+    slots: BTreeMap<String, Box<dyn TemplateSlot>>,
+}
+
+impl TemplateSlot for CompositeTemplateSlot {
+    fn next_value(&mut self) -> String {
+        let mut map = Map::new();
+        for (key, slot) in &mut self.slots {
+            map.insert(key.clone(), Value::String(slot.next_value()));
+        }
+        self.hb
+            .render("slot", &Value::Object(map))
+            .unwrap_or_else(|e| format!("{{{{nested render: {e}}}}}"))
     }
 }
 

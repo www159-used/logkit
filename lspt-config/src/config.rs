@@ -41,7 +41,7 @@ pub struct ProtocolSection {
 /// [log_server] — worker 子进程参数（造日志由同二进制 `lsptd worker` 完成，无需配置 exe）。
 #[derive(Debug, Clone, Deserialize)]
 pub struct LogServerSection {
-    /// 造日志写入路径的根目录（**必填**，由 lsptd 经环境变量传给 worker）；producer YAML 里 `output` 须为相对此目录的路径。
+    /// 造日志写入路径的根目录（**必填**）；lsptd spawn worker 时将该路径设为子进程 cwd，producer YAML 里 `output` 为相对该目录的路径。
     pub worker_output_dir: String,
     pub heartbeat_timeout_secs: u64,
     pub heartbeat_interval_secs: u64,

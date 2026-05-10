@@ -6,6 +6,8 @@ pub enum Error {
     EmptyTemplate,
     #[error("pick: values list must be non-empty")]
     EmptyPickList,
+    #[error("one-of: branches list must be non-empty")]
+    EmptyOneOfBranches,
     #[error("integer: min ({min}) > max ({max})")]
     InvalidIntegerRange { min: i64, max: i64 },
     #[error("sentence: min ({min}) > max ({max})")]
