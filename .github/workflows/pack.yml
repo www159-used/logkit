@@ -44,17 +44,17 @@ jobs:
           for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl; do
             cargo zigbuild --release --target "$target"
             parent="$GITHUB_WORKSPACE/dist/.stage-$target"
-            stage="$parent/lspt"
+            stage="$parent/logkit"
             rm -rf "$parent"
             mkdir -p "$stage/bin" "$stage/etc"
-            cp "$GITHUB_WORKSPACE/target/$target/release/lspt" \
-               "$GITHUB_WORKSPACE/target/$target/release/lsptd" \
+            cp "$GITHUB_WORKSPACE/target/$target/release/logspout" \
+               "$GITHUB_WORKSPACE/target/$target/release/logspout-daemon" \
                "$stage/bin/"
             cp "$GITHUB_WORKSPACE/etc/"* "$stage/etc/"
-            chmod +x "$stage/bin/lspt" "$stage/bin/lsptd"
+            chmod +x "$stage/bin/logspout" "$stage/bin/logspout-daemon"
             mkdir -p "$GITHUB_WORKSPACE/dist"
-            tar -czf "$GITHUB_WORKSPACE/dist/lspt-${target}.tar.gz" \
-              -C "$parent" --owner=0 --group=0 --numeric-owner lspt
+            tar -czf "$GITHUB_WORKSPACE/dist/logkit-${target}.tar.gz" \
+              -C "$parent" --owner=0 --group=0 --numeric-owner logkit
             rm -rf "$parent"
           done
 
@@ -62,11 +62,11 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         run: |
           mkdir -p dist
-          git archive --format=tar.gz -o "dist/lspt-${{ github.ref_name }}-src.tar.gz" HEAD
+          git archive --format=tar.gz -o "dist/logkit-${{ github.ref_name }}-src.tar.gz" HEAD
 
       - uses: actions/upload-artifact@v4
         with:
-          name: lspt-dist-linux
+          name: logkit-dist-linux
           path: dist/*.tar.gz
 
   macos-arm:
@@ -90,21 +90,21 @@ jobs:
           target=aarch64-apple-darwin
           cargo build --release --target "$target"
           parent="$GITHUB_WORKSPACE/dist/.stage-$target"
-          stage="$parent/lspt"
+          stage="$parent/logkit"
           rm -rf "$parent"
           mkdir -p "$stage/bin" "$stage/etc"
-          cp "$GITHUB_WORKSPACE/target/$target/release/lspt" \
-             "$GITHUB_WORKSPACE/target/$target/release/lsptd" \
+          cp "$GITHUB_WORKSPACE/target/$target/release/logspout" \
+             "$GITHUB_WORKSPACE/target/$target/release/logspout-daemon" \
              "$stage/bin/"
           cp "$GITHUB_WORKSPACE/etc/"* "$stage/etc/"
-          chmod +x "$stage/bin/lspt" "$stage/bin/lsptd"
+          chmod +x "$stage/bin/logspout" "$stage/bin/logspout-daemon"
           mkdir -p "$GITHUB_WORKSPACE/dist"
-          COPYFILE_DISABLE=1 tar -czf "$GITHUB_WORKSPACE/dist/lspt-${target}.tar.gz" -C "$parent" lspt
+          COPYFILE_DISABLE=1 tar -czf "$GITHUB_WORKSPACE/dist/logkit-${target}.tar.gz" -C "$parent" logkit
           rm -rf "$parent"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: lspt-dist-macos-arm
+          name: logkit-dist-macos-arm
           path: dist/*.tar.gz
 
   release:
@@ -114,12 +114,12 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: lspt-dist-linux
+          name: logkit-dist-linux
           path: release-assets
 
       - uses: actions/download-artifact@v4
         with:
-          name: lspt-dist-macos-arm
+          name: logkit-dist-macos-arm
           path: release-assets
 
       - name: GitHub Release

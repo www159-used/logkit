@@ -1,0 +1,15 @@
+[package]
+name = "logspout"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0"
+
+[dependencies]
+clap = { workspace = true }
+http = "1"
+hyper-util = { version = "0.1", features = ["tokio"] }
+logspout-config = { path = "../logspout-config" }
+logspout-proto = { path = "../logspout-proto" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net"] }
+tonic = "0.12"
+tower = "0.5"

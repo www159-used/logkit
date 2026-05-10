@@ -1,0 +1,108 @@
+syntax = "proto3";
+
+package logspout.v1;
+
+// Control plane on Unix socket (gRPC over UDS). Log generation runs in separate `logspout-daemon worker` subprocesses.
+service Logspout {
+  rpc Ping(PingRequest) returns (PingReply);
+  rpc Echo(EchoRequest) returns (EchoReply);
+  rpc ListServers(ListServersRequest) returns (ListServersReply);
+  rpc StartLogServer(StartLogServerRequest) returns (StartLogServerReply);
+  rpc StopLogServer(StopLogServerRequest) returns (StopLogServerReply);
+  rpc CatLogServer(CatLogServerRequest) returns (CatLogServerReply);
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatReply);
+  // id_prefix 为空则返回全部；否则 id 前缀匹配（可匹配多条）
+  rpc StatServer(StatServerRequest) returns (StatServerReply);
+}
+
+message PingRequest {}
+
+message PingReply {
+  string pong = 1;
+}
+
+message EchoRequest {
+  string message = 1;
+}
+
+message EchoReply {
+  string message = 1;
+}
+
+message ListServersRequest {}
+
+message LogServerEntry {
+  string id = 1;
+  // 展示标签（start 时的 config_label，非托管文件路径）
+  string config_path = 2;
+  bool alive = 3;
+  bool healthy = 4;
+}
+
+message ListServersReply {
+  repeated LogServerEntry servers = 1;
+}
+
+message StartLogServerRequest {
+  // producer YAML 全文（由 logspout 客户端读取本地文件后填入）
+  string producer_yaml = 1;
+  // 展示用标签，如用户侧路径 `etc/apache.yaml`
+  string config_label = 2;
+}
+
+message StartLogServerReply {
+  string id = 1;
+  string status = 2;
+}
+
+message StopLogServerRequest {
+  string id = 1;
+}
+
+message StopLogServerReply {
+  string status = 1;
+}
+
+message CatLogServerRequest {
+  string id = 1;
+}
+
+message CatLogServerReply {
+  // 与 list 一致，为 config_label
+  string config_path = 1;
+  string yaml = 2;
+}
+
+message HeartbeatRequest {
+  string id = 1;
+  // 自启动以来累计输出的日志条数（事件数），用于估算 eps
+  uint64 log_events_total = 2;
+}
+
+message HeartbeatReply {}
+
+message StatServerRequest {
+  string id_prefix = 1;
+}
+
+message ServerStatDetail {
+  string id = 1;
+  // 展示标签（start 时的 config_label）
+  string config_path = 2;
+  bool alive = 3;
+  bool healthy = 4;
+  // 实时估算：外推累计事件数 / 自启动至「当前 stat 时刻」的时长（随 logspout stat 刷新，非仅心跳边界）
+  double eps = 5;
+  uint64 log_events_total = 6;
+  double seconds_since_heartbeat = 7;
+  uint64 heartbeat_timeout_secs = 8;
+  uint64 heartbeat_interval_secs = 9;
+  // 上一心跳间隔内的采样速率（仍依赖 worker 心跳粒度）
+  double eps_interval = 10;
+  // 外推的当前累计事件数（用于对照）
+  double log_events_estimated = 11;
+}
+
+message StatServerReply {
+  repeated ServerStatDetail servers = 1;
+}

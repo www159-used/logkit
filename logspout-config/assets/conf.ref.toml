@@ -1,0 +1,23 @@
+# Reference defaults (embedded). Override with --defaults-file merged on top.
+#
+# [common].tmp_dir：单实例根目录（sock / pid / logspout-daemon.log 均在其下）。多实例须使用不同的 tmp_dir。
+[common]
+tmp_dir = "/tmp/logspout-daemon"
+
+[daemon]
+pid_record_suffix = "\n"
+
+# gRPC 实际走 Unix 套接字；tonic 客户端仍需要一个形式上合法的 HTTP URI 作 Endpoint，并不发起 TCP。
+[protocol.grpc]
+max_decoding_message_size_bytes = 4194304
+max_encoding_message_size_bytes = 4194304
+ping_reply_text = "PONG"
+client_connect_uri = "http://127.0.0.1:1"
+
+# 造日志子进程：由 logspout-daemon 执行 current_exe + `worker -f <yaml>`。
+# worker_output_dir 必填（合并后的配置中须为非空）；daemon 拉起 worker 时将该路径设为子进程 cwd，producer YAML 的 output 相对此目录。
+# producer YAML（非本文件）可选：**max-size**（字节），输出文件超过则清空再继续写；**0 或不写 = 不限制**。
+[log_server]
+worker_output_dir = "./output"
+heartbeat_timeout_secs = 30
+heartbeat_interval_secs = 1

@@ -1,6 +1,13 @@
+# logkit — 根工作区：logspout（CLI）、logspout-daemon、logspout-dsl、logspout-config、logspout-proto。
 [workspace]
 resolver = "2"
-members = ["lspt-config", "lspt-proto", "lspt", "lsptd", "lspt-ext"]
+members = [
+    "logspout-config",
+    "logspout-proto",
+    "logspout",
+    "logspout-daemon",
+    "logspout-dsl",
+]
 
 [workspace.dependencies]
 clap = { version = "4", features = ["derive", "env"] }
