@@ -2,3 +2,12 @@
 name = "lspt"
 version = "0.1.0"
 edition = "2021"
+
+[dependencies]
+http = "1"
+hyper-util = { version = "0.1", features = ["tokio"] }
+lspt-config = { path = "../lspt-config" }
+lspt-proto = { path = "../lspt-proto" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net"] }
+tonic = "0.12"
+tower = "0.5"
