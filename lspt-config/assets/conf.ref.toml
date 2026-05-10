@@ -11,13 +11,14 @@ socket_path = "/tmp/lsptd.sock"
 
 # gRPC 实际走 Unix 套接字；tonic 客户端仍需要一个形式上合法的 HTTP URI 作 Endpoint，并不发起 TCP。
 [protocol.grpc]
-max_deccoding_message_size_bytes = 4194304
+max_decoding_message_size_bytes = 4194304
 max_encoding_message_size_bytes = 4194304
 ping_reply_text = "PONG"
 client_connect_uri = "http://127.0.0.1:1"
 
-# 造日志子进程：由 lsptd 执行 current_exe + `worker -f <json>`，此处仅默认 JSON 与心跳参数。
+# 造日志子进程：由 lsptd 执行 current_exe + `worker -f <json>`。
+# worker_output_dir 必填（合并后的配置中须为非空），producer YAML 的 output 为相对该目录的路径。
 [log_server]
-default_config_path = ""
+worker_output_dir = ""
 heartbeat_timeout_secs = 30
 heartbeat_interval_secs = 1

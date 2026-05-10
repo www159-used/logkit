@@ -1,7 +1,15 @@
-//! 造日志子进程：由 `lsptd` 通过 `current_exe() worker -f CONFIG.json` 拉起（不单独配二进制路径）。
+//! producer **仅**支持 **YAML**（路径须 `.yaml` / `.yml`）：`template`（必填）、`fields`、`min-interval`、`output`；不再支持 `sample-file` 旧格式。
+//! - 长模板可用 YAML 块标量（`>` / `>-`）折行，避免一行过长。
+//! - 由 **lsptd** 拉起的 worker 会收到 **`LSPT_WORKER_OUTPUT_DIR`**（见 TOML `[log_server].worker_output_dir`，必填），此时 **`output` 必填**，
+//!   且为相对该目录的相对路径（不得 `..`）。日志文件 **`append`** 打开。
+//! - 手动运行 `lsptd worker` 时无该环境变量：`output` 相对配置文件所在目录；省略则写标准输出。
+//!
+//! 随机抽样等走 [`fake::Fake`]，不直接 `use rand`。
 
 use std::env;
-use std::fs;
+use std::fs::{self, OpenOptions};
+use std::io::{BufWriter, Write};
+use std::path::{Component, Path};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -14,22 +22,53 @@ use tonic::transport::Endpoint;
 use tower::service_fn;
 
 fn usage() {
-    eprintln!("usage: lsptd worker -f CONFIG.json");
+    eprintln!("usage: lsptd worker -f CONFIG.yaml");
 }
 
-fn first_event_from_sample(text: &str) -> String {
-    let mut buf = String::new();
-    for line in text.lines() {
-        if line.is_empty() {
-            if !buf.is_empty() {
-                return buf.trim_end_matches('\n').to_string();
-            }
-        } else {
-            buf.push_str(line);
-            buf.push('\n');
+/// 在 `0..len` 上均匀随机下标（`len > 0`）。仅用 `fake`，不直接依赖 `rand`。
+#[allow(dead_code)] // Handlebars / `generators` 配置将使用
+fn fake_uniform_index(len: usize) -> usize {
+    use fake::Fake;
+    debug_assert!(len > 0);
+    (0..len).fake::<usize>()
+}
+
+/// 从切片中均匀随机选一项。
+#[allow(dead_code)] // Handlebars / `generators` 配置将使用
+fn fake_choose<'a, T>(items: &'a [T]) -> Option<&'a T> {
+    if items.is_empty() {
+        None
+    } else {
+        Some(&items[fake_uniform_index(items.len())])
+    }
+}
+
+#[cfg(test)]
+mod fake_pick_tests {
+    use super::*;
+
+    #[test]
+    fn uniform_index_stays_in_range() {
+        for _ in 0..300 {
+            let len = 20;
+            let i = fake_uniform_index(len);
+            assert!(i < len);
         }
     }
-    buf.trim_end_matches('\n').to_string()
+
+    #[test]
+    fn choose_none_on_empty() {
+        let empty: &[u8] = &[];
+        assert!(fake_choose(empty).is_none());
+    }
+
+    #[test]
+    fn choose_some_from_slice() {
+        let v = [1u8, 2, 3];
+        for _ in 0..50 {
+            assert!(matches!(fake_choose(&v), Some(1) | Some(2) | Some(3)));
+        }
+    }
 }
 
 async fn heartbeat_loop(
@@ -74,6 +113,110 @@ async fn heartbeat_loop(
     }
 }
 
+fn spawn_heartbeat_if_env(events: Arc<AtomicU64>) {
+    let (Ok(sock), Ok(id), Ok(iv_s), Ok(uri)) = (
+        env::var("LSPT_CONTROL_SOCKET"),
+        env::var("LSPT_SERVER_ID"),
+        env::var("LSPT_HEARTBEAT_INTERVAL_SECS"),
+        env::var("LSPT_CLIENT_CONNECT_URI"),
+    ) else {
+        return;
+    };
+    let iv = iv_s.parse::<u64>().unwrap_or(5).max(1);
+    tokio::spawn(heartbeat_loop(
+        sock,
+        id,
+        Duration::from_secs(iv),
+        uri,
+        events,
+    ));
+}
+
+enum LogSink {
+    Stdout,
+    File(BufWriter<std::fs::File>),
+}
+
+impl LogSink {
+    fn emit_line(&mut self, line: &str) {
+        match self {
+            LogSink::Stdout => println!("{}", line),
+            LogSink::File(w) => {
+                if let Err(e) = writeln!(w, "{}", line).and_then(|_| w.flush()) {
+                    eprintln!("write output: {e}");
+                    std::process::exit(1);
+                }
+            }
+        }
+    }
+}
+
+fn relative_output_allowed(rel: &str) -> bool {
+    let p = Path::new(rel);
+    if p.is_absolute() {
+        return false;
+    }
+    !p.components()
+        .any(|c| matches!(c, Component::ParentDir | Component::RootDir))
+}
+
+/// `LSPT_WORKER_OUTPUT_DIR` 由 lsptd 设置：此时 `output` 必填且相对该目录。否则 `output` 相对配置文件目录，可省略（stdout）。
+fn log_sink(config_path: &str, output_rel: Option<&str>) -> LogSink {
+    if let Ok(base) = env::var("LSPT_WORKER_OUTPUT_DIR") {
+        let base = base.trim();
+        if !base.is_empty() {
+            let Some(r) = output_rel else {
+                eprintln!(
+                    "LSPT_WORKER_OUTPUT_DIR is set: producer config must set non-empty \"output\" (relative path under that directory)"
+                );
+                std::process::exit(1);
+            };
+            if !relative_output_allowed(r) {
+                eprintln!("output must be a relative path without parent components (no \"..\") when LSPT_WORKER_OUTPUT_DIR is set");
+                std::process::exit(1);
+            }
+            let path = Path::new(base).join(r);
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent).unwrap_or_else(|e| {
+                    eprintln!("create_dir_all {}: {e}", parent.display());
+                    std::process::exit(1);
+                });
+            }
+            let f = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&path)
+                .unwrap_or_else(|e| {
+                    eprintln!("open output {}: {e}", path.display());
+                    std::process::exit(1);
+                });
+            return LogSink::File(BufWriter::new(f));
+        }
+    }
+
+    let cfg_dir = Path::new(config_path)
+        .parent()
+        .unwrap_or_else(|| Path::new("."));
+    match output_rel {
+        None => LogSink::Stdout,
+        Some(r) => {
+            let path = cfg_dir.join(r);
+            if let Some(parent) = path.parent() {
+                let _ = fs::create_dir_all(parent);
+            }
+            let f = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&path)
+                .unwrap_or_else(|e| {
+                    eprintln!("open output {}: {e}", path.display());
+                    std::process::exit(1);
+                });
+            LogSink::File(BufWriter::new(f))
+        }
+    }
+}
+
 async fn async_main(argv: Vec<String>) {
     let mut it = argv.into_iter().skip(2);
     let mut config_path: Option<String> = None;
@@ -95,62 +238,46 @@ async fn async_main(argv: Vec<String>) {
         eprintln!("read config: {e}");
         std::process::exit(1);
     });
-    let v: serde_json::Value = serde_json::from_str(&raw).unwrap_or_else(|e| {
-        eprintln!("parse json: {e}");
-        std::process::exit(1);
-    });
-
-    let sample_rel = v["sample-file"].as_str().unwrap_or_else(|| {
-        eprintln!("missing string field sample-file");
-        std::process::exit(1);
-    });
-
-    let interval_ms = v["min-interval"].as_u64().unwrap_or(1000);
-
-    let cfg_dir = std::path::Path::new(&config_path)
-        .parent()
-        .unwrap_or_else(|| std::path::Path::new("."));
-    let sample_path = cfg_dir.join(sample_rel);
-    let sample_txt = fs::read_to_string(&sample_path).unwrap_or_else(|e| {
-        eprintln!("read sample-file {}: {e}", sample_path.display());
-        std::process::exit(1);
-    });
-
-    let evt = first_event_from_sample(&sample_txt);
-    if evt.is_empty() {
-        eprintln!("empty first event in sample");
+    let cfg: lspt_ext::TemplateConfig =
+        lspt_ext::parse_template_config(Path::new(&config_path), &raw).unwrap_or_else(|e| {
+            eprintln!("parse producer config: {e}");
+            std::process::exit(1);
+        });
+    if cfg.template.trim().is_empty() {
+        eprintln!("producer config: \"template\" must be non-empty");
         std::process::exit(1);
     }
-    let line = Arc::new(evt);
+
+    let interval_ms = cfg.min_interval_ms;
+    let output_rel = cfg
+        .output
+        .as_ref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty());
+    let mut sink = log_sink(&config_path, output_rel);
+
+    let mut runner = lspt_ext::TemplateRunner::try_new(cfg).unwrap_or_else(|e| {
+        eprintln!("producer config: {e}");
+        std::process::exit(1);
+    });
     let events = Arc::new(AtomicU64::new(0));
-
-    if let (Ok(sock), Ok(id), Ok(iv_s), Ok(uri)) = (
-        env::var("LSPT_CONTROL_SOCKET"),
-        env::var("LSPT_SERVER_ID"),
-        env::var("LSPT_HEARTBEAT_INTERVAL_SECS"),
-        env::var("LSPT_CLIENT_CONNECT_URI"),
-    ) {
-        let iv = iv_s.parse::<u64>().unwrap_or(5).max(1);
-        tokio::spawn(heartbeat_loop(
-            sock,
-            id,
-            Duration::from_secs(iv),
-            uri,
-            events.clone(),
-        ));
-    }
+    spawn_heartbeat_if_env(events.clone());
 
     let sleep = Duration::from_millis(interval_ms.max(1));
     let mut tick = tokio::time::interval(sleep);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
         tick.tick().await;
+        let line = runner.next_line().unwrap_or_else(|e| {
+            eprintln!("render: {e}");
+            std::process::exit(1);
+        });
         events.fetch_add(1, Ordering::Relaxed);
-        println!("{}", line);
+        sink.emit_line(&line);
     }
 }
 
-/// `argv` 须含 `program ... worker -f cfg.json`（与 `std::env::args()` 一致）。
+/// `argv` 须含 `program ... worker -f cfg.yaml`（与 `std::env::args()` 一致）。
 pub fn run(argv: Vec<String>) {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()

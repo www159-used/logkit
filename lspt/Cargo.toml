@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+clap = { version = "4", features = ["derive", "env"] }
 http = "1"
 hyper-util = { version = "0.1", features = ["tokio"] }
 lspt-config = { path = "../lspt-config" }

@@ -50,12 +50,86 @@ struct LsptSvcState {
     log_server: LogServerSection,
     control_socket_path: String,
     client_connect_uri: String,
+    worker_output_dir: String,
     servers: Mutex<HashMap<String, RunningServer>>,
 }
 
 #[derive(Clone)]
 struct LsptSvc {
     inner: Arc<LsptSvcState>,
+}
+
+fn collect_rel_paths_prefixed(cwd: &Path, prefix: &str) -> std::io::Result<Vec<String>> {
+    let mut out = Vec::new();
+    let mut stack = vec![cwd.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        for e in fs::read_dir(&dir)? {
+            let e = e?;
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if p.is_file() {
+                let Ok(rel) = p.strip_prefix(cwd) else {
+                    continue;
+                };
+                let s = rel.to_string_lossy().replace('\\', "/");
+                if s.starts_with(prefix) {
+                    out.push(s);
+                }
+            }
+        }
+    }
+    out.sort();
+    Ok(out)
+}
+
+/// `path` 已是非空。若为现有普通文件则原样返回；否则按 **lsptd 进程 cwd** 下相对路径前缀匹配唯一文件。
+fn resolve_config_path_arg(path: &str) -> Result<String, tonic::Status> {
+    let p = Path::new(path);
+    if p.is_file() {
+        return Ok(path.to_string());
+    }
+    if p.exists() {
+        return Err(tonic::Status::invalid_argument(format!(
+            "config_path exists but is not a regular file: {path}"
+        )));
+    }
+    let cwd = env::current_dir().map_err(|e| {
+        tonic::Status::internal(format!("current_dir for config prefix resolution: {e}"))
+    })?;
+    let candidates = collect_rel_paths_prefixed(&cwd, path).map_err(|e| {
+        tonic::Status::internal(format!("scan cwd for config prefix {path:?}: {e}"))
+    })?;
+    match candidates.len() {
+        0 => Err(tonic::Status::invalid_argument(format!(
+            "no file under lsptd cwd matches path prefix {path:?}"
+        ))),
+        1 => Ok(candidates[0].clone()),
+        _ => Err(tonic::Status::invalid_argument(format!(
+            "ambiguous config path prefix {path:?} matches:\n{}",
+            candidates.join("\n")
+        ))),
+    }
+}
+
+enum IdPick {
+    One(String),
+    None,
+    Many(Vec<String>),
+}
+
+/// 优先精确 key；否则按 id `starts_with` 匹配；多个时返回全部（已排序）。
+fn pick_server_id(guard: &HashMap<String, RunningServer>, key: &str) -> IdPick {
+    if guard.contains_key(key) {
+        return IdPick::One(key.to_string());
+    }
+    let mut ids: Vec<String> = guard.keys().filter(|id| id.starts_with(key)).cloned().collect();
+    ids.sort();
+    match ids.len() {
+        0 => IdPick::None,
+        1 => IdPick::One(ids[0].clone()),
+        _ => IdPick::Many(ids),
+    }
 }
 
 fn reap_exited(guard: &mut HashMap<String, RunningServer>) {
@@ -165,16 +239,13 @@ impl Lspt for LsptSvc {
         req: tonic::Request<StartLogServerRequest>,
     ) -> Result<tonic::Response<StartLogServerReply>, tonic::Status> {
         let msg = req.into_inner();
-        let path = if msg.config_path.is_empty() {
-            self.inner.log_server.default_config_path.clone()
-        } else {
-            msg.config_path
-        };
+        let path = msg.config_path;
         if path.is_empty() {
             return Err(tonic::Status::invalid_argument(
-                "config_path empty and default_config_path unset in lsptd TOML",
+                "config_path required (producer .yaml / .yml path)",
             ));
         }
+        let path = resolve_config_path_arg(&path)?;
         let exe = std::env::current_exe()
             .map_err(|e| tonic::Status::internal(format!("current_exe: {e}")))?;
         let id = uuid::Uuid::new_v4().to_string();
@@ -187,6 +258,10 @@ impl Lspt for LsptSvc {
             .env("LSPT_SERVER_ID", &id)
             .env("LSPT_HEARTBEAT_INTERVAL_SECS", &hb_iv)
             .env("LSPT_CLIENT_CONNECT_URI", &self.inner.client_connect_uri)
+            .env(
+                "LSPT_WORKER_OUTPUT_DIR",
+                &self.inner.worker_output_dir,
+            )
             .spawn()
             .map_err(|e| tonic::Status::internal(format!("spawn worker: {e}")))?;
 
@@ -218,6 +293,19 @@ impl Lspt for LsptSvc {
             return Err(tonic::Status::invalid_argument("id required"));
         }
         let mut guard = self.inner.servers.lock().await;
+        reap_exited(&mut guard);
+        let id = match pick_server_id(&guard, &id) {
+            IdPick::One(s) => s,
+            IdPick::None => {
+                return Err(tonic::Status::not_found("no such log-server id"));
+            }
+            IdPick::Many(ids) => {
+                return Err(tonic::Status::invalid_argument(format!(
+                    "id prefix {id:?} matches multiple servers:\n{}",
+                    ids.join("\n")
+                )));
+            }
+        };
         let Some(mut running) = guard.remove(&id) else {
             return Err(tonic::Status::not_found("no such log-server id"));
         };
@@ -278,6 +366,16 @@ async fn run(cfg: LsptConfig) -> Result<(), LsptError> {
         ..
     } = cfg;
 
+    let worker_output_dir = log_server.worker_output_dir.trim().to_string();
+    if worker_output_dir.is_empty() {
+        return Err(LsptError::Cli(
+            "[log_server].worker_output_dir must be set (non-empty directory; producer YAML \"output\" is relative to it)"
+                .into(),
+        ));
+    }
+    let worker_out_path = Path::new(&worker_output_dir);
+    fs::create_dir_all(worker_out_path).map_err(|e| LsptError::unix_io(worker_out_path.to_path_buf(), e))?;
+
     let socket_path = daemon.socket_path.clone();
     let control_socket_path = daemon.socket_path;
     let client_connect_uri = protocol.grpc.client_connect_uri.clone();
@@ -321,6 +419,7 @@ async fn run(cfg: LsptConfig) -> Result<(), LsptError> {
             log_server,
             control_socket_path,
             client_connect_uri,
+            worker_output_dir,
             servers: Mutex::new(HashMap::new()),
         }),
     };

@@ -1,0 +1,34 @@
+# 标准 Apache Combined Log 形状：%h %l %u %t …；%l 多为 \"-\"，%u 此处用 `fake` Username；Referer 可为 \"-\"。
+output: apache-combined.log
+min-interval: 100
+template: >-
+  {{src_ip}} - {{user}} [{{timestamp}}] "{{method}} {{dst}} HTTP/1.1" {{status}} {{bytes}}
+  "{{referer}}" "{{ua}}"
+fields:
+  src_ip:
+    type: ipv4
+  user:
+    type: username
+  timestamp:
+    type: timestamp
+    format: "%d/%b/%Y:%H:%M:%S %z"
+  method:
+    type: pick
+    values: [GET, POST]
+  dst:
+    type: url-path
+  status:
+    type: pick
+    values: ["200", "200", "200", "404", "301", "500"]
+  # 勿用字段名 len：`{{len}}` 与 handlebars 内置 helper 冲突
+  bytes:
+    type: counter
+  referer:
+    type: pick
+    values:
+      - "-"
+      - "-"
+      - "https://www.example.com/start.html"
+      - "https://partner.example.net/app"
+  ua:
+    type: user-agent

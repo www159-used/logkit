@@ -1,7 +1,8 @@
 //! lspt — CLI：`ping` / `echo` / `list` / `start` / `stop` / `stat`。
 
-use std::env;
+use std::path::{Path, PathBuf};
 
+use clap::{Parser, Subcommand};
 use http::Uri;
 use hyper_util::rt::TokioIo;
 use lspt_proto::lspt_client::LsptClient;
@@ -12,12 +13,45 @@ use lspt_proto::{
 use tonic::transport::Endpoint;
 use tower::service_fn;
 
-use lspt_config::{load_merged, parse_cli_args, LsptError};
+use lspt_config::{load_merged, LsptConfig, LsptError};
 
-fn usage() {
-    eprintln!("usage: lspt [--defaults-file PATH] ping | echo <text> | list | start [CONFIG.json] | stop <id> | stat [id_prefix]");
-    eprintln!("  list: id, config_path, alive, healthy (tab-separated)");
-    eprintln!("  stat: prefix match on server id; omit prefix to show all; prints eps and details");
+#[derive(Parser)]
+#[command(
+    name = "lspt",
+    version,
+    about = "lspt gRPC 客户端（Unix 套接字）",
+    disable_help_subcommand = true
+)]
+struct Cli {
+    /// 与 lsptd 共用的 TOML；也可由环境变量 LSPT_DEFAULTS_FILE 提供
+    #[arg(long, value_name = "PATH", env = "LSPT_DEFAULTS_FILE")]
+    defaults_file: Option<PathBuf>,
+
+    /// 覆盖合并配置中的 gRPC Unix 套接字路径（等价于 [client].socket_path）
+    #[arg(short = 'S', long = "sock", value_name = "PATH")]
+    socket: Option<PathBuf>,
+
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    Ping,
+    Echo {
+        #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
+        text: Vec<String>,
+    },
+    List,
+    Start {
+        config_path: String,
+    },
+    Stop {
+        id: String,
+    },
+    Stat {
+        id_prefix: Option<String>,
+    },
 }
 
 #[cfg(unix)]
@@ -30,18 +64,28 @@ async fn main() {
 }
 
 #[cfg(unix)]
-async fn run() -> Result<(), LsptError> {
-    let args: Vec<String> = env::args().skip(1).collect();
-    let (defaults, mut rest) = parse_cli_args(args)?;
-    let cfg = load_merged(defaults.as_deref())?;
-    if rest.is_empty() {
-        usage();
-        return Err(LsptError::Cli("missing subcommand".into()));
+fn merge_cli_config(cli: &Cli, mut cfg: LsptConfig) -> LsptConfig {
+    if let Some(p) = &cli.socket {
+        cfg.client.socket_path = p.display().to_string();
     }
+    cfg
+}
+
+#[cfg(unix)]
+async fn run() -> Result<(), LsptError> {
+    let cli = Cli::parse();
+    let cfg = merge_cli_config(&cli, load_merged(cli.defaults_file.as_deref())?);
 
     let sock_path = cfg.client.socket_path.clone();
     let max_dec = cfg.protocol.grpc.max_decoding_message_size_bytes as usize;
     let max_enc = cfg.protocol.grpc.max_encoding_message_size_bytes as usize;
+
+    if !Path::new(&sock_path).exists() {
+        return Err(LsptError::Cli(format!(
+            "unix socket \"{sock_path}\" does not exist. Start lsptd first, or pass -S/--sock PATH pointing at the daemon socket, \
+             or set [client].socket_path via --defaults-file / LSPT_DEFAULTS_FILE."
+        )));
+    }
 
     let path = sock_path.clone();
     let endpoint = Endpoint::from_shared(cfg.protocol.grpc.client_connect_uri.clone())
@@ -55,35 +99,35 @@ async fn run() -> Result<(), LsptError> {
             }
         }))
         .await
-        .map_err(|e| LsptError::Grpc(e.to_string()))?;
+        .map_err(|e| {
+            LsptError::Grpc(format!(
+                "transport error on unix socket {sock_path}: {e}. \
+                 Try -S/--sock with the same path as lsptd [daemon].socket_path, or fix --defaults-file."
+            ))
+        })?;
 
     let mut client = LsptClient::new(channel)
         .max_decoding_message_size(max_dec)
         .max_encoding_message_size(max_enc);
 
-    let cmd = rest.remove(0);
-    match cmd.as_str() {
-        "ping" => {
+    match cli.command {
+        Commands::Ping => {
             let r = client
                 .ping(PingRequest {})
                 .await
                 .map_err(|s| LsptError::Grpc(s.to_string()))?;
             println!("{}", r.into_inner().pong);
         }
-        "echo" => {
-            if rest.is_empty() {
-                usage();
-                return Err(LsptError::Cli("echo needs a payload".into()));
-            }
+        Commands::Echo { text } => {
             let r = client
                 .echo(EchoRequest {
-                    message: rest.join(" "),
+                    message: text.join(" "),
                 })
                 .await
                 .map_err(|s| LsptError::Grpc(s.to_string()))?;
             println!("{}", r.into_inner().message);
         }
-        "list" => {
+        Commands::List => {
             let r = client
                 .list_servers(ListServersRequest {})
                 .await
@@ -92,8 +136,8 @@ async fn run() -> Result<(), LsptError> {
                 println!("{}\t{}\t{}\t{}", s.id, s.config_path, s.alive, s.healthy);
             }
         }
-        "stat" => {
-            let id_prefix = rest.first().cloned().unwrap_or_default();
+        Commands::Stat { id_prefix } => {
+            let id_prefix = id_prefix.unwrap_or_default();
             let r = client
                 .stat_server(StatServerRequest { id_prefix })
                 .await
@@ -118,8 +162,10 @@ async fn run() -> Result<(), LsptError> {
                 println!();
             }
         }
-        "start" => {
-            let config_path = rest.first().cloned().unwrap_or_default();
+        Commands::Start { config_path } => {
+            if config_path.is_empty() {
+                return Err(LsptError::Cli("start needs producer YAML path (.yaml or .yml)".into()));
+            }
             let r = client
                 .start_log_server(StartLogServerRequest { config_path })
                 .await
@@ -127,10 +173,8 @@ async fn run() -> Result<(), LsptError> {
             let inner = r.into_inner();
             println!("{}\t{}", inner.id, inner.status);
         }
-        "stop" => {
-            let id = rest.first().cloned().unwrap_or_default();
+        Commands::Stop { id } => {
             if id.is_empty() {
-                usage();
                 return Err(LsptError::Cli("stop needs <id>".into()));
             }
             let r = client
@@ -138,10 +182,6 @@ async fn run() -> Result<(), LsptError> {
                 .await
                 .map_err(|s| LsptError::Grpc(s.to_string()))?;
             println!("{}", r.into_inner().status);
-        }
-        _ => {
-            usage();
-            return Err(LsptError::Cli("unknown subcommand".into()));
         }
     }
     Ok(())
