@@ -1,4 +1,4 @@
-# 仅在使用 LSPT_PACK_LINKER=cross 时需要 Docker + cross；默认 pack.sh 在 macOS 用 Zig，可不使用本文件。
+# 仅在使用 LSPT_PACK_LINKER=cross 时需要 Docker + cross；默认 lspt-pack.sh 在 macOS 用 Zig，可不使用本文件。
 # 文档: https://github.com/cross-rs/cross
 
 [target.x86_64-unknown-linux-musl]

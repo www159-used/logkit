@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 打包发布：
-#   ./scripts/pack.sh           # 默认：linux x86_64 / aarch64 musl → dist/lspt-bundle-<triple>.tar.gz
-#   ./scripts/pack.sh native    # 本机 target/release → dist/lspt-bundle/（不压缩）
+#   ./scripts/lspt-pack.sh           # 默认：linux x86_64 / aarch64 musl → dist/lspt-<triple>.tar.gz
+#   ./scripts/lspt-pack.sh native      # 本机 target/release → dist/lspt/（不压缩）
 #
 # musl 交叉（默认不依赖 Docker）：
 # - macOS：默认用 Zig + cargo-zigbuild（本机 Apple ld 无法链 linux-musl）。
@@ -15,7 +15,7 @@
 #   cargo  — 强制 cargo build；在 macOS 上通常会链接失败，除非自配 .cargo 链接器
 #   cross  — 强制 cross build（需 Docker；仅在你显式选择时使用）
 #
-# macOS + 已自配 musl 链接器：LSPT_PACK_LINKER=cargo LSPT_PACK_ALLOW_HOST_MUSL=1 ./scripts/pack.sh musl
+# macOS + 已自配 musl 链接器：LSPT_PACK_LINKER=cargo LSPT_PACK_ALLOW_HOST_MUSL=1 ./scripts/lspt-pack.sh musl
 #
 # 打包机在 macOS 时建议安装 **gtar**（brew install gnu-tar），脚本优先用它打 tar.gz，避免 bsdtar 写入
 # xattr / AppleDouble（._*），Linux 解压就不会有 LIBARCHIVE.xattr… 告警。
@@ -27,7 +27,7 @@ MODE="${1:-musl}"
 
 pack_native_dir() {
   cargo build --release
-  local dist="$ROOT/dist/lspt-bundle"
+  local dist="$ROOT/dist/lspt"
   rm -rf "$dist"
   mkdir -p "$dist/bin" "$dist/etc"
   if [[ "$(uname -s)" == "Darwin" ]]; then
@@ -134,7 +134,7 @@ make_targz() {
 pack_musl_tarball() {
   local target="$1"
   local parent="$ROOT/dist/.stage-$target"
-  local stage="$parent/lspt-bundle"
+  local stage="$parent/lspt"
   rm -rf "$parent"
   mkdir -p "$stage/bin" "$stage/etc"
   if [[ "$(uname -s)" == "Darwin" ]]; then
@@ -144,9 +144,9 @@ pack_musl_tarball() {
   cp "$ROOT/etc/"* "$stage/etc/"
   chmod +x "$stage/bin/lspt" "$stage/bin/lsptd"
   find "$parent" -name '._*' -delete 2>/dev/null || true
-  local out="$ROOT/dist/lspt-bundle-${target}.tar.gz"
+  local out="$ROOT/dist/lspt-${target}.tar.gz"
   mkdir -p "$ROOT/dist"
-  make_targz "$out" "$parent" "lspt-bundle"
+  make_targz "$out" "$parent" "lspt"
   rm -rf "$parent"
   echo "$out"
 }

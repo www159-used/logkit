@@ -1,0 +1,129 @@
+name: Release builds
+
+# Linux：x86_64 / aarch64 musl（zigbuild）。macOS：Apple Silicon（aarch64-apple-darwin）。
+# 推送 v* 标签时合并产物并创建 GitHub Release（含源码 git archive）。
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  linux-musl:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl, aarch64-unknown-linux-musl
+
+      # prost-build：显式安装并注入 PATH / PROTOC（仅 apt 在部分 runner 上仍可能找不到）
+      - uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.14.1
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-zigbuild
+        run: cargo install cargo-zigbuild --locked
+
+      - name: Build and package
+        run: |
+          set -euo pipefail
+          for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl; do
+            cargo zigbuild --release --target "$target"
+            parent="$GITHUB_WORKSPACE/dist/.stage-$target"
+            stage="$parent/lspt"
+            rm -rf "$parent"
+            mkdir -p "$stage/bin" "$stage/etc"
+            cp "$GITHUB_WORKSPACE/target/$target/release/lspt" \
+               "$GITHUB_WORKSPACE/target/$target/release/lsptd" \
+               "$stage/bin/"
+            cp "$GITHUB_WORKSPACE/etc/"* "$stage/etc/"
+            chmod +x "$stage/bin/lspt" "$stage/bin/lsptd"
+            mkdir -p "$GITHUB_WORKSPACE/dist"
+            tar -czf "$GITHUB_WORKSPACE/dist/lspt-${target}.tar.gz" \
+              -C "$parent" --owner=0 --group=0 --numeric-owner lspt
+            rm -rf "$parent"
+          done
+
+      - name: Source archive (git archive)
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          mkdir -p dist
+          git archive --format=tar.gz -o "dist/lspt-${{ github.ref_name }}-src.tar.gz" HEAD
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lspt-dist-linux
+          path: dist/*.tar.gz
+
+  macos-arm:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build and package
+        run: |
+          set -euo pipefail
+          target=aarch64-apple-darwin
+          cargo build --release --target "$target"
+          parent="$GITHUB_WORKSPACE/dist/.stage-$target"
+          stage="$parent/lspt"
+          rm -rf "$parent"
+          mkdir -p "$stage/bin" "$stage/etc"
+          cp "$GITHUB_WORKSPACE/target/$target/release/lspt" \
+             "$GITHUB_WORKSPACE/target/$target/release/lsptd" \
+             "$stage/bin/"
+          cp "$GITHUB_WORKSPACE/etc/"* "$stage/etc/"
+          chmod +x "$stage/bin/lspt" "$stage/bin/lsptd"
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          COPYFILE_DISABLE=1 tar -czf "$GITHUB_WORKSPACE/dist/lspt-${target}.tar.gz" -C "$parent" lspt
+          rm -rf "$parent"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lspt-dist-macos-arm
+          path: dist/*.tar.gz
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [linux-musl, macos-arm]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: lspt-dist-linux
+          path: release-assets
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: lspt-dist-macos-arm
+          path: release-assets
+
+      - name: GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          generate_release_notes: true
