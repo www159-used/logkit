@@ -7,8 +7,8 @@ use http::Uri;
 use hyper_util::rt::TokioIo;
 use logspout_proto::logspout_client::LogspoutClient;
 use logspout_proto::{
-    CatLogServerRequest, EchoRequest, ListServersRequest, PingRequest, StartLogServerRequest,
-    StatServerRequest, StopLogServerRequest,
+    CatWorkerRequest, EchoRequest, ListWorkersRequest, PingRequest, StartWorkerRequest,
+    StatWorkerRequest, StopWorkerRequest,
 };
 use tonic::transport::Endpoint;
 use tower::service_fn;
@@ -132,23 +132,23 @@ async fn run() -> Result<(), LogspoutError> {
         }
         Commands::List => {
             let r = client
-                .list_servers(ListServersRequest {})
+                .list_workers(ListWorkersRequest {})
                 .await
                 .map_err(|s| LogspoutError::Grpc(s.to_string()))?;
             println!("id\talive\thealthy\tsink");
-            for s in r.into_inner().servers {
+            for s in r.into_inner().workers {
                 println!("{}\t{}\t{}\t{}", s.id, s.alive, s.healthy, s.sink_summary);
             }
         }
         Commands::Stat { id_prefix } => {
             let id_prefix = id_prefix.unwrap_or_default();
             let r = client
-                .stat_server(StatServerRequest { id_prefix })
+                .stat_worker(StatWorkerRequest { id_prefix })
                 .await
                 .map_err(|s| LogspoutError::Grpc(s.to_string()))?;
-            let list = r.into_inner().servers;
+            let list = r.into_inner().workers;
             if list.is_empty() {
-                println!("(no matching servers)");
+                println!("(no matching workers)");
                 return Ok(());
             }
             for s in list {
@@ -183,7 +183,7 @@ async fn run() -> Result<(), LogspoutError> {
             })?;
             let config_label = config_paths.join(" + ");
             let r = client
-                .start_log_server(StartLogServerRequest {
+                .start_worker(StartWorkerRequest {
                     producer_yaml,
                     config_label,
                 })
@@ -197,7 +197,7 @@ async fn run() -> Result<(), LogspoutError> {
                 return Err(LogspoutError::Cli("stop needs <id>".into()));
             }
             let r = client
-                .stop_log_server(StopLogServerRequest { id })
+                .stop_worker(StopWorkerRequest { id })
                 .await
                 .map_err(|s| LogspoutError::Grpc(s.to_string()))?;
             println!("{}", r.into_inner().status);
@@ -207,7 +207,7 @@ async fn run() -> Result<(), LogspoutError> {
                 return Err(LogspoutError::Cli("cat needs <id>".into()));
             }
             let r = client
-                .cat_log_server(CatLogServerRequest { id })
+                .cat_worker(CatWorkerRequest { id })
                 .await
                 .map_err(|s| LogspoutError::Grpc(s.to_string()))?;
             let inner = r.into_inner();

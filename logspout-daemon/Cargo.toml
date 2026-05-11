@@ -5,7 +5,9 @@ edition = "2021"
 license = "GPL-3.0"
 
 [dependencies]
+flexi_logger = "0.31"
 libc = "0.2"
+log = "0.4"
 clap = { workspace = true }
 http = { workspace = true }
 hyper-util = { workspace = true }

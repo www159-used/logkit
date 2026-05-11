@@ -22,7 +22,7 @@ logspout-worker -f CONFIG.yaml
 | 变量 | 含义 |
 |------|------|
 | `LOGSPOUT_CONTROL_SOCKET` | 控制面 Unix 套接字路径 |
-| `LOGSPOUT_SERVER_ID` | 实例 id |
+| `LOGSPOUT_WORKER_ID` | 实例 id（兼容旧名 **`LOGSPOUT_SERVER_ID`**） |
 | `LOGSPOUT_HEARTBEAT_INTERVAL_SECS` | 间隔秒数（解析失败默认 5，且最小为 1） |
 | `LOGSPOUT_CLIENT_CONNECT_URI` | 与 TOML **`[protocol.grpc].client_connect_uri`** 相同形式的 URI |
 

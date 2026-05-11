@@ -8,10 +8,10 @@ use crate::runtime::{run_producer_at_path, ProducerHeartbeatEnv};
 
 /// Daemon 唯一需要依赖的 worker 能力：在当前 Tokio runtime 上启动任务，并得到可 `abort` / `is_finished` 的句柄。
 pub trait EmbeddedProducerWorker: Send + Sync {
-    /// `server_id` 仅用于任务失败时的日志标识。
+    /// `worker_id` 仅用于任务失败时的日志标识。
     fn spawn_producer_task(
         &self,
-        server_id: String,
+        worker_id: String,
         config_path: String,
         output_base: PathBuf,
         heartbeat: Option<ProducerHeartbeatEnv>,
@@ -25,14 +25,14 @@ pub struct TokioEmbeddedProducerWorker;
 impl EmbeddedProducerWorker for TokioEmbeddedProducerWorker {
     fn spawn_producer_task(
         &self,
-        server_id: String,
+        worker_id: String,
         config_path: String,
         output_base: PathBuf,
         heartbeat: Option<ProducerHeartbeatEnv>,
     ) -> JoinHandle<()> {
         tokio::spawn(async move {
             if let Err(e) = run_producer_at_path(config_path, output_base, heartbeat).await {
-                eprintln!("logspout producer task {server_id}: {e}");
+                eprintln!("logspout producer task {worker_id}: {e}");
             }
         })
     }

@@ -1,8 +1,7 @@
 //! logspout-daemon — gRPC 控制面（Unix 套接字）；造日志由嵌入的 [`logspout_worker::run_producer_at_path`] 任务完成（亦可单独运行 `logspout-worker` 二进制调试）。
 
 use std::collections::HashMap;
-use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -10,10 +9,10 @@ use std::time::{Duration, Instant};
 use clap::Parser;
 use logspout_proto::logspout_server::{Logspout, LogspoutServer};
 use logspout_proto::{
-    CatLogServerReply, CatLogServerRequest, EchoReply, EchoRequest, HeartbeatReply,
-    HeartbeatRequest, ListServersReply, ListServersRequest, LogServerEntry, PingReply, PingRequest,
-    ServerStatDetail, StartLogServerReply, StartLogServerRequest, StatServerReply,
-    StatServerRequest, StopLogServerReply, StopLogServerRequest,
+    CatWorkerReply, CatWorkerRequest, EchoReply, EchoRequest, HeartbeatReply, HeartbeatRequest,
+    ListWorkersReply, ListWorkersRequest, PingReply, PingRequest, StartWorkerReply,
+    StartWorkerRequest, StatWorkerReply, StatWorkerRequest, StopWorkerReply, StopWorkerRequest,
+    WorkerEntry, WorkerStatDetail,
 };
 use logspout_worker::{EmbeddedProducerWorker, ProducerHeartbeatEnv, TokioEmbeddedProducerWorker};
 use tokio::net::UnixListener;
@@ -21,6 +20,8 @@ use tokio::sync::Mutex;
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::Server;
 
+use flexi_logger::{Duplicate, FileSpec, Logger, WriteMode};
+use log::{debug, info, trace, warn};
 use logspout_config::{load_merged, LogspoutConfig, LogspoutError, WorkerSection};
 use logspout_dsl::{format_sink_summary, parse_template_config};
 
@@ -47,7 +48,7 @@ impl Drop for PidFileGuard {
     }
 }
 
-struct RunningServer {
+struct RunningWorker {
     /// `logspout start` 传入的展示标签（多为用户本地路径）
     config_label: String,
     /// gRPC 投递的 YAML 全文（内存副本；`cat` 直接返回，不依赖托管文件是否仍存在）
@@ -71,7 +72,7 @@ struct LogspoutSvcState {
     client_connect_uri: String,
     worker_output_dir: String,
     producer_worker: Arc<dyn EmbeddedProducerWorker>,
-    servers: Mutex<HashMap<String, RunningServer>>,
+    workers: Mutex<HashMap<String, RunningWorker>>,
 }
 
 #[derive(Clone)]
@@ -86,7 +87,7 @@ enum IdPick {
 }
 
 /// 优先精确 key；否则按 id `starts_with` 匹配；多个时返回全部（已排序）。
-fn pick_server_id(guard: &HashMap<String, RunningServer>, key: &str) -> IdPick {
+fn pick_worker_id(guard: &HashMap<String, RunningWorker>, key: &str) -> IdPick {
     if guard.contains_key(key) {
         return IdPick::One(key.to_string());
     }
@@ -103,7 +104,7 @@ fn pick_server_id(guard: &HashMap<String, RunningServer>, key: &str) -> IdPick {
     }
 }
 
-fn reap_exited(guard: &mut HashMap<String, RunningServer>) {
+fn reap_exited(guard: &mut HashMap<String, RunningWorker>) {
     let mut dead: Vec<String> = Vec::new();
     for (id, running) in guard.iter() {
         if running.worker_task.is_finished() {
@@ -112,9 +113,43 @@ fn reap_exited(guard: &mut HashMap<String, RunningServer>) {
     }
     for id in dead {
         if let Some(r) = guard.remove(&id) {
+            info!("producer worker task exited id={id}, removing state file");
             let _ = fs::remove_file(&r.config_storage_path);
         }
     }
+}
+
+/// 追加写入 `{tmp_dir}/logspout-daemon.log`。未设置 **`RUST_LOG`** 时使用 **`default_spec`**（来自 `[daemon].log_level`）。
+fn init_daemon_logging(log_path: &Path, default_spec: &str) -> Result<flexi_logger::LoggerHandle, LogspoutError> {
+    let parent = log_path.parent().unwrap_or_else(|| Path::new("."));
+    let stem = log_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("logspout-daemon");
+    let suffix = log_path
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("log");
+    let default_spec = default_spec.trim();
+    let default_spec = if default_spec.is_empty() {
+        "info"
+    } else {
+        default_spec
+    };
+    Logger::try_with_env_or_str(default_spec)
+        .map_err(|e| LogspoutError::Cli(format!("flexi_logger: {e}")))?
+        .log_to_file(
+            FileSpec::default()
+                .directory(parent)
+                .basename(stem)
+                .suffix(suffix)
+                .suppress_timestamp(),
+        )
+        .append()
+        .write_mode(WriteMode::BufferAndFlush)
+        .duplicate_to_stderr(Duplicate::Warn)
+        .start()
+        .map_err(|e| LogspoutError::Cli(format!("flexi_logger: {e}")))
 }
 
 #[tonic::async_trait]
@@ -123,6 +158,7 @@ impl Logspout for LogspoutSvc {
         &self,
         _req: tonic::Request<PingRequest>,
     ) -> Result<tonic::Response<PingReply>, tonic::Status> {
+        trace!("rpc Ping");
         Ok(tonic::Response::new(PingReply {
             pong: self.inner.ping_reply.to_string(),
         }))
@@ -132,24 +168,24 @@ impl Logspout for LogspoutSvc {
         &self,
         req: tonic::Request<EchoRequest>,
     ) -> Result<tonic::Response<EchoReply>, tonic::Status> {
-        Ok(tonic::Response::new(EchoReply {
-            message: req.into_inner().message,
-        }))
+        let msg = req.into_inner().message;
+        debug!("rpc Echo chars={}", msg.len());
+        Ok(tonic::Response::new(EchoReply { message: msg }))
     }
 
-    async fn list_servers(
+    async fn list_workers(
         &self,
-        _req: tonic::Request<ListServersRequest>,
-    ) -> Result<tonic::Response<ListServersReply>, tonic::Status> {
+        _req: tonic::Request<ListWorkersRequest>,
+    ) -> Result<tonic::Response<ListWorkersReply>, tonic::Status> {
         let timeout = Duration::from_secs(self.inner.worker.heartbeat_timeout_secs.max(1));
-        let mut guard = self.inner.servers.lock().await;
+        let mut guard = self.inner.workers.lock().await;
         reap_exited(&mut guard);
 
-        let servers: Vec<LogServerEntry> = guard
+        let workers: Vec<WorkerEntry> = guard
             .iter()
             .map(|(id, r)| {
                 let healthy = r.last_heartbeat.elapsed() <= timeout;
-                LogServerEntry {
+                WorkerEntry {
                     id: id.clone(),
                     config_path: r.config_label.clone(),
                     alive: true,
@@ -158,23 +194,24 @@ impl Logspout for LogspoutSvc {
                 }
             })
             .collect();
-        Ok(tonic::Response::new(ListServersReply { servers }))
+        debug!("rpc ListWorkers -> {} entries", workers.len());
+        Ok(tonic::Response::new(ListWorkersReply { workers }))
     }
 
-    async fn stat_server(
+    async fn stat_worker(
         &self,
-        req: tonic::Request<StatServerRequest>,
-    ) -> Result<tonic::Response<StatServerReply>, tonic::Status> {
+        req: tonic::Request<StatWorkerRequest>,
+    ) -> Result<tonic::Response<StatWorkerReply>, tonic::Status> {
         let prefix = req.into_inner().id_prefix;
         let timeout = Duration::from_secs(self.inner.worker.heartbeat_timeout_secs.max(1));
         let hb_timeout = self.inner.worker.heartbeat_timeout_secs;
         let hb_interval = self.inner.worker.heartbeat_interval_secs;
 
-        let mut guard = self.inner.servers.lock().await;
+        let mut guard = self.inner.workers.lock().await;
         reap_exited(&mut guard);
 
         let now = Instant::now();
-        let servers: Vec<ServerStatDetail> = guard
+        let workers: Vec<WorkerStatDetail> = guard
             .iter()
             .filter(|(id, _)| prefix.is_empty() || id.starts_with(&prefix))
             .map(|(id, r)| {
@@ -183,7 +220,7 @@ impl Logspout for LogspoutSvc {
                 let uptime = now.duration_since(r.spawned_at).as_secs_f64().max(1e-9);
                 let events_est = r.last_reported_log_events as f64 + r.eps_interval * secs_hb;
                 let eps_rt = events_est / uptime;
-                ServerStatDetail {
+                WorkerStatDetail {
                     id: id.clone(),
                     config_path: r.config_label.clone(),
                     alive: true,
@@ -200,13 +237,18 @@ impl Logspout for LogspoutSvc {
             })
             .collect();
 
-        Ok(tonic::Response::new(StatServerReply { servers }))
+        debug!(
+            "rpc StatWorker id_prefix={:?} -> {} entries",
+            prefix,
+            workers.len()
+        );
+        Ok(tonic::Response::new(StatWorkerReply { workers }))
     }
 
-    async fn start_log_server(
+    async fn start_worker(
         &self,
-        req: tonic::Request<StartLogServerRequest>,
-    ) -> Result<tonic::Response<StartLogServerReply>, tonic::Status> {
+        req: tonic::Request<StartWorkerRequest>,
+    ) -> Result<tonic::Response<StartWorkerReply>, tonic::Status> {
         let msg = req.into_inner();
         let yaml = msg.producer_yaml;
         if yaml.trim().is_empty() {
@@ -246,7 +288,7 @@ impl Logspout for LogspoutSvc {
 
         let hb = ProducerHeartbeatEnv {
             control_socket: self.inner.control_socket_path.clone(),
-            server_id: id.clone(),
+            worker_id: id.clone(),
             heartbeat_interval_secs: self.inner.worker.heartbeat_interval_secs.max(1),
             client_connect_uri: self.inner.client_connect_uri.clone(),
         };
@@ -259,11 +301,16 @@ impl Logspout for LogspoutSvc {
             Some(hb),
         );
 
+        info!(
+            "rpc StartWorker id={} label={:?} sink={}",
+            id, config_label, sink_summary
+        );
+
         let now = Instant::now();
-        let mut guard = self.inner.servers.lock().await;
+        let mut guard = self.inner.workers.lock().await;
         guard.insert(
             id.clone(),
-            RunningServer {
+            RunningWorker {
                 config_label,
                 producer_yaml: yaml,
                 config_storage_path: abs_s,
@@ -275,74 +322,86 @@ impl Logspout for LogspoutSvc {
                 sink_summary,
             },
         );
-        Ok(tonic::Response::new(StartLogServerReply {
+        Ok(tonic::Response::new(StartWorkerReply {
             id,
             status: "started".into(),
         }))
     }
 
-    async fn stop_log_server(
+    async fn stop_worker(
         &self,
-        req: tonic::Request<StopLogServerRequest>,
-    ) -> Result<tonic::Response<StopLogServerReply>, tonic::Status> {
+        req: tonic::Request<StopWorkerRequest>,
+    ) -> Result<tonic::Response<StopWorkerReply>, tonic::Status> {
         let id = req.into_inner().id;
         if id.is_empty() {
             return Err(tonic::Status::invalid_argument("id required"));
         }
-        let mut guard = self.inner.servers.lock().await;
+        let mut guard = self.inner.workers.lock().await;
         reap_exited(&mut guard);
-        let id = match pick_server_id(&guard, &id) {
+        let id = match pick_worker_id(&guard, &id) {
             IdPick::One(s) => s,
             IdPick::None => {
-                return Err(tonic::Status::not_found("no such log-server id"));
+                return Err(tonic::Status::not_found("no such worker id"));
             }
             IdPick::Many(ids) => {
+                debug!(
+                    "rpc StopWorker ambiguous prefix {:?} matches {}",
+                    id,
+                    ids.len()
+                );
                 return Err(tonic::Status::invalid_argument(format!(
-                    "id prefix {id:?} matches multiple servers:\n{}",
+                    "id prefix {id:?} matches multiple workers:\n{}",
                     ids.join("\n")
                 )));
             }
         };
         let Some(running) = guard.remove(&id) else {
-            return Err(tonic::Status::not_found("no such log-server id"));
+            return Err(tonic::Status::not_found("no such worker id"));
         };
+        info!("rpc StopWorker id={}", id);
         let storage = running.config_storage_path.clone();
         running.worker_task.abort();
         let _ = fs::remove_file(&storage);
-        Ok(tonic::Response::new(StopLogServerReply {
+        Ok(tonic::Response::new(StopWorkerReply {
             status: "stopped".into(),
         }))
     }
 
-    async fn cat_log_server(
+    async fn cat_worker(
         &self,
-        req: tonic::Request<CatLogServerRequest>,
-    ) -> Result<tonic::Response<CatLogServerReply>, tonic::Status> {
+        req: tonic::Request<CatWorkerRequest>,
+    ) -> Result<tonic::Response<CatWorkerReply>, tonic::Status> {
         let id = req.into_inner().id;
         if id.is_empty() {
             return Err(tonic::Status::invalid_argument("id required"));
         }
-        let mut guard = self.inner.servers.lock().await;
+        let mut guard = self.inner.workers.lock().await;
         reap_exited(&mut guard);
-        let id = match pick_server_id(&guard, &id) {
+        let id = match pick_worker_id(&guard, &id) {
             IdPick::One(s) => s,
             IdPick::None => {
-                return Err(tonic::Status::not_found("no such log-server id"));
+                return Err(tonic::Status::not_found("no such worker id"));
             }
             IdPick::Many(ids) => {
+                debug!(
+                    "rpc CatWorker ambiguous prefix {:?} matches {}",
+                    id,
+                    ids.len()
+                );
                 return Err(tonic::Status::invalid_argument(format!(
-                    "id prefix {id:?} matches multiple servers:\n{}",
+                    "id prefix {id:?} matches multiple workers:\n{}",
                     ids.join("\n")
                 )));
             }
         };
         let Some(running) = guard.get(&id) else {
-            return Err(tonic::Status::not_found("no such log-server id"));
+            return Err(tonic::Status::not_found("no such worker id"));
         };
+        debug!("rpc CatWorker id={}", id);
         let label = running.config_label.clone();
         let yaml = running.producer_yaml.clone();
         drop(guard);
-        Ok(tonic::Response::new(CatLogServerReply {
+        Ok(tonic::Response::new(CatWorkerReply {
             config_path: label,
             yaml,
         }))
@@ -358,16 +417,23 @@ impl Logspout for LogspoutSvc {
         if id.is_empty() {
             return Err(tonic::Status::invalid_argument("id required"));
         }
-        let mut guard = self.inner.servers.lock().await;
+        trace!(
+            "rpc Heartbeat id={} log_events_total={}",
+            id,
+            log_events_total
+        );
+        let mut guard = self.inner.workers.lock().await;
         let Some(running) = guard.get_mut(&id) else {
-            return Err(tonic::Status::not_found("no such log-server id"));
+            warn!("rpc Heartbeat unknown worker id={}", id);
+            return Err(tonic::Status::not_found("no such worker id"));
         };
         if running.worker_task.is_finished() {
+            warn!("rpc Heartbeat producer task already finished id={}", id);
             if let Some(r) = guard.remove(&id) {
                 let _ = fs::remove_file(&r.config_storage_path);
             }
             return Err(tonic::Status::failed_precondition(
-                "log server producer task has ended",
+                "producer worker task has ended",
             ));
         }
         let now = Instant::now();
@@ -436,9 +502,26 @@ async fn run(cfg: LogspoutConfig) -> Result<(), LogspoutError> {
     let socket_path_buf = cfg.daemon_socket_path();
     let control_socket_path = socket_path_buf.to_string_lossy().into_owned();
     let log_path_buf = cfg.daemon_log_path();
-    let log_path = log_path_buf.to_string_lossy().into_owned();
+
+    let log_spec = cfg.daemon.log_level.trim();
+    let log_spec = if log_spec.is_empty() {
+        "info"
+    } else {
+        log_spec
+    };
+    let _log_handle = init_daemon_logging(log_path_buf.as_path(), log_spec)?;
 
     let sock = socket_path_buf.as_path();
+    info!(
+        "logspout-daemon starting pid={} tmp_dir={} uds={} worker_output_dir={} log_file={} default_log_spec={} (RUST_LOG overrides if set)",
+        std::process::id(),
+        tmp_dir.display(),
+        sock.display(),
+        worker_output_dir,
+        log_path_buf.display(),
+        log_spec,
+    );
+
     if sock.exists() {
         fs::remove_file(sock).map_err(|e| LogspoutError::unix_io(sock.to_path_buf(), e))?;
     }
@@ -447,21 +530,12 @@ async fn run(cfg: LogspoutConfig) -> Result<(), LogspoutError> {
         UnixListener::bind(sock).map_err(|e| LogspoutError::unix_io(sock.to_path_buf(), e))?;
     let incoming = UnixListenerStream::new(uds);
 
-    let mut log = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(log_path.as_str())
-        .map_err(|e| LogspoutError::write_file(log_path.clone(), e))?;
-
     let pid_body = format!("{}{}", std::process::id(), pid_suffix);
     fs::write(pid_path_buf.as_path(), pid_body)
         .map_err(|e| LogspoutError::write_file(pid_path_buf.to_string_lossy().into_owned(), e))?;
     let _pid_guard = PidFileGuard { path: pid_path_buf };
 
-    writeln!(log, "logspout-daemon grpc on {}", sock.display())
-        .map_err(|e| LogspoutError::write_file(log_path.clone(), e))?;
-    log.flush()
-        .map_err(|e| LogspoutError::write_file(log_path.clone(), e))?;
+    info!("listening for gRPC on {}", sock.display());
 
     let svc = LogspoutSvc {
         inner: Arc::new(LogspoutSvcState {
@@ -471,7 +545,7 @@ async fn run(cfg: LogspoutConfig) -> Result<(), LogspoutError> {
             client_connect_uri,
             worker_output_dir,
             producer_worker: Arc::new(TokioEmbeddedProducerWorker),
-            servers: Mutex::new(HashMap::new()),
+            workers: Mutex::new(HashMap::new()),
         }),
     };
     let grpc = LogspoutServer::new(svc)

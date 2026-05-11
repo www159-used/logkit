@@ -23,6 +23,13 @@
 |----|------|
 | `tmp_dir` | 单实例根目录；其下有 **`logspout-daemon.sock`**、**`logspout-daemon.pid`**、日志等。**多实例须不同 `tmp_dir`**。 |
 
+### `[daemon]`（`logspout-daemon`）
+
+| 键 | 含义 |
+|----|------|
+| `pid_record_suffix` | 写入 pid 文件末尾的额外字节（如换行）。 |
+| `log_level` | 默认 **`info`**。传给 **`flexi_logger`**：仅当未设置环境变量 **`RUST_LOG`** 时作为默认规格（可与模块组合，语法见 flexi_logger）。 |
+
 ### `[protocol.grpc]`
 
 | 键 | 含义 |

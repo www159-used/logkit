@@ -13,6 +13,11 @@ struct Cli {
     config: String,
 }
 
+/// 优先 `LOGSPOUT_WORKER_ID`，兼容旧名 `LOGSPOUT_SERVER_ID`。
+fn worker_id_env() -> Result<String, env::VarError> {
+    env::var("LOGSPOUT_WORKER_ID").or_else(|_| env::var("LOGSPOUT_SERVER_ID"))
+}
+
 fn output_base_for_cli(config_path: &str) -> std::path::PathBuf {
     env::current_dir().unwrap_or_else(|_| {
         Path::new(config_path)
@@ -25,7 +30,7 @@ fn output_base_for_cli(config_path: &str) -> std::path::PathBuf {
 fn heartbeat_from_env() -> Option<ProducerHeartbeatEnv> {
     let (Ok(sock), Ok(id), Ok(iv_s), Ok(uri)) = (
         env::var("LOGSPOUT_CONTROL_SOCKET"),
-        env::var("LOGSPOUT_SERVER_ID"),
+        worker_id_env(),
         env::var("LOGSPOUT_HEARTBEAT_INTERVAL_SECS"),
         env::var("LOGSPOUT_CLIENT_CONNECT_URI"),
     ) else {
@@ -34,7 +39,7 @@ fn heartbeat_from_env() -> Option<ProducerHeartbeatEnv> {
     let heartbeat_interval_secs = iv_s.parse::<u64>().unwrap_or(5).max(1);
     Some(ProducerHeartbeatEnv {
         control_socket: sock,
-        server_id: id,
+        worker_id: id,
         heartbeat_interval_secs,
         client_connect_uri: uri,
     })

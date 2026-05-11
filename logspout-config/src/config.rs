@@ -15,10 +15,17 @@ pub struct CommonSection {
     pub tmp_dir: String,
 }
 
+fn default_daemon_log_level() -> String {
+    "info".to_string()
+}
+
 /// [daemon] — 除路径外的守护进程约定（sock / pid / 日志路径由 [`CommonSection::tmp_dir`] 推导）。
 #[derive(Debug, Clone, Deserialize)]
 pub struct DaemonSection {
     pub pid_record_suffix: String,
+    /// `flexi_logger` 默认规格（仅当未设置环境变量 **`RUST_LOG`** 时生效）；如 **`info`**、**`debug`**，可与模块组合（见 flexi_logger 文档）。
+    #[serde(default = "default_daemon_log_level")]
+    pub log_level: String,
 }
 
 /// [client] — 预留节；客户端 Unix 套接字与守护进程相同，由 [`CommonSection::tmp_dir`] 推导。

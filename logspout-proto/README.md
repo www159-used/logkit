@@ -4,7 +4,7 @@
 
 ## 定义文件
 
-- **`proto/logspout/v1/logspout.proto`** — `package logspout.v1`，服务 **`Logspout`**（`Ping`、`Echo`、`ListServers`、`StartLogServer`、`StopLogServer`、`CatLogServer`、`Heartbeat`、`StatServer`）。
+- **`proto/logspout/v1/logspout.proto`** — `package logspout.v1`，服务 **`Logspout`**（`Ping`、`Echo`、`ListWorkers`、`StartWorker`、`StopWorker`、`CatWorker`、`Heartbeat`、`StatWorker`）。
 
 传输：**Unix 套接字**（进程间仍为 gRPC 帧）；URI 仅用于 tonic Endpoint 构造，见 [`logspout-config`](../logspout-config/README.md) 的 **`client_connect_uri`**。
 

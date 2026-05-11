@@ -19,7 +19,7 @@ use crate::sink::{build_line_sink, validate_kafka_config, LogLineSink};
 #[derive(Debug, Clone)]
 pub struct ProducerHeartbeatEnv {
     pub control_socket: String,
-    pub server_id: String,
+    pub worker_id: String,
     pub heartbeat_interval_secs: u64,
     pub client_connect_uri: String,
 }
@@ -70,7 +70,7 @@ fn spawn_heartbeat(hb: ProducerHeartbeatEnv, events: Arc<AtomicU64>) {
     let iv = hb.heartbeat_interval_secs.max(1);
     tokio::spawn(heartbeat_loop(
         hb.control_socket,
-        hb.server_id,
+        hb.worker_id,
         Duration::from_secs(iv),
         hb.client_connect_uri,
         events,
