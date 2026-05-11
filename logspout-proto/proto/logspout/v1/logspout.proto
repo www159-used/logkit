@@ -37,6 +37,8 @@ message LogServerEntry {
   string config_path = 2;
   bool alive = 3;
   bool healthy = 4;
+  // 自 producer YAML 的 `sink:` 摘要（与嵌套 sink 一致）
+  string sink_summary = 5;
 }
 
 message ListServersReply {
@@ -101,6 +103,8 @@ message ServerStatDetail {
   double eps_interval = 10;
   // 外推的当前累计事件数（用于对照）
   double log_events_estimated = 11;
+  // 自 producer YAML 的 `sink:` 摘要（与嵌套 sink 一致）
+  string sink_summary = 12;
 }
 
 message StatServerReply {

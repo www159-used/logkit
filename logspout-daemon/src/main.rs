@@ -22,6 +22,7 @@ use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::Server;
 
 use logspout_config::{load_merged, LogspoutConfig, LogspoutError, WorkerSection};
+use logspout_dsl::{format_sink_summary, parse_template_config};
 
 #[derive(Parser)]
 #[command(
@@ -59,6 +60,8 @@ struct RunningServer {
     last_reported_log_events: u64,
     /// 上一心跳间隔内的 Δevents/Δt（采样）
     eps_interval: f64,
+    /// [`format_sink_summary`]，与嵌套 `sink:` 一致
+    sink_summary: String,
 }
 
 struct LogspoutSvcState {
@@ -151,6 +154,7 @@ impl Logspout for LogspoutSvc {
                     config_path: r.config_label.clone(),
                     alive: true,
                     healthy,
+                    sink_summary: r.sink_summary.clone(),
                 }
             })
             .collect();
@@ -191,6 +195,7 @@ impl Logspout for LogspoutSvc {
                     heartbeat_interval_secs: hb_interval,
                     eps_interval: r.eps_interval,
                     log_events_estimated: events_est,
+                    sink_summary: r.sink_summary.clone(),
                 }
             })
             .collect();
@@ -209,8 +214,9 @@ impl Logspout for LogspoutSvc {
                 "producer_yaml required (non-empty producer .yaml / .yml body)",
             ));
         }
-        logspout_dsl::parse_template_config(Path::new("producer.yaml"), &yaml)
+        let tpl = parse_template_config(Path::new("producer.yaml"), &yaml)
             .map_err(|e| tonic::Status::invalid_argument(format!("producer YAML: {e}")))?;
+        let sink_summary = format_sink_summary(&tpl.sink);
 
         let label = msg.config_label;
         let config_label = if label.trim().is_empty() {
@@ -266,6 +272,7 @@ impl Logspout for LogspoutSvc {
                 last_heartbeat: now,
                 last_reported_log_events: 0,
                 eps_interval: 0.0,
+                sink_summary,
             },
         );
         Ok(tonic::Response::new(StartLogServerReply {

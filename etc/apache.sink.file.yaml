@@ -1,0 +1,4 @@
+sink:
+  type: file
+  output: apache.log
+  max-size: 10mb

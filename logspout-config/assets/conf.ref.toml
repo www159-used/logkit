@@ -16,7 +16,7 @@ client_connect_uri = "http://127.0.0.1:1"
 
 # 造日志：`logspout-daemon` 内嵌 [`logspout_worker::run_producer_at_path`]（亦可单独运行 `logspout-worker -f` CLI）。
 # worker_output_dir 必填；producer YAML 的 output 相对此目录。若 producer 含 **kafka** 段则行日志发往 Kafka，output 被忽略。
-# producer YAML（非本文件）可选：**max-size**（字节），输出文件超过则清空再继续写；**0 或不写 = 不限制**。
+# producer YAML（非本文件）可选：**max-size**：整数（字节），或人类可读字符串（如 **64KiB**、**10MiB**，1024 进制）；输出文件超过则清空再继续写；**0 或不写 = 不限制**。
 #
 # 兼容：`[log_server]`、`[log_worker]` 会在合并后并入 `[worker]`。
 [worker]

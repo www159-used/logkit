@@ -33,15 +33,19 @@ pub struct KafkaConfig {
 
 /// 行日志 sink：**必填** `type`（`kafka` | `file` | `stdout`）。
 /// - **`output`**：仅 **`type: file`** 有意义；其它类型**不需要**，合并/解析入口会丢弃多余或前层残留的 `output`。
-/// - **`max-size`**：截断仅对 **`file`** 生效（他类型可省略或为 `0`）。
+/// - **`max-size`**：截断仅对 **`file`** 生效（他类型可省略或为 `0`）。可为整数（字节）或字符串，如 **`64KiB`**、**`10MiB`**、`1.5 GiB`（底数 1024）。
 /// - **`kafka`**：仅 **`type: kafka`** 时需要。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SinkConfig {
     /// `kafka` | `file` | `stdout`
     #[serde(rename = "type")]
     pub sink_type: LineSinkType,
-    /// **`type: file`** 时：单文件超过该字节数则截断；`0` 不限制。
-    #[serde(rename = "max-size", default = "default_max_size_bytes")]
+    /// **`type: file`** 时：单文件超过该字节数则截断；`0` 不限制。YAML 可为整数或带单位字符串（见 crate 说明）。
+    #[serde(
+        rename = "max-size",
+        default = "default_max_size_bytes",
+        deserialize_with = "crate::human_size::deserialize_max_size"
+    )]
     pub max_size_bytes: u64,
     /// **`type: file`** 时：相对 **`output_base`** 的路径。
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -56,7 +60,11 @@ pub struct SinkConfig {
 pub struct SinkLayer {
     #[serde(rename = "type", default)]
     pub sink_type: Option<LineSinkType>,
-    #[serde(rename = "max-size", default)]
+    #[serde(
+        rename = "max-size",
+        default,
+        deserialize_with = "crate::human_size::deserialize_opt_max_size"
+    )]
     pub max_size_bytes: Option<u64>,
     #[serde(default)]
     pub output: Option<String>,
@@ -118,6 +126,34 @@ fn normalize_sink_output(mut sink: SinkConfig) -> SinkConfig {
         sink.output = None;
     }
     sink
+}
+
+/// 供 list / stat 等展示的一行 **`sink:`** 摘要（`stdout` / `file:` / `kafka:`）。
+pub fn format_sink_summary(sink: &SinkConfig) -> String {
+    match sink.sink_type {
+        LineSinkType::Stdout => "stdout".into(),
+        LineSinkType::File => {
+            let path = sink.output.as_deref().unwrap_or("?");
+            if sink.max_size_bytes > 0 {
+                format!("file: {path} (max-size: {} bytes)", sink.max_size_bytes)
+            } else {
+                format!("file: {path}")
+            }
+        }
+        LineSinkType::Kafka => {
+            let Some(k) = sink.kafka.as_ref() else {
+                return "kafka: (missing kafka section)".into();
+            };
+            let broker = k.brokers.first().map(|b| b.as_str()).unwrap_or("?");
+            let more = k.brokers.len().saturating_sub(1);
+            let brokers = if more > 0 {
+                format!("{broker} +{more} more")
+            } else {
+                broker.to_string()
+            };
+            format!("kafka: topic {} @ {}", k.topic, brokers)
+        }
+    }
 }
 
 /// 将多层配置合并为一份 [`TemplateConfig`]（后者覆盖前者）。
@@ -454,6 +490,50 @@ fields: {}
     }
 
     #[test]
+    fn deserialize_producer_yaml_max_size_human_string() {
+        let y = r#"
+sink:
+  type: stdout
+  max-size: 64KiB
+template: "x"
+fields: {}
+"#;
+        let c: TemplateConfig = serde_yaml::from_str(y).unwrap();
+        assert_eq!(c.sink.max_size_bytes, 65536);
+    }
+
+    #[test]
+    fn deserialize_producer_yaml_max_size_human_quoted() {
+        let y = r#"
+sink:
+  type: stdout
+  max-size: "1.5MiB"
+template: "x"
+fields: {}
+"#;
+        let c: TemplateConfig = serde_yaml::from_str(y).unwrap();
+        assert_eq!(
+            c.sink.max_size_bytes,
+            (1.5_f64 * 1048576_f64).round() as u64
+        );
+    }
+
+    #[test]
+    fn parse_template_config_rejects_bad_max_size_unit() {
+        let raw = r#"sink:
+  type: stdout
+  max-size: 12xyz
+template: "x"
+fields: {}
+"#;
+        let e = parse_template_config(Path::new("t.yaml"), raw).unwrap_err();
+        assert!(
+            e.to_string().contains("max-size") || e.to_string().contains("unknown"),
+            "{e}"
+        );
+    }
+
+    #[test]
     fn parse_template_config_yaml_by_extension() {
         let raw = r#"sink:
   type: stdout
@@ -670,6 +750,50 @@ sink:
         assert_eq!(c.sink.max_size_bytes, 99);
         let mut r = TemplateRunner::try_new(c).unwrap();
         assert_eq!(r.next_line().unwrap(), "0");
+    }
+
+    #[test]
+    fn format_sink_summary_stdout_file_kafka() {
+        assert_eq!(
+            format_sink_summary(&SinkConfig {
+                sink_type: LineSinkType::Stdout,
+                max_size_bytes: 0,
+                output: None,
+                kafka: None,
+            }),
+            "stdout"
+        );
+        assert_eq!(
+            format_sink_summary(&SinkConfig {
+                sink_type: LineSinkType::File,
+                max_size_bytes: 0,
+                output: Some("a.log".into()),
+                kafka: None,
+            }),
+            "file: a.log"
+        );
+        assert_eq!(
+            format_sink_summary(&SinkConfig {
+                sink_type: LineSinkType::File,
+                max_size_bytes: 100,
+                output: Some("a.log".into()),
+                kafka: None,
+            }),
+            "file: a.log (max-size: 100 bytes)"
+        );
+        assert_eq!(
+            format_sink_summary(&SinkConfig {
+                sink_type: LineSinkType::Kafka,
+                max_size_bytes: 0,
+                output: None,
+                kafka: Some(KafkaConfig {
+                    brokers: vec!["h1:9092".into(), "h2:9092".into()],
+                    topic: "t".into(),
+                    extra: BTreeMap::new(),
+                }),
+            }),
+            "kafka: topic t @ h1:9092 +1 more"
+        );
     }
 
     #[test]

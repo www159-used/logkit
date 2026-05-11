@@ -135,9 +135,9 @@ async fn run() -> Result<(), LogspoutError> {
                 .list_servers(ListServersRequest {})
                 .await
                 .map_err(|s| LogspoutError::Grpc(s.to_string()))?;
-            println!("id\talive\thealthy");
+            println!("id\talive\thealthy\tsink");
             for s in r.into_inner().servers {
-                println!("{}\t{}\t{}", s.id, s.alive, s.healthy);
+                println!("{}\t{}\t{}\t{}", s.id, s.alive, s.healthy, s.sink_summary);
             }
         }
         Commands::Stat { id_prefix } => {
@@ -154,6 +154,7 @@ async fn run() -> Result<(), LogspoutError> {
             for s in list {
                 println!("id:\t\t{}", s.id);
                 println!("config_path:\t{}", s.config_path);
+                println!("sink:\t\t{}", s.sink_summary);
                 println!("alive:\t\t{}", s.alive);
                 println!("healthy:\t{}", s.healthy);
                 println!(
