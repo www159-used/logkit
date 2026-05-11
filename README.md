@@ -15,11 +15,11 @@
 cargo build --release
 ```
 
-产物：`target/release/logspout`、`target/release/logspout-daemon`。
+产物：`target/release/logspout`、`target/release/logspout-daemon`、`target/release/logspout-worker`（造日志子进程；producer YAML 可含 **kafka** 段写 Kafka）。
 
 ## 配置
 
-通过 `--defaults-file` 或环境变量 **`LOGSPOUT_DEFAULTS_FILE`** 指定 TOML；与内嵌参考配置深度合并。常用项包括 `[common].tmp_dir`（单实例运行目录，内含 `logspout-daemon.sock` / `logspout-daemon.pid` / `logspout-daemon.log`）、`[log_server]` 等。详见 `logspout-config/assets/conf.ref.toml`。
+通过 `--defaults-file` 或环境变量 **`LOGSPOUT_DEFAULTS_FILE`** 指定 TOML；与内嵌参考配置深度合并。常用项包括 `[common].tmp_dir`（单实例运行目录，内含 `logspout-daemon.sock` / `logspout-daemon.pid` / `logspout-daemon.log`）、`[worker]`（`worker_output_dir`；造日志由进程内 **logspout-worker 库** 驱动）等。详见 `logspout-config/assets/conf.ref.toml`。
 
 ## 打包
 

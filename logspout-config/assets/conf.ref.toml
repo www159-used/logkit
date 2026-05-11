@@ -14,10 +14,12 @@ max_encoding_message_size_bytes = 4194304
 ping_reply_text = "PONG"
 client_connect_uri = "http://127.0.0.1:1"
 
-# 造日志子进程：由 logspout-daemon 执行 current_exe + `worker -f <yaml>`。
-# worker_output_dir 必填（合并后的配置中须为非空）；daemon 拉起 worker 时将该路径设为子进程 cwd，producer YAML 的 output 相对此目录。
+# 造日志：`logspout-daemon` 内嵌 [`logspout_worker::run_producer_at_path`]（亦可单独运行 `logspout-worker -f` CLI）。
+# worker_output_dir 必填；producer YAML 的 output 相对此目录。若 producer 含 **kafka** 段则行日志发往 Kafka，output 被忽略。
 # producer YAML（非本文件）可选：**max-size**（字节），输出文件超过则清空再继续写；**0 或不写 = 不限制**。
-[log_server]
+#
+# 兼容：`[log_server]`、`[log_worker]` 会在合并后并入 `[worker]`。
+[worker]
 worker_output_dir = "./output"
 heartbeat_timeout_secs = 30
 heartbeat_interval_secs = 1

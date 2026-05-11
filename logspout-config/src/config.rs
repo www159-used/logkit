@@ -40,10 +40,10 @@ pub struct ProtocolSection {
     pub grpc: GrpcSection,
 }
 
-/// [log_server] — worker 子进程参数（造日志由同二进制 `logspout-daemon worker` 完成，无需配置 exe）。
+/// [worker] — 造日志实例；默认在 `logspout-daemon` **进程内** 运行 [`logspout_worker::run_producer_at_path`]。
 #[derive(Debug, Clone, Deserialize)]
-pub struct LogServerSection {
-    /// 造日志写入路径的根目录（**必填**）；daemon spawn worker 时将该路径设为子进程 **cwd**，producer YAML 里 `output` 为相对该目录的路径。
+pub struct WorkerSection {
+    /// 造日志写入路径的根目录（**必填**）；producer YAML 里 `output` 为**相对该目录**的路径。
     pub worker_output_dir: String,
     pub heartbeat_timeout_secs: u64,
     pub heartbeat_interval_secs: u64,
@@ -57,7 +57,8 @@ pub struct LogspoutConfig {
     #[serde(default)]
     pub client: ClientSection,
     pub protocol: ProtocolSection,
-    pub log_server: LogServerSection,
+    /// `[worker]`：旧键 `[log_server]` / `[log_worker]` 在 `load_merged` 中会并入本节。
+    pub worker: WorkerSection,
 }
 
 impl LogspoutConfig {
@@ -109,16 +110,52 @@ fn merge_toml_values(base: Value, over: Value) -> Value {
     }
 }
 
+/// 将旧节名 `[log_server]`、`[log_worker]` 并入 `[worker]`（后处理的节覆盖同名字段）。
+fn fold_legacy_worker_sections(root: &mut toml::map::Map<String, Value>) {
+    fold_section_into_worker(root, "log_server");
+    fold_section_into_worker(root, "log_worker");
+}
+
+fn fold_section_into_worker(root: &mut toml::map::Map<String, Value>, from_key: &str) {
+    let Some(Value::Table(src)) = root.remove(from_key) else {
+        return;
+    };
+    match root.remove("worker") {
+        Some(Value::Table(mut w)) => {
+            for (k, v) in src {
+                w.insert(k, v);
+            }
+            root.insert("worker".into(), Value::Table(w));
+        }
+        None | Some(_) => {
+            root.insert("worker".into(), Value::Table(src));
+        }
+    }
+}
+
+/// 已删除的配置键：合并旧表后可能仍存在，删掉以免反序列化失败。
+fn strip_obsolete_worker_keys(root: &mut toml::map::Map<String, Value>) {
+    let Some(Value::Table(w)) = root.get_mut("worker") else {
+        return;
+    };
+    w.remove("worker_executable");
+}
+
 /// Load embedded `conf.ref.toml`, optionally deep-merged with user TOML (`--defaults-file`).
 pub fn load_merged(user_defaults: Option<&Path>) -> Result<LogspoutConfig, LogspoutError> {
     let ref_str = ref_toml_string()?;
     let mut doc: Value = toml::from_str(&ref_str)?;
 
     if let Some(p) = user_defaults {
-        let user_s = std::fs::read_to_string(p)
-            .map_err(|e| LogspoutError::read_file(p.to_path_buf(), e))?;
+        let user_s =
+            std::fs::read_to_string(p).map_err(|e| LogspoutError::read_file(p.to_path_buf(), e))?;
         let user_v: Value = toml::from_str(&user_s)?;
         doc = merge_toml_values(doc, user_v);
+    }
+
+    if let Value::Table(ref mut root) = doc {
+        fold_legacy_worker_sections(root);
+        strip_obsolete_worker_keys(root);
     }
 
     let mut cfg: LogspoutConfig = doc

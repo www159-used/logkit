@@ -25,4 +25,8 @@ pub enum ConfigParseError {
     PathNotYaml(String),
     #[error("producer YAML: {0}")]
     Yaml(#[from] serde_yaml::Error),
+    #[error("read {0}: {1}")]
+    Io(String, #[source] std::io::Error),
+    #[error("merging producer config: {0}")]
+    Merge(String),
 }

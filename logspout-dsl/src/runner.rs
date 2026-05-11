@@ -2,29 +2,93 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use handlebars::Handlebars;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::builtins::{slots_from_fields, FieldSpec};
 use crate::facade::TemplateSlot;
 use crate::{ConfigParseError, Error};
 
-/// Worker producer 配置：`template` + 可选 `fields`、`min-interval`、`max-size`、`output`（仅 `.yaml` / `.yml`）。
-#[derive(Debug, Clone, Deserialize)]
+/// 行日志写出方式，见 [`SinkConfig`] 的 **`type`** 字段（YAML：`sink.type`）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LineSinkType {
+    Kafka,
+    File,
+    Stdout,
+}
+
+/// `kafka:` 下除 `brokers` / `topic` 外的**全部**键（含 `acks`、`timeout-ms`、`compression`、TLS、SASL 等），YAML 原样落在 map 里。
+pub type KafkaPassthroughFields = BTreeMap<String, serde_yaml::Value>;
+
+/// 与 Kafka 客户端配置对齐：**仅** `brokers`、`topic` 为显式字段；**其余键**一律经 [`KafkaConfig::extra`] 透传（由 worker / 日后 client 接线解析）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KafkaConfig {
+    /// broker 地址列表，如 `127.0.0.1:9092`。
+    pub brokers: Vec<String>,
+    pub topic: String,
+    #[serde(flatten)]
+    pub extra: KafkaPassthroughFields,
+}
+
+/// 行日志 sink：**必填** `type`（`kafka` | `file` | `stdout`）。
+/// - **`output`**：仅 **`type: file`** 有意义；其它类型**不需要**，合并/解析入口会丢弃多余或前层残留的 `output`。
+/// - **`max-size`**：截断仅对 **`file`** 生效（他类型可省略或为 `0`）。
+/// - **`kafka`**：仅 **`type: kafka`** 时需要。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SinkConfig {
+    /// `kafka` | `file` | `stdout`
+    #[serde(rename = "type")]
+    pub sink_type: LineSinkType,
+    /// **`type: file`** 时：单文件超过该字节数则截断；`0` 不限制。
+    #[serde(rename = "max-size", default = "default_max_size_bytes")]
+    pub max_size_bytes: u64,
+    /// **`type: file`** 时：相对 **`output_base`** 的路径。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output: Option<String>,
+    /// **`type: kafka`** 时的集群与透传项。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kafka: Option<KafkaConfig>,
+}
+
+/// 单层 YAML 里可选的 `sink:` 片段（合并时**后者覆盖前者**的各子字段）。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct SinkLayer {
+    #[serde(rename = "type", default)]
+    pub sink_type: Option<LineSinkType>,
+    #[serde(rename = "max-size", default)]
+    pub max_size_bytes: Option<u64>,
+    #[serde(default)]
+    pub output: Option<String>,
+    #[serde(default)]
+    pub kafka: Option<KafkaConfig>,
+}
+
+/// 合并后的 producer 配置（CLI 合并多文件后序列化为**单份 YAML** 传给 daemon / 落盘）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TemplateConfig {
     /// Handlebars 源字符串（无须外置文件）。占位符须与 `fields` 键一致；**勿**用 `len` 等名，会与 handlebars 内置 helper（如 `{{len …}}`）冲突。
     pub template: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub fields: BTreeMap<String, FieldSpec>,
     /// 每条日志间隔（毫秒），默认 1000。
     #[serde(rename = "min-interval", default = "default_min_interval_ms")]
     pub min_interval_ms: u64,
-    /// 有 `output` 时：文件累计字节超过该值则 **截断为空** 再继续 append；**`0` 表示不限制**（默认）。
-    #[serde(rename = "max-size", default = "default_max_size_bytes")]
-    pub max_size_bytes: u64,
-    /// 日志文件相对路径（相对 worker 进程 **cwd**；logspout-daemon 拉起子进程时已 `current_dir(worker_output_dir)`）。
+    /// 行日志写出：**`sink.type`** 及关联项（不可再扁平写在根上）。
+    pub sink: SinkConfig,
+}
+
+/// 单层 YAML：**模板（造行）** 与 **`sink:`** 可拆在不同文件；[`load_and_merge_producer_paths`] 按路径顺序合并。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ProducerConfigLayer {
     #[serde(default)]
-    pub output: Option<String>,
+    pub template: Option<String>,
+    #[serde(default)]
+    pub fields: Option<BTreeMap<String, FieldSpec>>,
+    #[serde(rename = "min-interval", default)]
+    pub min_interval_ms: Option<u64>,
+    #[serde(default)]
+    pub sink: Option<SinkLayer>,
 }
 
 fn default_min_interval_ms() -> u64 {
@@ -35,18 +99,145 @@ fn default_max_size_bytes() -> u64 {
     0
 }
 
-/// 仅接受路径扩展名为 `.yaml` / `.yml`，内容按 YAML 反序列化为 [`TemplateConfig`]。
-pub fn parse_template_config(config_path: &Path, raw: &str) -> Result<TemplateConfig, ConfigParseError> {
-    let ext = config_path
+fn yaml_extension_ok(path: &Path) -> Result<(), ConfigParseError> {
+    let ext = path
         .extension()
         .and_then(|s| s.to_str())
         .map(|e| e.to_ascii_lowercase());
     if !matches!(ext.as_deref(), Some("yaml") | Some("yml")) {
         return Err(ConfigParseError::PathNotYaml(
-            config_path.display().to_string(),
+            path.display().to_string(),
         ));
     }
-    Ok(serde_yaml::from_str(raw)?)
+    Ok(())
+}
+
+/// `output` 仅对 [`LineSinkType::File`] 有效；其它类型去掉 `output`，避免单层误写或多层合并时残留前层的文件路径。
+fn normalize_sink_output(mut sink: SinkConfig) -> SinkConfig {
+    if sink.sink_type != LineSinkType::File {
+        sink.output = None;
+    }
+    sink
+}
+
+/// 将多层配置合并为一份 [`TemplateConfig`]（后者覆盖前者）。
+pub fn merge_producer_layers(layers: Vec<ProducerConfigLayer>) -> Result<TemplateConfig, ConfigParseError> {
+    if layers.is_empty() {
+        return Err(ConfigParseError::Merge("至少需要 1 个 producer YAML 路径".into()));
+    }
+    let mut acc = ProducerConfigLayer::default();
+    let mut sink_acc = SinkLayer::default();
+    for layer in layers {
+        if layer.template.is_some() {
+            acc.template = layer.template;
+        }
+        if layer.fields.is_some() {
+            acc.fields = layer.fields;
+        }
+        if layer.min_interval_ms.is_some() {
+            acc.min_interval_ms = layer.min_interval_ms;
+        }
+        if let Some(s) = layer.sink {
+            if s.sink_type.is_some() {
+                sink_acc.sink_type = s.sink_type;
+            }
+            if s.max_size_bytes.is_some() {
+                sink_acc.max_size_bytes = s.max_size_bytes;
+            }
+            if s.output.is_some() {
+                sink_acc.output = s.output;
+            }
+            if s.kafka.is_some() {
+                sink_acc.kafka = s.kafka;
+            }
+        }
+    }
+    let template = acc.template.ok_or_else(|| {
+        ConfigParseError::Merge("合并后仍缺少必填字段 `template`（请在某个 YAML 中提供）".into())
+    })?;
+    if template.trim().is_empty() {
+        return Err(ConfigParseError::Merge("`template` 不能为空".into()));
+    }
+    let sink_type = sink_acc.sink_type.ok_or_else(|| {
+        ConfigParseError::Merge(
+            "合并后仍缺少 `sink.type`（请在某个 YAML 的 `sink:` 下设置 type: kafka | file | stdout）".into(),
+        )
+    })?;
+    let sink = normalize_sink_output(SinkConfig {
+        sink_type,
+        max_size_bytes: sink_acc.max_size_bytes.unwrap_or(0),
+        output: sink_acc.output,
+        kafka: sink_acc.kafka,
+    });
+    let cfg = TemplateConfig {
+        template,
+        fields: acc.fields.unwrap_or_default(),
+        min_interval_ms: acc.min_interval_ms.unwrap_or(1000),
+        sink,
+    };
+    validate_template_sink(&cfg)?;
+    Ok(cfg)
+}
+
+/// 检查 `sink.type` 与 `output` / `kafka` 是否一致。
+/// 非 `file` 的 `output` 应在进入此函数前丢弃（[`merge_producer_layers`] 与 [`parse_template_config`] 已处理）。
+pub fn validate_template_sink(cfg: &TemplateConfig) -> Result<(), ConfigParseError> {
+    match cfg.sink.sink_type {
+        LineSinkType::Kafka => {
+            if cfg.sink.kafka.is_none() {
+                return Err(ConfigParseError::Merge(
+                    "`sink.type: kafka` 时必须提供 `sink.kafka:` 段".into(),
+                ));
+            }
+        }
+        LineSinkType::File => {
+            let o = cfg.sink.output.as_deref().unwrap_or("").trim();
+            if o.is_empty() {
+                return Err(ConfigParseError::Merge(
+                    "`sink.type: file` 时必须提供非空的 `sink.output`".into(),
+                ));
+            }
+        }
+        LineSinkType::Stdout => {}
+    }
+    Ok(())
+}
+
+/// 读取多个 `.yaml` / `.yml`，按顺序合并（与 `logspout start a.yaml b.yaml` 一致）。
+pub fn load_and_merge_producer_paths<P: AsRef<Path>>(paths: &[P]) -> Result<TemplateConfig, ConfigParseError> {
+    if paths.is_empty() {
+        return Err(ConfigParseError::Merge("至少需要 1 个配置文件路径".into()));
+    }
+    let mut layers = Vec::with_capacity(paths.len());
+    for path in paths {
+        let path = path.as_ref();
+        yaml_extension_ok(path)?;
+        let raw = std::fs::read_to_string(path).map_err(|e| {
+            ConfigParseError::Io(path.display().to_string(), e)
+        })?;
+        let layer: ProducerConfigLayer = serde_yaml::from_str(&raw).map_err(|e| {
+            ConfigParseError::Merge(format!("parse {}: {e}", path.display()))
+        })?;
+        layers.push(layer);
+    }
+    merge_producer_layers(layers)
+}
+
+/// 将合并后的配置序列化为单份 YAML 字符串（供 gRPC `producer_yaml` / daemon 落盘）。
+pub fn template_config_to_yaml(cfg: &TemplateConfig) -> Result<String, serde_yaml::Error> {
+    serde_yaml::to_string(cfg)
+}
+
+/// 仅接受路径扩展名为 `.yaml` / `.yml`，内容按 YAML 反序列化为 [`TemplateConfig`]。
+pub fn parse_template_config(
+    config_path: &Path,
+    raw: &str,
+) -> Result<TemplateConfig, ConfigParseError> {
+    yaml_extension_ok(config_path)?;
+    let mut cfg: TemplateConfig = serde_yaml::from_str(raw)?;
+    cfg.sink = normalize_sink_output(cfg.sink);
+    validate_template_sink(&cfg)?;
+    Ok(cfg)
 }
 
 /// 每轮用门面生成上下文字段，再渲染 `template`。
@@ -91,6 +282,15 @@ mod tests {
 
     use super::*;
 
+    fn sink_stdout() -> SinkConfig {
+        SinkConfig {
+            sink_type: LineSinkType::Stdout,
+            max_size_bytes: 0,
+            output: None,
+            kafka: None,
+        }
+    }
+
     #[test]
     fn render_with_facades() {
         let cfg = TemplateConfig {
@@ -112,8 +312,7 @@ mod tests {
             .into_iter()
             .collect(),
             min_interval_ms: 1000,
-            max_size_bytes: 0,
-            output: None,
+            sink: sink_stdout(),
         };
         let mut r = TemplateRunner::try_new(cfg).unwrap();
         let line = r.next_line().unwrap();
@@ -128,8 +327,7 @@ mod tests {
                 .into_iter()
                 .collect(),
             min_interval_ms: 1000,
-            max_size_bytes: 0,
-            output: None,
+            sink: sink_stdout(),
         };
         let mut r = TemplateRunner::try_new(cfg).unwrap();
         assert_eq!(r.next_line().unwrap(), "n=0");
@@ -140,6 +338,8 @@ mod tests {
     #[test]
     fn deserialize_producer_yaml_minimal_fields() {
         let y = r#"
+sink:
+  type: stdout
 template: "x={{c}}"
 min-interval: 1
 fields:
@@ -148,35 +348,116 @@ fields:
 "#;
         let c: TemplateConfig = serde_yaml::from_str(y).unwrap();
         assert_eq!(c.min_interval_ms, 1);
-        assert_eq!(c.max_size_bytes, 0);
+        assert_eq!(c.sink.max_size_bytes, 0);
         let mut r = TemplateRunner::try_new(c).unwrap();
         assert_eq!(r.next_line().unwrap(), "x=0");
     }
 
     #[test]
-    fn deserialize_producer_yaml_max_size_defaults_to_zero() {
+    fn deserialize_producer_yaml_kafka_section_optional() {
         let y = r#"
+sink:
+  type: kafka
+  kafka:
+    brokers: ["127.0.0.1:9092"]
+    topic: t1
 template: "x"
 fields: {}
 "#;
         let c: TemplateConfig = serde_yaml::from_str(y).unwrap();
-        assert_eq!(c.max_size_bytes, 0);
+        let k = c.sink.kafka.as_ref().expect("kafka");
+        assert_eq!(k.topic, "t1");
+        assert_eq!(k.brokers, vec!["127.0.0.1:9092".to_string()]);
+        assert!(k.extra.is_empty(), "no extra keys");
+    }
+
+    #[test]
+    fn deserialize_producer_yaml_kafka_passthrough_extra() {
+        let y = r#"
+sink:
+  type: kafka
+  kafka:
+    brokers: ["127.0.0.1:9092"]
+    topic: t1
+    security-protocol: SSL
+    ssl-ca-location: /tmp/ca.pem
+    acks: all
+    timeout-ms: 12000
+    compression: gzip
+template: "x"
+fields: {}
+"#;
+        let c: TemplateConfig = serde_yaml::from_str(y).unwrap();
+        let k = c.sink.kafka.as_ref().unwrap();
+        assert_eq!(
+            k.extra.get("acks").and_then(|v| v.as_str()),
+            Some("all")
+        );
+        assert_eq!(
+            k.extra.get("timeout-ms").and_then(|v| v.as_u64()),
+            Some(12_000)
+        );
+        assert_eq!(
+            k.extra.get("compression").and_then(|v| v.as_str()),
+            Some("gzip")
+        );
+        assert_eq!(
+            k.extra.get("security-protocol").and_then(|v| v.as_str()),
+            Some("SSL")
+        );
+        assert_eq!(
+            k.extra.get("ssl-ca-location").and_then(|v| v.as_str()),
+            Some("/tmp/ca.pem")
+        );
+    }
+
+    #[test]
+    fn deserialize_producer_yaml_kafka_acks_integer() {
+        let y = r#"
+sink:
+  type: kafka
+  kafka:
+    brokers: ["b:9092"]
+    topic: t
+    acks: -1
+template: "x"
+fields: {}
+"#;
+        let c: TemplateConfig = serde_yaml::from_str(y).unwrap();
+        let k = c.sink.kafka.as_ref().unwrap();
+        assert_eq!(k.extra.get("acks").and_then(|v| v.as_i64()), Some(-1));
+    }
+
+    #[test]
+    fn deserialize_producer_yaml_max_size_defaults_to_zero() {
+        let y = r#"
+sink:
+  type: stdout
+template: "x"
+fields: {}
+"#;
+        let c: TemplateConfig = serde_yaml::from_str(y).unwrap();
+        assert_eq!(c.sink.max_size_bytes, 0);
     }
 
     #[test]
     fn deserialize_producer_yaml_max_size_nonzero() {
         let y = r#"
+sink:
+  type: stdout
+  max-size: 65536
 template: "x"
-max-size: 65536
 fields: {}
 "#;
         let c: TemplateConfig = serde_yaml::from_str(y).unwrap();
-        assert_eq!(c.max_size_bytes, 65536);
+        assert_eq!(c.sink.max_size_bytes, 65536);
     }
 
     #[test]
     fn parse_template_config_yaml_by_extension() {
-        let raw = r#"template: "a={{c}}"
+        let raw = r#"sink:
+  type: stdout
+template: "a={{c}}"
 min-interval: 2
 fields:
   c: { type: counter }
@@ -191,15 +472,14 @@ fields:
 fields: {}
 "#;
         let e = parse_template_config(Path::new("bad.json"), raw).unwrap_err();
-        assert!(
-            e.to_string().contains(".yaml"),
-            "unexpected error: {e}"
-        );
+        assert!(e.to_string().contains(".yaml"), "unexpected error: {e}");
     }
 
     #[test]
     fn yaml_folded_template_joins_lines() {
         let y = r#"
+sink:
+  type: stdout
 template: >-
   {{src_ip}} part2
   part3
@@ -223,8 +503,7 @@ fields: {}
                 .into_iter()
                 .collect(),
             min_interval_ms: 1000,
-            max_size_bytes: 0,
-            output: None,
+            sink: sink_stdout(),
         };
         let mut r = TemplateRunner::try_new(cfg).unwrap();
         let line = r.next_line().unwrap();
@@ -235,6 +514,8 @@ fields: {}
     #[test]
     fn field_type_template_nested_renders_sd_shape() {
         let y = r#"
+sink:
+  type: stdout
 template: "{{sd}}"
 min-interval: 1
 fields:
@@ -279,8 +560,7 @@ fields:
             .into_iter()
             .collect(),
             min_interval_ms: 1,
-            max_size_bytes: 0,
-            output: None,
+            sink: sink_stdout(),
         };
         let mut r = TemplateRunner::try_new(c).unwrap();
         assert_eq!(r.next_line().unwrap(), "fixed");
@@ -289,6 +569,8 @@ fields:
     #[test]
     fn field_type_one_of_lazy_counter_only_on_template_branch() {
         let y = r#"
+sink:
+  type: stdout
 template: "{{x}}"
 min-interval: 1
 fields:
@@ -310,10 +592,16 @@ fields:
                 continue;
             }
             let n: u64 = line.parse().expect("non-dash must be counter digits");
-            assert_eq!(n, next_expected, "counter must only advance when template branch is picked");
+            assert_eq!(
+                n, next_expected,
+                "counter must only advance when template branch is picked"
+            );
             next_expected = next_expected.wrapping_add(1);
         }
-        assert!(next_expected >= 100, "expected many template-branch picks in 800 trials");
+        assert!(
+            next_expected >= 100,
+            "expected many template-branch picks in 800 trials"
+        );
     }
 
     #[test]
@@ -327,8 +615,7 @@ fields:
             .into_iter()
             .collect(),
             min_interval_ms: 1,
-            max_size_bytes: 0,
-            output: None,
+            sink: sink_stdout(),
         };
         assert!(TemplateRunner::try_new(c).is_err());
     }
@@ -344,8 +631,7 @@ fields:
             .into_iter()
             .collect(),
             min_interval_ms: 1000,
-            max_size_bytes: 0,
-            output: None,
+            sink: sink_stdout(),
         };
         let mut r = TemplateRunner::try_new(cfg).unwrap();
         for _ in 0..20 {
@@ -354,4 +640,79 @@ fields:
             assert!((2..=4).contains(&n), "{line:?}");
         }
     }
+
+    #[test]
+    fn merge_two_layers_sink_overrides_output() {
+        let a: ProducerConfigLayer = serde_yaml::from_str(
+            r#"
+sink:
+  type: file
+  output: first.log
+template: "{{x}}"
+min-interval: 5
+fields:
+  x:
+    type: counter
+"#,
+        )
+        .unwrap();
+        let b: ProducerConfigLayer = serde_yaml::from_str(
+            r#"
+sink:
+  output: second.log
+  max-size: 99
+"#,
+        )
+        .unwrap();
+        let c = merge_producer_layers(vec![a, b]).unwrap();
+        assert_eq!(c.min_interval_ms, 5);
+        assert_eq!(c.sink.output.as_deref(), Some("second.log"));
+        assert_eq!(c.sink.max_size_bytes, 99);
+        let mut r = TemplateRunner::try_new(c).unwrap();
+        assert_eq!(r.next_line().unwrap(), "0");
+    }
+
+    #[test]
+    fn merge_later_kafka_drops_stale_file_output() {
+        let a: ProducerConfigLayer = serde_yaml::from_str(
+            r#"
+sink:
+  type: file
+  output: stale.log
+template: "{{x}}"
+fields:
+  x: { type: counter }
+"#,
+        )
+        .unwrap();
+        let b: ProducerConfigLayer = serde_yaml::from_str(
+            r#"
+sink:
+  type: kafka
+  kafka:
+    brokers: ["127.0.0.1:9092"]
+    topic: t
+"#,
+        )
+        .unwrap();
+        let c = merge_producer_layers(vec![a, b]).unwrap();
+        assert_eq!(c.sink.sink_type, LineSinkType::Kafka);
+        assert!(c.sink.output.is_none(), "kafka sink must not retain file output");
+    }
+
+    #[test]
+    fn later_layer_overrides_template() {
+        let a: ProducerConfigLayer = serde_yaml::from_str(
+            r#"
+sink:
+  type: stdout
+template: "a"
+"#,
+        )
+        .unwrap();
+        let b: ProducerConfigLayer = serde_yaml::from_str(r#"template: "b""#).unwrap();
+        let c = merge_producer_layers(vec![a, b]).unwrap();
+        assert_eq!(c.template, "b");
+    }
 }
+

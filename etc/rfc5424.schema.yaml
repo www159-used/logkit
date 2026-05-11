@@ -2,8 +2,8 @@
 # 形状: <prival> VERSION SP TIMESTAMP SP HOSTNAME SP APP-NAME SP PROCID SP MSGID SP STRUCTURED-DATA [SP MSG]
 # HOSTNAME / APP-NAME：fake（hostname / lorem-word）；若需 NILVALUE "-" 可改回 pick 混用。
 # MSG：sentence；勿用字段名 len、if 等 handlebars 保留字。
-output: rfc5424-syslog.log
-max-size: 0
+#
+# 与 rfc5424.sink.yaml 一并（`sink:` 含 `type`；file 时再配 `output`）：logspout start etc/rfc5424.schema.yaml etc/rfc5424.sink.yaml
 min-interval: 100
 template: >-
   <{{prival}}>1

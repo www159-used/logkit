@@ -1,16 +1,16 @@
 use std::collections::BTreeMap;
 
 use chrono::Local;
-use fake::{Fake, Faker};
 use fake::faker::company::raw::CompanyName;
 use fake::faker::internet::raw::{DomainSuffix, IPv4, UserAgent, Username};
-use fake::faker::lorem::raw::Word;
 use fake::faker::lorem::en::Words;
+use fake::faker::lorem::raw::Word;
 use fake::faker::name::raw::Name;
 use fake::locales::EN;
 use fake::uuid::UUIDv4;
+use fake::{Fake, Faker};
 use handlebars::Handlebars;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use url::Url;
 
@@ -19,7 +19,7 @@ use crate::Error;
 
 /// [`FieldSpec::OneOf`] 的单个分支：YAML 中可写 **字符串字面量**，或 **`template` + `fields`** 子树（与 `type: template` 同形）。
 /// 每轮 **均匀** 随机选一翼；**仅被选翼会求值**（未选中的 `template` 子树及其 `counter` 等不会跑）。
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum OneOfBranch {
     Literal(String),
@@ -27,7 +27,7 @@ pub enum OneOfBranch {
 }
 
 /// `one-of` 中带 `template` / `fields` 的分支（映射 YAML 里含 `template` 键的映射表）。
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OneOfTemplateBranch {
     pub template: String,
     #[serde(default)]
@@ -35,7 +35,7 @@ pub struct OneOfTemplateBranch {
 }
 
 /// 配置里 `fields.<name>` 的描述：内置 `type` 门面，由 [`into_slot`] 转成 [`TemplateSlot`]。
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum FieldSpec {
     /// 随机 UUID v4 字符串
@@ -50,19 +50,11 @@ pub enum FieldSpec {
         format: String,
     },
     /// 从给定列表均匀随机（仅用 [`fake`] 抽下标）
-    Pick {
-        values: Vec<String>,
-    },
+    Pick { values: Vec<String> },
     /// 闭区间 `[min, max]` 内随机整数（`fake`）
-    Integer {
-        min: i64,
-        max: i64,
-    },
+    Integer { min: i64, max: i64 },
     /// [`fake`] lorem：空格分隔的随机英文词，词数在 `[min, max]`（含）之间均匀随机
-    Sentence {
-        min: usize,
-        max: usize,
-    },
+    Sentence { min: usize, max: usize },
     /// 随机绝对 URL（`fake` + `url` crate，形如 `https://example.com/fruit/...`）
     Url,
     /// 随机 URL 的请求路径部分（含 query、fragment），用于 `\"GET {{dst}} HTTP/1.1\"` 等
@@ -89,9 +81,7 @@ pub enum FieldSpec {
         fields: BTreeMap<String, FieldSpec>,
     },
     /// 多选一：分支为 **字面量字符串** 或 **内联 template 子树**；仅选中分支参与本行生成（lazy）。
-    OneOf {
-        branches: Vec<OneOfBranch>,
-    },
+    OneOf { branches: Vec<OneOfBranch> },
 }
 
 fn default_ts_format() -> String {
@@ -132,10 +122,9 @@ impl FieldSpec {
             FieldSpec::Url => Ok(Box::new(UrlSlot)),
             FieldSpec::UrlPath => Ok(Box::new(UrlPathSlot)),
             FieldSpec::Counter => Ok(Box::new(CounterSlot { n: 0 })),
-            FieldSpec::Template { template, fields } => Ok(Box::new(make_composite_template_slot(
-                template,
-                fields,
-            )?)),
+            FieldSpec::Template { template, fields } => {
+                Ok(Box::new(make_composite_template_slot(template, fields)?))
+            }
             FieldSpec::OneOf { branches } => {
                 if branches.is_empty() {
                     return Err(Error::EmptyOneOfBranches);
@@ -146,8 +135,7 @@ impl FieldSpec {
                         OneOfBranch::Literal(s) => OneOfArm::Literal(s),
                         OneOfBranch::Template(OneOfTemplateBranch { template, fields }) => {
                             OneOfArm::Nested(Box::new(make_composite_template_slot(
-                                template,
-                                fields,
+                                template, fields,
                             )?))
                         }
                     });

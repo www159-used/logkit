@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# logkit 工作区打包（logspout + logspout-daemon 二进制）：
+# logkit 工作区打包（logspout + logspout-daemon + logspout-worker 二进制）：
 #   ./scripts/logkit-pack.sh           # 默认：linux x86_64 / aarch64 musl → dist/logkit-<triple>.tar.gz
 #   ./scripts/logkit-pack.sh native    # 本机 target/release → dist/logkit/（不压缩）
 #
@@ -33,9 +33,9 @@ pack_native_dir() {
   if [[ "$(uname -s)" == "Darwin" ]]; then
     export COPYFILE_DISABLE=1
   fi
-  cp "$ROOT/target/release/logspout" "$ROOT/target/release/logspout-daemon" "$dist/bin/"
+  cp "$ROOT/target/release/logspout" "$ROOT/target/release/logspout-daemon" "$ROOT/target/release/logspout-worker" "$dist/bin/"
   cp "$ROOT/etc/"* "$dist/etc/"
-  chmod +x "$dist/bin/logspout" "$dist/bin/logspout-daemon"
+  chmod +x "$dist/bin/logspout" "$dist/bin/logspout-daemon" "$dist/bin/logspout-worker"
   echo "packed -> $dist"
 }
 
@@ -140,9 +140,9 @@ pack_musl_tarball() {
   if [[ "$(uname -s)" == "Darwin" ]]; then
     export COPYFILE_DISABLE=1
   fi
-  cp "$ROOT/target/$target/release/logspout" "$ROOT/target/$target/release/logspout-daemon" "$stage/bin/"
+  cp "$ROOT/target/$target/release/logspout" "$ROOT/target/$target/release/logspout-daemon" "$ROOT/target/$target/release/logspout-worker" "$stage/bin/"
   cp "$ROOT/etc/"* "$stage/etc/"
-  chmod +x "$stage/bin/logspout" "$stage/bin/logspout-daemon"
+  chmod +x "$stage/bin/logspout" "$stage/bin/logspout-daemon" "$stage/bin/logspout-worker"
   find "$parent" -name '._*' -delete 2>/dev/null || true
   local out="$ROOT/dist/logkit-${target}.tar.gz"
   mkdir -p "$ROOT/dist"

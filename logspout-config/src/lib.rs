@@ -7,8 +7,8 @@ mod embed;
 mod error;
 
 pub use config::{
-    load_merged, ClientSection, CommonSection, DaemonSection, GrpcSection, LogServerSection,
-    LogspoutConfig, ProtocolSection,
+    load_merged, ClientSection, CommonSection, DaemonSection, GrpcSection, LogspoutConfig,
+    ProtocolSection, WorkerSection,
 };
 pub use error::LogspoutError;
 
@@ -34,9 +34,7 @@ fn inject_defaults_file_from_env(args: Vec<String>) -> Vec<String> {
 
 /// Strip `--defaults-file <path>` from argv；可与 [`inject_defaults_file_from_env`] 配合。
 /// 返回 `(覆盖用 TOML 路径, 余下子命令与参数)`.
-pub fn parse_cli_args(
-    args: Vec<String>,
-) -> Result<(Option<PathBuf>, Vec<String>), LogspoutError> {
+pub fn parse_cli_args(args: Vec<String>) -> Result<(Option<PathBuf>, Vec<String>), LogspoutError> {
     let args = inject_defaults_file_from_env(args);
     let mut defaults = None;
     let mut rest = Vec::new();

@@ -1,0 +1,5 @@
+# RFC5424 示例：文件输出
+sink:
+  type: file
+  output: rfc5424-syslog.log
+  max-size: 0

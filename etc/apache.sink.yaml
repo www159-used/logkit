@@ -1,0 +1,17 @@
+# 写出目标：须使用 `sink:` 嵌套块。`output` 仅 `type: file` 时需要；Kafka 用 `sink.kafka:`。
+# 口令请本地填写，勿提交真机密。
+sink:
+  type: kafka
+  max-size: 0
+  kafka:
+    brokers:
+      - "192.168.1.60:9092"
+    topic: apache-access
+    security.protocol: SSL
+    ssl.keystore.location: /opt/yotta/cert/keystore.jks
+    ssl.keystore.password: REPLACE_KEYSTORE_PASSWORD
+    ssl.truststore.location: /opt/yotta/cert/truststore.jks
+    ssl.truststore.password: REPLACE_TRUSTSTORE_PASSWORD
+    ssl.endpoint.identification.algorithm: ""
+    ssl.protocol: TLSv1.3
+    ssl.enabled.protocols: TLSv1.3

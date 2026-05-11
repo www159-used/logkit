@@ -3,7 +3,8 @@
 #
 # 头：LEEF:2.0|Vendor|Product|Version|EventID|Delimiter|
 # 属性之间用 ^（与 Delimiter 一致）。若需 Tab：头末段改为 x09，模板里 ^ 改为 \t。
-output: leef-v2.log
+#
+# 与 leefv2.sink.yaml 一并：logspout start etc/leefv2.schema.yaml etc/leefv2.sink.yaml
 min-interval: 100
 template: >-
   LEEF:2.0|{{vendor}}|{{product}}|{{prod_ver}}|{{event_id}}|^|src={{src}}^dst={{dst}}^sev={{sev}}^cat={{cat}}^dhost={{dhost}}^usrName={{user}}^msg={{msg}}

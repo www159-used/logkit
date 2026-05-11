@@ -14,6 +14,7 @@ use tonic::transport::Endpoint;
 use tower::service_fn;
 
 use logspout_config::{load_merged, LogspoutError};
+use logspout_dsl::{load_and_merge_producer_paths, template_config_to_yaml};
 
 #[derive(Parser)]
 #[command(
@@ -44,7 +45,9 @@ enum Commands {
     },
     List,
     Start {
-        config_path: String,
+        /// Producer YAML：可多个路径，CLI 合并为单份配置再传给 daemon（后者覆盖前者）。
+        #[arg(required = true, num_args = 1.., value_name = "CONFIG.yaml")]
+        config_paths: Vec<String>,
     },
     Stop {
         id: String,
@@ -153,8 +156,14 @@ async fn run() -> Result<(), LogspoutError> {
                 println!("config_path:\t{}", s.config_path);
                 println!("alive:\t\t{}", s.alive);
                 println!("healthy:\t{}", s.healthy);
-                println!("eps:\t\t{:.3}\t(realtime est.: extrapolated total / uptime)", s.eps);
-                println!("eps_interval:\t{:.3}\t(last heartbeat window Δ/Δt)", s.eps_interval);
+                println!(
+                    "eps:\t\t{:.3}\t(realtime est.: extrapolated total / uptime)",
+                    s.eps
+                );
+                println!(
+                    "eps_interval:\t{:.3}\t(last heartbeat window Δ/Δt)",
+                    s.eps_interval
+                );
                 println!("events_total:\t{}", s.log_events_total);
                 println!("events_est:\t{:.1}", s.log_events_estimated);
                 println!("sec_since_hb:\t{:.3}", s.seconds_since_heartbeat);
@@ -163,19 +172,19 @@ async fn run() -> Result<(), LogspoutError> {
                 println!();
             }
         }
-        Commands::Start { config_path } => {
-            if config_path.is_empty() {
-                return Err(LogspoutError::Cli(
-                    "start needs producer YAML path (.yaml or .yml)".into(),
-                ));
-            }
-            let producer_yaml = std::fs::read_to_string(&config_path).map_err(|e| {
-                LogspoutError::Cli(format!("read {config_path}: {e}"))
+        Commands::Start { config_paths } => {
+            let paths: Vec<PathBuf> = config_paths.iter().map(PathBuf::from).collect();
+            let merged = load_and_merge_producer_paths(&paths).map_err(|e| {
+                LogspoutError::Cli(e.to_string())
             })?;
+            let producer_yaml = template_config_to_yaml(&merged).map_err(|e| {
+                LogspoutError::Cli(format!("serialize merged producer YAML: {e}"))
+            })?;
+            let config_label = config_paths.join(" + ");
             let r = client
                 .start_log_server(StartLogServerRequest {
                     producer_yaml,
-                    config_label: config_path,
+                    config_label,
                 })
                 .await
                 .map_err(|s| LogspoutError::Grpc(s.to_string()))?;

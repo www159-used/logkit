@@ -46,7 +46,7 @@ message ListServersReply {
 message StartLogServerRequest {
   // producer YAML 全文（由 logspout 客户端读取本地文件后填入）
   string producer_yaml = 1;
-  // 展示用标签，如用户侧路径 `etc/apache.yaml`
+  // 展示用标签，如用户侧路径 `etc/apache.schema.yaml + etc/apache.sink.yaml`（合并后 YAML 含 `sink:` 块）
   string config_label = 2;
 }
 

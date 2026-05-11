@@ -7,7 +7,11 @@ members = [
     "logspout",
     "logspout-daemon",
     "logspout-dsl",
+    "logspout-worker",
 ]
 
 [workspace.dependencies]
 clap = { version = "4", features = ["derive", "env"] }
+async-trait = "0.1"
+# kafka-protocol 0.10 与 bytes≥1.10 的 Buf::try_get_* 歧义（E0034）；暂锁全工作区 bytes 1.9。
+bytes = "=1.9.0"
