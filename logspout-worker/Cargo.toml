@@ -8,12 +8,12 @@ license = "GPL-3.0"
 async-trait = { workspace = true }
 bytes = { workspace = true }
 clap = { workspace = true }
-http = "1"
-hyper-util = { version = "0.1", features = ["tokio"] }
+http = { workspace = true }
+hyper-util = { workspace = true }
 kafka-rs = "0.5"
 logspout-dsl = { path = "../logspout-dsl" }
 logspout-proto = { path = "../logspout-proto" }
-serde_yaml = "0.9"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "fs"] }
-tonic = "0.12"
-tower = "0.5"
+serde_yaml = { workspace = true }
+tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "time"] }
+tonic = { workspace = true }
+tower = { workspace = true }

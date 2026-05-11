@@ -6,11 +6,11 @@ license = "GPL-3.0"
 
 [dependencies]
 clap = { workspace = true }
-http = "1"
-hyper-util = { version = "0.1", features = ["tokio"] }
+http = { workspace = true }
+hyper-util = { workspace = true }
 logspout-config = { path = "../logspout-config" }
 logspout-dsl = { path = "../logspout-dsl" }
 logspout-proto = { path = "../logspout-proto" }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "net"] }
-tonic = "0.12"
-tower = "0.5"
+tokio = { workspace = true, features = ["macros", "net", "rt"] }
+tonic = { workspace = true }
+tower = { workspace = true }
