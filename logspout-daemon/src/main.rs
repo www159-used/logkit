@@ -29,7 +29,7 @@ use logspout_dsl::{format_sink_summary, parse_template_config};
 #[command(
     name = "logspout-daemon",
     version,
-    about = "logspout-daemon — gRPC 控制面（Unix 套接字）；造日志在进程内由 logspout-worker 库驱动",
+    about = "logspout-daemon — gRPC control plane (Unix socket); log generation is driven in-process by the logspout-worker library",
     disable_help_subcommand = true
 )]
 struct LogspoutDaemonCli {
@@ -120,7 +120,10 @@ fn reap_exited(guard: &mut HashMap<String, RunningWorker>) {
 }
 
 /// 追加写入 `{tmp_dir}/logspout-daemon.log`。未设置 **`RUST_LOG`** 时使用 **`default_spec`**（来自 `[daemon].log_level`）。
-fn init_daemon_logging(log_path: &Path, default_spec: &str) -> Result<flexi_logger::LoggerHandle, LogspoutError> {
+fn init_daemon_logging(
+    log_path: &Path,
+    default_spec: &str,
+) -> Result<flexi_logger::LoggerHandle, LogspoutError> {
     let parent = log_path.parent().unwrap_or_else(|| Path::new("."));
     let stem = log_path
         .file_stem()

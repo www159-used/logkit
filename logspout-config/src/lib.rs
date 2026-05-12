@@ -63,6 +63,9 @@ mod tests {
 
     use super::*;
 
+    /// 测试内容：`--defaults-file` 覆盖环境变量 `LOGSPOUT_DEFAULTS_FILE`。
+    /// 输入：先设 `LOGSPOUT_DEFAULTS_FILE=/tmp/x.toml` 解析 `ping`；再带长选项 `--defaults-file /tmp/y.toml`。
+    /// 预期：无 flag 时默认路径为 `/tmp/x.toml`；有 flag 时为 `/tmp/y.toml`；剩余参数均为 `ping`；最后清除环境变量。
     #[test]
     fn defaults_file_env_and_flag_precedence() {
         std::env::set_var("LOGSPOUT_DEFAULTS_FILE", "/tmp/x.toml");

@@ -7,7 +7,7 @@ tmp_dir = "/tmp/logspout-daemon"
 [daemon]
 pid_record_suffix = "\n"
 # logspout-daemon：未设置 RUST_LOG 时的默认级别（flexi_logger）；设置 RUST_LOG 则优先环境变量。
-log_level = "info"
+log_level = "debug"
 
 # gRPC 实际走 Unix 套接字；tonic 客户端仍需要一个形式上合法的 HTTP URI 作 Endpoint，并不发起 TCP。
 [protocol.grpc]

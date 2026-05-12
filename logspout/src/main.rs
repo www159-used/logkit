@@ -20,7 +20,7 @@ use logspout_dsl::{load_and_merge_producer_paths, template_config_to_yaml};
 #[command(
     name = "logspout",
     version,
-    about = "logspout — gRPC 客户端（Unix 套接字）",
+    about = "logspout — gRPC client (Unix socket)",
     disable_help_subcommand = true
 )]
 struct Cli {
@@ -175,12 +175,10 @@ async fn run() -> Result<(), LogspoutError> {
         }
         Commands::Start { config_paths } => {
             let paths: Vec<PathBuf> = config_paths.iter().map(PathBuf::from).collect();
-            let merged = load_and_merge_producer_paths(&paths).map_err(|e| {
-                LogspoutError::Cli(e.to_string())
-            })?;
-            let producer_yaml = template_config_to_yaml(&merged).map_err(|e| {
-                LogspoutError::Cli(format!("serialize merged producer YAML: {e}"))
-            })?;
+            let merged = load_and_merge_producer_paths(&paths)
+                .map_err(|e| LogspoutError::Cli(e.to_string()))?;
+            let producer_yaml = template_config_to_yaml(&merged)
+                .map_err(|e| LogspoutError::Cli(format!("serialize merged producer YAML: {e}")))?;
             let config_label = config_paths.join(" + ");
             let r = client
                 .start_worker(StartWorkerRequest {

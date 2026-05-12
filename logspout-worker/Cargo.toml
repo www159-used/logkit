@@ -6,14 +6,30 @@ license = "GPL-3.0"
 
 [dependencies]
 async-trait = { workspace = true }
-bytes = { workspace = true }
 clap = { workspace = true }
 http = { workspace = true }
 hyper-util = { workspace = true }
-kafka-rs = "0.5"
+# JKS：纯 Rust `jks`（禁用默认 `pkcs12`，避免 p12-keystore 与当前 pkcs5 解析不兼容）；`pem` 用于 DER→PEM。
+jks = { version = "0.3.3", default-features = false, features = ["rand"] }
+pem = "3"
+# Kafka：rdkafka（librdkafka，cmake）。`ssl-vendored`：openssl-sys/vendored（便于 musl 交叉）。`curl`+`curl-static`：librdkafka 2.12 在 `WITH_OAUTHBEARER_OIDC=0` 时仍 `#ifdef WITH_OAUTHBEARER_OIDC` 包含 curl.h；宿主有 libcurl 头时不易察觉，交叉到 musl 会缺头文件，故一并静态编 curl-sys。
 logspout-dsl = { path = "../logspout-dsl" }
 logspout-proto = { path = "../logspout-proto" }
+rdkafka = { version = "0.36", default-features = false, features = [
+  "cmake-build",
+  "libz",
+  "ssl-vendored",
+  "curl",
+  "curl-static",
+  "tokio",
+] }
 serde_yaml = { workspace = true }
+tempfile = "3"
+thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "time"] }
 tonic = { workspace = true }
 tower = { workspace = true }
+
+[[bin]]
+name = "logspout-kafka-probe"
+path = "src/bin/logspout-kafka-probe.rs"

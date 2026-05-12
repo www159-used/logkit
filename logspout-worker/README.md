@@ -30,4 +30,6 @@ logspout-worker -f CONFIG.yaml
 
 ## Kafka
 
-Producer 含 **`sink.type: kafka`** 时使用 **`kafka-rs`** 发送；详见 [`logspout-dsl`](../logspout-dsl/README.md)。
+**`sink.type: kafka`** 走 **[rdkafka](https://github.com/fede1024/rust-rdkafka)**（**CMake**；TLS 为 **openssl vendored**；依赖里含 **curl-sys**，交叉 **musl** 时注意与仓库 **`scripts/logkit-pack.sh`** 一致）。**`.jks`** 用 **`jks`** crate 转 PEM；**`.p12`/`.pfx`** 仍要本机 **`openssl pkcs12`**。字段与 YAML 约定见 **[`logspout-dsl`](../logspout-dsl/README.md)**。
+
+**musl 交叉**：推荐 **`cargo-zigbuild`**；打发行包可直接 **`./scripts/logkit-pack.sh musl`**（或对工作区 `cargo zigbuild --release --target <triple>`）。

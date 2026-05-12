@@ -1,0 +1,23 @@
+# 在 logspout-worker 目录下运行（保证相对路径 assets/ 可用）：
+#   cargo build --release -p logspout-worker && ./target/release/logspout-worker -f tests/fixtures/kafka_asset_broker.yaml
+# 首次写出前会等待一个 min-interval；按 Ctrl+C 结束。topic 须已存在或集群允许自动创建。
+#
+# 若只需验证 TLS 与 metadata、不写 topic，请用：
+#   cargo run -p logspout-worker --bin logspout-kafka-probe
+
+template: "logspout tls smoke line"
+min-interval: 60000
+
+sink:
+  type: kafka
+  max-size: 0
+  kafka:
+    brokers:
+      - "192.168.1.60:9092"
+    topic: logspout-ssl-smoke
+    security.protocol: SSL
+    ssl.truststore.location: assets/truststore.jks
+    ssl.truststore.password: "vKFoWrbf_El1pCtcUVHZn0ygI5Mu8izQ"
+    ssl.keystore.location: assets/keystore.jks
+    ssl.keystore.password: "8c4804e1504aa139bd827c9c016f11d4cc7174a95352f5068a3cb2c1f4849e91"
+    ssl.endpoint.identification.algorithm: ""

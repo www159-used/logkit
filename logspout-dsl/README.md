@@ -33,9 +33,9 @@
 
 ### `type: kafka`
 
-行发到 Kafka；**不需要** `output`。参数在 **`sink.kafka:`**（`brokers`、`topic`、可选 **`headers:`**、以及 `acks` 等透传项）。示例：**[`etc/apache.sink.kafka.yaml`](../etc/apache.sink.kafka.yaml)**（勿提交真实口令）。
+行发到 Kafka；**不需要** `output`。参数在 **`sink.kafka:`**（`brokers`、`topic`、可选 **`headers:`**，以及 worker 识别的 `acks`、`timeout-ms`、`compression`、`security.protocol`、`ssl.*`、`sasl.*` 等字段）。**`ssl.truststore.location` / `ssl.keystore.location`** 支持 **`.pem` / `.crt` / `.jks` / `.p12`**：**`.jks`** 由 **`jks`**（纯 Rust）解析，**无需 `keytool`/JDK**；**`.p12`/`.pfx`** 仍调用 **`openssl pkcs12`**（须在 `PATH`）。并配置 **`ssl.truststore.password`** / **`ssl.keystore.password`**；客户端 **JKS** 含多个私钥时默认取**别名升序第一条**（可选 **`ssl.keystore.alias`** 显式指定）。示例：**[`etc/apache.sink.kafka.yaml`](../etc/apache.sink.kafka.yaml)**（勿提交真实口令）。
 
-**`sink.kafka.headers`**（可选）：字符串键 → 标量值；键与值按 **UTF-8** 写入 Kafka record header。值类型：**字符串** / **整数、浮点**（按十进制文本编码）/ **布尔**（`true` / `false`）/ **`null`**（Kafka **空值 header**，即 `Option::None`）；**不支持**嵌套 mapping / array。
+**`sink.kafka.headers`**（可选）：YAML 可解析并参与合并/展示；**`logspout-worker`** 经 **rdkafka（librdkafka）** 会作为 **Kafka record headers** 逐条发送。值类型：**字符串** / **整数、浮点** / **布尔** / **`null`**（空值 header）；**不支持**嵌套 mapping / array。
 
 ## `fields`：内置 `type`
 

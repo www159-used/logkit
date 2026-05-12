@@ -4,7 +4,7 @@ use std::env;
 use std::path::Path;
 
 use clap::Parser;
-use logspout_worker::{ProducerHeartbeatEnv, run_producer_at_path};
+use logspout_worker::{run_producer_at_path, ProducerHeartbeatEnv};
 
 #[derive(Parser)]
 #[command(name = "logspout-worker", disable_help_subcommand = true)]

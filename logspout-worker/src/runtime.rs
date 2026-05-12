@@ -88,8 +88,7 @@ pub async fn run_producer_at_path(
     output_base: PathBuf,
     heartbeat: Option<ProducerHeartbeatEnv>,
 ) -> Result<(), String> {
-    let raw = std::fs::read_to_string(&config_path)
-        .map_err(|e| format!("read config: {e}"))?;
+    let raw = std::fs::read_to_string(&config_path).map_err(|e| format!("read config: {e}"))?;
     let cfg: TemplateConfig = parse_template_config(Path::new(&config_path), &raw)
         .map_err(|e| format!("parse producer config: {e}"))?;
     if cfg.template.trim().is_empty() {
@@ -104,8 +103,8 @@ pub async fn run_producer_at_path(
 
     let interval_ms = cfg.min_interval_ms;
 
-    let mut sink: Box<dyn LogLineSink> = build_line_sink(&cfg, output_base.as_path())
-        .map_err(|e| format!("{config_path}: {e}"))?;
+    let mut sink: Box<dyn LogLineSink> =
+        build_line_sink(&cfg, output_base.as_path()).map_err(|e| format!("{config_path}: {e}"))?;
 
     let mut runner = TemplateRunner::try_new(cfg).map_err(|e| format!("producer config: {e}"))?;
 
@@ -119,10 +118,10 @@ pub async fn run_producer_at_path(
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
         tick.tick().await;
-        let line = runner
-            .next_line()
-            .map_err(|e| format!("render: {e}"))?;
+        let line = runner.next_line().map_err(|e| format!("render: {e}"))?;
         events.fetch_add(1, Ordering::Relaxed);
-        sink.emit_line(&line).await.map_err(|e| format!("{config_path}: {e}"))?;
+        sink.emit_line(&line)
+            .await
+            .map_err(|e| format!("{config_path}: {e}"))?;
     }
 }

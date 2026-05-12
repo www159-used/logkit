@@ -30,9 +30,9 @@ alwaysApply: false
 ## 示例
 
 ```rust
-    /// 测试内容：Kafka sink 的 `headers` 映射能从 YAML 反序列化且不进 `extra`。
+    /// 测试内容：Kafka sink 的 `headers` 能从 YAML 反序列化且与传输相关可选字段分离。
     /// 输入：含 `source`、`trace-id`、null 与整数字段的 `sink.kafka.headers`。
-    /// 预期：`headers` 各键类型正确；`extra` 无多余透传键。
+    /// 预期：`headers` 各键类型正确；未设置 `acks`、`compression` 等可选字段。
     #[test]
     fn deserialize_producer_yaml_kafka_headers() {
         // ...

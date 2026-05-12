@@ -12,10 +12,18 @@ sink:
     #   source: logspout
     #   schema: apache-combined
     security.protocol: SSL
-    ssl.keystore.location: /opt/yotta/cert/keystore.jks
-    ssl.keystore.password: REPLACE_KEYSTORE_PASSWORD
+    # 方式一（与 Java client 接近）：.jks / .p12 + 口令。.jks 由内置 jks（Rust）→ 临时 PEM；.p12/.pfx 用 openssl pkcs12（须在 PATH）。
     ssl.truststore.location: /opt/yotta/cert/truststore.jks
-    ssl.truststore.password: REPLACE_TRUSTSTORE_PASSWORD
+    ssl.truststore.password: "CHANGE_ME_TRUSTSTORE_PASSWORD"
+    ssl.keystore.location: /opt/yotta/cert/keystore.jks
+    ssl.keystore.password: "CHANGE_ME_KEYSTORE_PASSWORD"
+    # 可选：JKS 内有多条私钥且默认（别名升序第一条）不是你要的那条时，指定 ssl.keystore.alias（与 keytool -list 一致）：
+    # ssl.keystore.alias: my-client-key
+    # 方式二：已导出 PEM 时可直接写路径（不必再配 truststore/keystore）。
+    # ssl.ca.pem: /opt/yotta/cert/cluster-ca.pem
+    # ssl.certificate.pem: /opt/yotta/cert/client.crt
+    # ssl.private.key.pem: /opt/yotta/cert/client.key
     ssl.endpoint.identification.algorithm: ""
+    # 以下两项可被 YAML 接受；当前客户端不会按此钉死 TLS 版本（见 logspout-dsl README）。
     ssl.protocol: TLSv1.3
     ssl.enabled.protocols: TLSv1.3

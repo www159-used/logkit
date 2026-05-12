@@ -18,20 +18,234 @@ pub enum LineSinkType {
     Stdout,
 }
 
-/// `kafka:` 下除 `brokers` / `topic` / `headers` 外的**全部**键（含 `acks`、`timeout-ms`、`compression`、TLS、SASL 等），YAML 原样落在 map 里。
-pub type KafkaPassthroughFields = BTreeMap<String, serde_yaml::Value>;
-
-/// 与 Kafka 客户端配置对齐：**`brokers` / `topic` / `headers`** 为显式字段；**其余键**一律经 [`KafkaConfig::extra`] 透传（由 worker / 日后 client 接线解析）。
+/// `sink.kafka:`：已知字段映射到结构体；**未建模的键**在反序列化时由 Serde 忽略（不报错、不保留），便于粘贴 Java client 风格配置。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KafkaConfig {
-    /// broker 地址列表，如 `127.0.0.1:9092`。
     pub brokers: Vec<String>,
     pub topic: String,
-    /// 每条 produce 的 **record headers**：键与值为 UTF-8 语义；YAML **`null`** 表示 Kafka **空值 header**（`Option::None`）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub headers: Option<BTreeMap<String, serde_yaml::Value>>,
-    #[serde(flatten)]
-    pub extra: KafkaPassthroughFields,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub acks: Option<serde_yaml::Value>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "timeout-ms"
+    )]
+    pub timeout_ms: Option<serde_yaml::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compression: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "security.protocol",
+        alias = "security-protocol"
+    )]
+    pub security_protocol: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "ssl.endpoint.identification.algorithm"
+    )]
+    pub ssl_endpoint_identification_algorithm: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "ssl.ca.pem"
+    )]
+    pub ssl_ca_pem: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "ssl.ca.location",
+        alias = "ssl-ca-location"
+    )]
+    pub ssl_ca_location: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "ssl.truststore.location"
+    )]
+    pub ssl_truststore_location: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "ssl.truststore.password"
+    )]
+    pub ssl_truststore_password: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "ssl.certificate.pem"
+    )]
+    pub ssl_certificate_pem: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "ssl.certificate.location"
+    )]
+    pub ssl_certificate_location: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "ssl.private.key.pem"
+    )]
+    pub ssl_private_key_pem: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "ssl.key.location"
+    )]
+    pub ssl_key_location: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "ssl.key.pem"
+    )]
+    pub ssl_key_pem: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "ssl.keystore.location"
+    )]
+    pub ssl_keystore_location: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "ssl.keystore.password"
+    )]
+    pub ssl_keystore_password: Option<String>,
+    /// 可选。客户端 **JKS** 含多个私钥时，用于**覆盖**默认选择（默认：私钥别名升序第一个，贴近常见 Java「只配 location+password」体验；与某 JDK 遍历顺序不保证完全一致）。
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "ssl.keystore.alias",
+        alias = "ssl-keystore-alias"
+    )]
+    pub ssl_keystore_alias: Option<String>,
+    /// Accepted for compatibility; the current TLS stack does not apply TLS version pins from YAML.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "ssl.protocol"
+    )]
+    pub ssl_protocol: Option<String>,
+    /// Accepted for compatibility; not applied by the current client.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "ssl.enabled.protocols"
+    )]
+    pub ssl_enabled_protocols: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "sasl.mechanism"
+    )]
+    pub sasl_mechanism: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "sasl.jaas.config"
+    )]
+    pub sasl_jaas_config: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "sasl.username"
+    )]
+    pub sasl_username: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "sasl.password"
+    )]
+    pub sasl_password: Option<String>,
+}
+
+impl KafkaConfig {
+    /// Merge a later producer layer’s `kafka` block over `self` (later non-empty / `Some` values win).
+    pub fn merge_overlay(mut self, b: KafkaConfig) -> Self {
+        if !b.brokers.is_empty() {
+            self.brokers = b.brokers;
+        }
+        if !b.topic.is_empty() {
+            self.topic = b.topic;
+        }
+        if b.headers.is_some() {
+            self.headers = b.headers;
+        }
+        if b.acks.is_some() {
+            self.acks = b.acks;
+        }
+        if b.timeout_ms.is_some() {
+            self.timeout_ms = b.timeout_ms;
+        }
+        if b.compression.is_some() {
+            self.compression = b.compression;
+        }
+        if b.security_protocol.is_some() {
+            self.security_protocol = b.security_protocol;
+        }
+        if b.ssl_endpoint_identification_algorithm.is_some() {
+            self.ssl_endpoint_identification_algorithm = b.ssl_endpoint_identification_algorithm;
+        }
+        if b.ssl_ca_pem.is_some() {
+            self.ssl_ca_pem = b.ssl_ca_pem;
+        }
+        if b.ssl_ca_location.is_some() {
+            self.ssl_ca_location = b.ssl_ca_location;
+        }
+        if b.ssl_truststore_location.is_some() {
+            self.ssl_truststore_location = b.ssl_truststore_location;
+        }
+        if b.ssl_truststore_password.is_some() {
+            self.ssl_truststore_password = b.ssl_truststore_password;
+        }
+        if b.ssl_certificate_pem.is_some() {
+            self.ssl_certificate_pem = b.ssl_certificate_pem;
+        }
+        if b.ssl_certificate_location.is_some() {
+            self.ssl_certificate_location = b.ssl_certificate_location;
+        }
+        if b.ssl_private_key_pem.is_some() {
+            self.ssl_private_key_pem = b.ssl_private_key_pem;
+        }
+        if b.ssl_key_location.is_some() {
+            self.ssl_key_location = b.ssl_key_location;
+        }
+        if b.ssl_key_pem.is_some() {
+            self.ssl_key_pem = b.ssl_key_pem;
+        }
+        if b.ssl_keystore_location.is_some() {
+            self.ssl_keystore_location = b.ssl_keystore_location;
+        }
+        if b.ssl_keystore_password.is_some() {
+            self.ssl_keystore_password = b.ssl_keystore_password;
+        }
+        if b.ssl_keystore_alias.is_some() {
+            self.ssl_keystore_alias = b.ssl_keystore_alias;
+        }
+        if b.ssl_protocol.is_some() {
+            self.ssl_protocol = b.ssl_protocol;
+        }
+        if b.ssl_enabled_protocols.is_some() {
+            self.ssl_enabled_protocols = b.ssl_enabled_protocols;
+        }
+        if b.sasl_mechanism.is_some() {
+            self.sasl_mechanism = b.sasl_mechanism;
+        }
+        if b.sasl_jaas_config.is_some() {
+            self.sasl_jaas_config = b.sasl_jaas_config;
+        }
+        if b.sasl_username.is_some() {
+            self.sasl_username = b.sasl_username;
+        }
+        if b.sasl_password.is_some() {
+            self.sasl_password = b.sasl_password;
+        }
+        self
+    }
 }
 
 /// 行日志 sink：**必填** `type`（`kafka` | `file` | `stdout`）。
@@ -116,9 +330,7 @@ fn yaml_extension_ok(path: &Path) -> Result<(), ConfigParseError> {
         .and_then(|s| s.to_str())
         .map(|e| e.to_ascii_lowercase());
     if !matches!(ext.as_deref(), Some("yaml") | Some("yml")) {
-        return Err(ConfigParseError::PathNotYaml(
-            path.display().to_string(),
-        ));
+        return Err(ConfigParseError::PathNotYaml(path.display().to_string()));
     }
     Ok(())
 }
@@ -165,9 +377,13 @@ pub fn format_sink_summary(sink: &SinkConfig) -> String {
 }
 
 /// 将多层配置合并为一份 [`TemplateConfig`]（后者覆盖前者）。
-pub fn merge_producer_layers(layers: Vec<ProducerConfigLayer>) -> Result<TemplateConfig, ConfigParseError> {
+pub fn merge_producer_layers(
+    layers: Vec<ProducerConfigLayer>,
+) -> Result<TemplateConfig, ConfigParseError> {
     if layers.is_empty() {
-        return Err(ConfigParseError::Merge("至少需要 1 个 producer YAML 路径".into()));
+        return Err(ConfigParseError::Merge(
+            "need at least one producer YAML path to merge".into(),
+        ));
     }
     let mut acc = ProducerConfigLayer::default();
     let mut sink_acc = SinkLayer::default();
@@ -191,20 +407,29 @@ pub fn merge_producer_layers(layers: Vec<ProducerConfigLayer>) -> Result<Templat
             if s.output.is_some() {
                 sink_acc.output = s.output;
             }
-            if s.kafka.is_some() {
-                sink_acc.kafka = s.kafka;
+            if let Some(new_kafka) = s.kafka {
+                sink_acc.kafka = Some(match sink_acc.kafka.take() {
+                    None => new_kafka,
+                    Some(prev) => prev.merge_overlay(new_kafka),
+                });
             }
         }
     }
     let template = acc.template.ok_or_else(|| {
-        ConfigParseError::Merge("合并后仍缺少必填字段 `template`（请在某个 YAML 中提供）".into())
+        ConfigParseError::Merge(
+            "merged config is missing required field `template` (provide it in some YAML layer)"
+                .into(),
+        )
     })?;
     if template.trim().is_empty() {
-        return Err(ConfigParseError::Merge("`template` 不能为空".into()));
+        return Err(ConfigParseError::Merge(
+            "`template` must not be empty".into(),
+        ));
     }
     let sink_type = sink_acc.sink_type.ok_or_else(|| {
         ConfigParseError::Merge(
-            "合并后仍缺少 `sink.type`（请在某个 YAML 的 `sink:` 下设置 type: kafka | file | stdout）".into(),
+            "merged config is missing `sink.type` (set sink.type to kafka | file | stdout under `sink:` in some YAML)"
+                .into(),
         )
     })?;
     let sink = normalize_sink_output(SinkConfig {
@@ -230,7 +455,7 @@ pub fn validate_template_sink(cfg: &TemplateConfig) -> Result<(), ConfigParseErr
         LineSinkType::Kafka => {
             if cfg.sink.kafka.is_none() {
                 return Err(ConfigParseError::Merge(
-                    "`sink.type: kafka` 时必须提供 `sink.kafka:` 段".into(),
+                    "`sink.type: kafka` requires a non-empty `sink.kafka:` section".into(),
                 ));
             }
         }
@@ -238,7 +463,7 @@ pub fn validate_template_sink(cfg: &TemplateConfig) -> Result<(), ConfigParseErr
             let o = cfg.sink.output.as_deref().unwrap_or("").trim();
             if o.is_empty() {
                 return Err(ConfigParseError::Merge(
-                    "`sink.type: file` 时必须提供非空的 `sink.output`".into(),
+                    "`sink.type: file` requires a non-empty `sink.output` path".into(),
                 ));
             }
         }
@@ -248,20 +473,22 @@ pub fn validate_template_sink(cfg: &TemplateConfig) -> Result<(), ConfigParseErr
 }
 
 /// 读取多个 `.yaml` / `.yml`，按顺序合并（与 `logspout start a.yaml b.yaml` 一致）。
-pub fn load_and_merge_producer_paths<P: AsRef<Path>>(paths: &[P]) -> Result<TemplateConfig, ConfigParseError> {
+pub fn load_and_merge_producer_paths<P: AsRef<Path>>(
+    paths: &[P],
+) -> Result<TemplateConfig, ConfigParseError> {
     if paths.is_empty() {
-        return Err(ConfigParseError::Merge("至少需要 1 个配置文件路径".into()));
+        return Err(ConfigParseError::Merge(
+            "need at least one config file path".into(),
+        ));
     }
     let mut layers = Vec::with_capacity(paths.len());
     for path in paths {
         let path = path.as_ref();
         yaml_extension_ok(path)?;
-        let raw = std::fs::read_to_string(path).map_err(|e| {
-            ConfigParseError::Io(path.display().to_string(), e)
-        })?;
-        let layer: ProducerConfigLayer = serde_yaml::from_str(&raw).map_err(|e| {
-            ConfigParseError::Merge(format!("parse {}: {e}", path.display()))
-        })?;
+        let raw = std::fs::read_to_string(path)
+            .map_err(|e| ConfigParseError::Io(path.display().to_string(), e))?;
+        let layer: ProducerConfigLayer = serde_yaml::from_str(&raw)
+            .map_err(|e| ConfigParseError::Merge(format!("parse {}: {e}", path.display())))?;
         layers.push(layer);
     }
     merge_producer_layers(layers)
@@ -335,6 +562,9 @@ mod tests {
         }
     }
 
+    /// 测试内容：多字段模板一次渲染，各 facade 占位符均展开且以 ` | ` 风格串联。
+    /// 输入：`TemplateRunner` 含 `Timestamp`/`NameEn`/`Ipv4`/区间整数等字段与对应模板。
+    /// 预期：首行含分隔符 ` | `（各段非空拼接）。
     #[test]
     fn render_with_facades() {
         let cfg = TemplateConfig {
@@ -363,6 +593,9 @@ mod tests {
         assert!(line.contains(" | "));
     }
 
+    /// 测试内容：`Counter` 字段从 0 起每行自增。
+    /// 输入：模板 `n={{n}}`，字段 `n` 为 `counter`。
+    /// 预期：连续三行为 `n=0`、`n=1`、`n=2`。
     #[test]
     fn counter_starts_at_zero_and_increments() {
         let cfg = TemplateConfig {
@@ -379,6 +612,9 @@ mod tests {
         assert_eq!(r.next_line().unwrap(), "n=2");
     }
 
+    /// 测试内容：最小 producer YAML 反序列化并与 `TemplateRunner` 联动。
+    /// 输入：`min-interval: 1`、`stdout` sink、模板 `x={{c}}`、字段 `counter`。
+    /// 预期：`min_interval_ms == 1`；首行渲染为 `x=0`。
     #[test]
     fn deserialize_producer_yaml_minimal_fields() {
         let y = r#"
@@ -397,6 +633,9 @@ fields:
         assert_eq!(r.next_line().unwrap(), "x=0");
     }
 
+    /// 测试内容：`sink.kafka` 仅含 `brokers` 与 `topic` 时能反序列化。
+    /// 输入：最小 Kafka 段，无 `acks` / `ssl.*` 等可选键。
+    /// 预期：`topic` 与 `brokers` 正确；常见可选字段为 `None`。
     #[test]
     fn deserialize_producer_yaml_kafka_section_optional() {
         let y = r#"
@@ -412,11 +651,17 @@ fields: {}
         let k = c.sink.kafka.as_ref().expect("kafka");
         assert_eq!(k.topic, "t1");
         assert_eq!(k.brokers, vec!["127.0.0.1:9092".to_string()]);
-        assert!(k.extra.is_empty(), "no extra keys");
+        assert!(k.acks.is_none());
+        assert!(k.timeout_ms.is_none());
+        assert!(k.compression.is_none());
+        assert!(k.security_protocol.is_none());
     }
 
+    /// 测试内容：`sink.kafka` 中带点键名（`security.protocol` 等）与别名键能映射到结构体字段。
+    /// 输入：`security-protocol`、`ssl-ca-location`、`acks`、`timeout-ms`、`compression`。
+    /// 预期：各字段解析为 SSL / acks / 超时 / 压缩的预期值。
     #[test]
-    fn deserialize_producer_yaml_kafka_passthrough_extra() {
+    fn deserialize_producer_yaml_kafka_options_explicit() {
         let y = r#"
 sink:
   type: kafka
@@ -433,28 +678,16 @@ fields: {}
 "#;
         let c: TemplateConfig = serde_yaml::from_str(y).unwrap();
         let k = c.sink.kafka.as_ref().unwrap();
-        assert_eq!(
-            k.extra.get("acks").and_then(|v| v.as_str()),
-            Some("all")
-        );
-        assert_eq!(
-            k.extra.get("timeout-ms").and_then(|v| v.as_u64()),
-            Some(12_000)
-        );
-        assert_eq!(
-            k.extra.get("compression").and_then(|v| v.as_str()),
-            Some("gzip")
-        );
-        assert_eq!(
-            k.extra.get("security-protocol").and_then(|v| v.as_str()),
-            Some("SSL")
-        );
-        assert_eq!(
-            k.extra.get("ssl-ca-location").and_then(|v| v.as_str()),
-            Some("/tmp/ca.pem")
-        );
+        assert_eq!(k.acks.as_ref().and_then(|v| v.as_str()), Some("all"));
+        assert_eq!(k.timeout_ms.as_ref().and_then(|v| v.as_u64()), Some(12_000));
+        assert_eq!(k.compression.as_deref(), Some("gzip"));
+        assert_eq!(k.security_protocol.as_deref(), Some("SSL"));
+        assert_eq!(k.ssl_ca_location.as_deref(), Some("/tmp/ca.pem"));
     }
 
+    /// 测试内容：`kafka.acks` 支持整型 YAML 标量。
+    /// 输入：`acks: -1`。
+    /// 预期：反序列化为整数 `-1`（对应 all）。
     #[test]
     fn deserialize_producer_yaml_kafka_acks_integer() {
         let y = r#"
@@ -469,12 +702,12 @@ fields: {}
 "#;
         let c: TemplateConfig = serde_yaml::from_str(y).unwrap();
         let k = c.sink.kafka.as_ref().unwrap();
-        assert_eq!(k.extra.get("acks").and_then(|v| v.as_i64()), Some(-1));
+        assert_eq!(k.acks.as_ref().and_then(|v| v.as_i64()), Some(-1));
     }
 
-    /// 测试内容：Kafka sink 的 `headers` 映射能从 producer YAML 反序列化，且与 `extra` 透传键分离。
+    /// 测试内容：Kafka sink 的 `headers` 能从 producer YAML 反序列化，且与传输相关可选字段分离。
     /// 输入：`sink.kafka` 含 `brokers`、`topic` 及 `headers`（字符串、带引号 trace-id、`null`、整数）。
-    /// 预期：`headers` 各键对应 YAML 类型正确；`empty-value` 为 null；`extra` 为空。
+    /// 预期：`headers` 各键对应 YAML 类型正确；`empty-value` 为 null；未设置 `acks` 等可选字段。
     #[test]
     fn deserialize_producer_yaml_kafka_headers() {
         let y = r#"
@@ -498,9 +731,34 @@ fields: {}
         assert_eq!(h.get("trace-id").and_then(|v| v.as_str()), Some("abc-42"));
         assert!(h.get("empty-value").unwrap().is_null());
         assert_eq!(h.get("count").and_then(|v| v.as_i64()), Some(7));
-        assert!(k.extra.is_empty());
+        assert!(k.acks.is_none());
     }
 
+    /// 测试内容：`sink.kafka` 中含未在 `KafkaConfig` 建模的键时不应导致反序列化失败。
+    /// 输入：`client.id`、`metadata.max.age.ms` 等与 Java client 常见键同形的额外键。
+    /// 预期：解析成功；`brokers` 与 `topic` 等已知字段仍正确（多余键被 Serde 忽略）。
+    #[test]
+    fn deserialize_producer_yaml_kafka_unknown_keys_ignored() {
+        let y = r#"
+sink:
+  type: kafka
+  kafka:
+    brokers: ["127.0.0.1:9092"]
+    topic: t1
+    client.id: logspout-test
+    metadata.max.age.ms: 300000
+template: "x"
+fields: {}
+"#;
+        let c: TemplateConfig = serde_yaml::from_str(y).unwrap();
+        let k = c.sink.kafka.as_ref().unwrap();
+        assert_eq!(k.topic, "t1");
+        assert_eq!(k.brokers, vec!["127.0.0.1:9092".to_string()]);
+    }
+
+    /// 测试内容：未写 `max-size` 时 file/stdout sink 的 `max_size_bytes` 默认 0。
+    /// 输入：仅 `sink.type: stdout` 与模板、字段的最小 YAML。
+    /// 预期：反序列化后 `c.sink.max_size_bytes == 0`。
     #[test]
     fn deserialize_producer_yaml_max_size_defaults_to_zero() {
         let y = r#"
@@ -513,6 +771,9 @@ fields: {}
         assert_eq!(c.sink.max_size_bytes, 0);
     }
 
+    /// 测试内容：`max-size` 为整数字节标量时原样写入。
+    /// 输入：`max-size: 65536`。
+    /// 预期：`max_size_bytes == 65536`。
     #[test]
     fn deserialize_producer_yaml_max_size_nonzero() {
         let y = r#"
@@ -526,6 +787,9 @@ fields: {}
         assert_eq!(c.sink.max_size_bytes, 65536);
     }
 
+    /// 测试内容：`max-size` 支持人类可读无引号字符串（KiB）。
+    /// 输入：`max-size: 64KiB`。
+    /// 预期：`max_size_bytes == 65536`。
     #[test]
     fn deserialize_producer_yaml_max_size_human_string() {
         let y = r#"
@@ -539,6 +803,9 @@ fields: {}
         assert_eq!(c.sink.max_size_bytes, 65536);
     }
 
+    /// 测试内容：`max-size` 为带引号的人类可读小数单位时按 MiB 换算并四舍五入。
+    /// 输入：`max-size: "1.5MiB"`。
+    /// 预期：`max_size_bytes` 等于 `round(1.5 * 1048576)`。
     #[test]
     fn deserialize_producer_yaml_max_size_human_quoted() {
         let y = r#"
@@ -555,6 +822,9 @@ fields: {}
         );
     }
 
+    /// 测试内容：`parse_template_config` 对非法 `max-size` 单位报错。
+    /// 输入：路径 `t.yaml`，`max-size: 12xyz`。
+    /// 预期：`unwrap_err()`；错误信息含 `max-size` 或 `unknown`。
     #[test]
     fn parse_template_config_rejects_bad_max_size_unit() {
         let raw = r#"sink:
@@ -570,6 +840,9 @@ fields: {}
         );
     }
 
+    /// 测试内容：扩展名为 `.yaml` 时走完整解析路径（含 `min-interval` 等）。
+    /// 输入：`example.yaml` 与合法 producer 片段。
+    /// 预期：`min_interval_ms == 2`。
     #[test]
     fn parse_template_config_yaml_by_extension() {
         let raw = r#"sink:
@@ -583,6 +856,9 @@ fields:
         assert_eq!(c.min_interval_ms, 2);
     }
 
+    /// 测试内容：非 `.yaml` 扩展名被拒绝。
+    /// 输入：路径 `bad.json`。
+    /// 预期：错误信息提示需 `.yaml`。
     #[test]
     fn parse_template_config_rejects_non_yaml_extension() {
         let raw = r#"template: "x"
@@ -592,6 +868,9 @@ fields: {}
         assert!(e.to_string().contains(".yaml"), "unexpected error: {e}");
     }
 
+    /// 测试内容：YAML 折叠标量 `template: >-` 多行合并为单行模板字符串。
+    /// 输入：两行正文 `part2` / `part3` 的 folded `template`。
+    /// 预期：反序列化后模板无换行且同时包含 `part2` 与 `part3`。
     #[test]
     fn yaml_folded_template_joins_lines() {
         let y = r#"
@@ -612,6 +891,9 @@ fields: {}
         assert!(c.template.contains("part3"));
     }
 
+    /// 测试内容：`Hostname` 字段生成类 FQDN 形态（含点与连字符）。
+    /// 输入：模板 `{{h}}`，字段 `Hostname`。
+    /// 预期：渲染行同时包含 `.` 与 `-`。
     #[test]
     fn hostname_slot_contains_two_labels_and_suffix() {
         let cfg = TemplateConfig {
@@ -628,6 +910,9 @@ fields: {}
         assert!(line.contains('-'), "{line:?}");
     }
 
+    /// 测试内容：嵌套 `template` 字段类型与子字段组合渲染。
+    /// 输入：YAML 中 `sd` 为 `type: template`，内层固定整数与嵌套 `lorem-word` 拼接。
+    /// 预期：行以 `[id iut="3" src="` 开头、以 `"]` 结尾，且 `src` 值内含 `.`。
     #[test]
     fn field_type_template_nested_renders_sd_shape() {
         let y = r#"
@@ -663,6 +948,9 @@ fields:
         assert!(line.contains('.'), "{line:?}");
     }
 
+    /// 测试内容：`Template` 字段可无子字段映射（空 `fields`）。
+    /// 输入：内存构造 `FieldSpec::Template` 固定子模板 `fixed`。
+    /// 预期：`TemplateRunner::try_new` 成功；首行为 `fixed`。
     #[test]
     fn field_type_template_empty_subfields_ok() {
         let c = TemplateConfig {
@@ -683,6 +971,9 @@ fields:
         assert_eq!(r.next_line().unwrap(), "fixed");
     }
 
+    /// 测试内容：`one-of` 分支中 counter 仅在选中含 `{{c}}` 的分支时递增。
+    /// 输入：`branches: ["-", template+counter]`，循环 800 行。
+    /// 预期：非 `-` 行数字严格等于递增计数；至少出现约百次以上模板分支（`next_expected >= 100`）。
     #[test]
     fn field_type_one_of_lazy_counter_only_on_template_branch() {
         let y = r#"
@@ -721,6 +1012,9 @@ fields:
         );
     }
 
+    /// 测试内容：`one-of` 分支列表为空时配置非法。
+    /// 输入：内存构造 `OneOf { branches: vec![] }`。
+    /// 预期：`TemplateRunner::try_new` 返回 `Err`。
     #[test]
     fn field_type_one_of_empty_branches_rejected() {
         let c = TemplateConfig {
@@ -737,6 +1031,9 @@ fields:
         assert!(TemplateRunner::try_new(c).is_err());
     }
 
+    /// 测试内容：`Sentence` 字段词数落在 `[min,max]` 闭区间。
+    /// 输入：`min: 2, max: 4`，抽样 20 行。
+    /// 预期：每行按空白分词后词数在 2～4 之间。
     #[test]
     fn sentence_word_count_in_range() {
         let cfg = TemplateConfig {
@@ -758,6 +1055,9 @@ fields:
         }
     }
 
+    /// 测试内容：`merge_producer_layers` 后层覆盖 sink 的 `output` 与 `max-size`。
+    /// 输入：第一层 file + `output: first.log`；第二层仅改 `output` 与 `max-size`。
+    /// 预期：合并后 `output == second.log`、`max_size_bytes == 99`；`min_interval` 等保留；counter 仍从 0 起。
     #[test]
     fn merge_two_layers_sink_overrides_output() {
         let a: ProducerConfigLayer = serde_yaml::from_str(
@@ -830,7 +1130,29 @@ sink:
                     brokers: vec!["h1:9092".into(), "h2:9092".into()],
                     topic: "t".into(),
                     headers: None,
-                    extra: BTreeMap::new(),
+                    acks: None,
+                    timeout_ms: None,
+                    compression: None,
+                    security_protocol: None,
+                    ssl_endpoint_identification_algorithm: None,
+                    ssl_ca_pem: None,
+                    ssl_ca_location: None,
+                    ssl_truststore_location: None,
+                    ssl_truststore_password: None,
+                    ssl_certificate_pem: None,
+                    ssl_certificate_location: None,
+                    ssl_private_key_pem: None,
+                    ssl_key_location: None,
+                    ssl_key_pem: None,
+                    ssl_keystore_location: None,
+                    ssl_keystore_password: None,
+                    ssl_keystore_alias: None,
+                    ssl_protocol: None,
+                    ssl_enabled_protocols: None,
+                    sasl_mechanism: None,
+                    sasl_jaas_config: None,
+                    sasl_username: None,
+                    sasl_password: None,
                 }),
             }),
             "kafka: topic t @ h1:9092 +1 more"
@@ -848,13 +1170,38 @@ sink:
                             .into_iter()
                             .collect(),
                     ),
-                    extra: BTreeMap::new(),
+                    acks: None,
+                    timeout_ms: None,
+                    compression: None,
+                    security_protocol: None,
+                    ssl_endpoint_identification_algorithm: None,
+                    ssl_ca_pem: None,
+                    ssl_ca_location: None,
+                    ssl_truststore_location: None,
+                    ssl_truststore_password: None,
+                    ssl_certificate_pem: None,
+                    ssl_certificate_location: None,
+                    ssl_private_key_pem: None,
+                    ssl_key_location: None,
+                    ssl_key_pem: None,
+                    ssl_keystore_location: None,
+                    ssl_keystore_password: None,
+                    ssl_keystore_alias: None,
+                    ssl_protocol: None,
+                    ssl_enabled_protocols: None,
+                    sasl_mechanism: None,
+                    sasl_jaas_config: None,
+                    sasl_username: None,
+                    sasl_password: None,
                 }),
             }),
             "kafka: topic t @ h1:9092 (+1 headers)"
         );
     }
 
+    /// 测试内容：后层将 sink 从 file 切到 kafka 时丢弃 file 的 `output`。
+    /// 输入：先 file+路径，后仅 `type: kafka` 与 brokers/topic。
+    /// 预期：`sink_type == Kafka` 且 `sink.output.is_none()`。
     #[test]
     fn merge_later_kafka_drops_stale_file_output() {
         let a: ProducerConfigLayer = serde_yaml::from_str(
@@ -880,9 +1227,52 @@ sink:
         .unwrap();
         let c = merge_producer_layers(vec![a, b]).unwrap();
         assert_eq!(c.sink.sink_type, LineSinkType::Kafka);
-        assert!(c.sink.output.is_none(), "kafka sink must not retain file output");
+        assert!(
+            c.sink.output.is_none(),
+            "kafka sink must not retain file output"
+        );
     }
 
+    /// 测试内容：两层 Kafka 片段合并时可选字段叠加/保留。
+    /// 输入：第一层 `acks: 1`；第二层仅追加 `compression: gzip`（同 brokers/topic）。
+    /// 预期：合并后 `acks == 1`、`compression == gzip`、`brokers`/`topic` 不变。
+    #[test]
+    fn merge_kafka_layers_overlay_optional_fields() {
+        let a: ProducerConfigLayer = serde_yaml::from_str(
+            r#"
+sink:
+  type: kafka
+  kafka:
+    brokers: ["a:9092"]
+    topic: t
+    acks: 1
+template: "{{x}}"
+fields:
+  x: { type: counter }
+"#,
+        )
+        .unwrap();
+        let b: ProducerConfigLayer = serde_yaml::from_str(
+            r#"
+sink:
+  kafka:
+    brokers: ["a:9092"]
+    topic: t
+    compression: gzip
+"#,
+        )
+        .unwrap();
+        let c = merge_producer_layers(vec![a, b]).unwrap();
+        let k = c.sink.kafka.as_ref().unwrap();
+        assert_eq!(k.brokers, vec!["a:9092".to_string()]);
+        assert_eq!(k.topic, "t");
+        assert_eq!(k.acks.as_ref().and_then(|v| v.as_i64()), Some(1));
+        assert_eq!(k.compression.as_deref(), Some("gzip"));
+    }
+
+    /// 测试内容：后层 YAML 覆盖顶层 `template`。
+    /// 输入：第一层 `template: "a"`；第二层仅 `template: "b"`。
+    /// 预期：合并后 `c.template == "b"`。
     #[test]
     fn later_layer_overrides_template() {
         let a: ProducerConfigLayer = serde_yaml::from_str(
@@ -898,4 +1288,3 @@ template: "a"
         assert_eq!(c.template, "b");
     }
 }
-
