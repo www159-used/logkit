@@ -1,0 +1,34 @@
+---
+description: 提交或推送前在本仓库执行 cargo clippy（workspace、含测试、警告视为错误）。
+globs:
+  - "**/*.rs"
+  - "**/Cargo.toml"
+  - "**/Cargo.lock"
+alwaysApply: false
+---
+
+# 提交前：Clippy（logkit）
+
+## 何时执行
+
+- 在 **git commit** 或 **推送 PR 前**，对当前工作区跑一次 Clippy，**零警告**后再提交。
+- 若改动仅文档/脚本且无 `*.rs` 变更，可跳过；**只要动到 Rust 源码或 `Cargo.toml`**，应执行。
+
+## 推荐命令（仓库根目录）
+
+```bash
+cargo clippy --workspace --all-targets -- -D warnings
+```
+
+- **`--workspace`**：检查所有成员 crate（与 CI 一致）。
+- **`--all-targets`**：含单测、示例等 target，避免测试代码里漏报。
+- **`-D warnings`**：把 warning 当 error，与严格 CI 对齐。
+
+## 失败时
+
+- 按 Clippy 提示修改代码；**不要**用大范围 `#[allow]` 掩盖，除非有注释说明理由且范围最小化。
+- 修复后重新执行上述命令直至通过。
+
+## 与提交信息规则的关系
+
+- Clippy 通过后再写 **commit subject**（见 **`.cursor/rules/commit-subject.mdc`**）；重大改动再按该文件补 **body**。

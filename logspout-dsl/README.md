@@ -33,7 +33,9 @@
 
 ### `type: kafka`
 
-行发到 Kafka；**不需要** `output`。参数在 **`sink.kafka`**（broker、topic、SSL 等）。示例：**[`etc/apache.sink.kafka.yaml`](../etc/apache.sink.kafka.yaml)**（勿提交真实口令）。
+行发到 Kafka；**不需要** `output`。参数在 **`sink.kafka:`**（`brokers`、`topic`、可选 **`headers:`**、以及 `acks` 等透传项）。示例：**[`etc/apache.sink.kafka.yaml`](../etc/apache.sink.kafka.yaml)**（勿提交真实口令）。
+
+**`sink.kafka.headers`**（可选）：字符串键 → 标量值；键与值按 **UTF-8** 写入 Kafka record header。值类型：**字符串** / **整数、浮点**（按十进制文本编码）/ **布尔**（`true` / `false`）/ **`null`**（Kafka **空值 header**，即 `Option::None`）；**不支持**嵌套 mapping / array。
 
 ## `fields`：内置 `type`
 

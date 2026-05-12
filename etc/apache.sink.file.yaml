@@ -1,3 +1,4 @@
+--- 
 sink:
   type: file
   output: apache.log

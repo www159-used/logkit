@@ -3,7 +3,9 @@
 #
 # 与 apache.sink.yaml 一起使用（其中须含 `sink:` 块及 `sink.type`）：
 #   logspout start etc/apache.schema.yaml etc/apache.sink.yaml
+---
 min-interval: 100
+---
 template: >-
   {{src_ip}} - {{user}} [{{timestamp}}] "{{method}} {{dst}} HTTP/1.1" {{status}} {{bytes}}
   "{{referer}}" "{{ua}}"

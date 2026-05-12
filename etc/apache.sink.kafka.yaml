@@ -7,6 +7,10 @@ sink:
     brokers:
       - "192.168.1.60:9092"
     topic: apache-access
+    # 可选：每条 Kafka 记录的 headers（键/值为 UTF-8；null = 空值 header）
+    # headers:
+    #   source: logspout
+    #   schema: apache-combined
     security.protocol: SSL
     ssl.keystore.location: /opt/yotta/cert/keystore.jks
     ssl.keystore.password: REPLACE_KEYSTORE_PASSWORD

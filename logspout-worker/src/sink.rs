@@ -1,15 +1,17 @@
 //! 一行日志的输出目标：统一由 [`LogLineSink`] 约束，便于新增 syslog、gRPC 等实现。
 
+use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufWriter, Seek, SeekFrom, Write};
 use std::path::Path;
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use kafka_rs::client::{Acks, Client, Message};
+use kafka_rs::client::{Acks, Client, Message, MessageHeaders};
 use kafka_rs::error::ClientError;
 use kafka_rs::indexmap::IndexMap;
 use kafka_rs::Compression;
+use kafka_rs::StrBytes;
 use logspout_dsl::{KafkaConfig, KafkaPassthroughFields, LineSinkType, TemplateConfig};
 
 /// 写入单条渲染后的日志行（UTF-8 文本）。实现可为 stdout、文件、消息队列等。
@@ -81,11 +83,48 @@ pub struct KafkaLineSink {
     producer: kafka_rs::client::TopicProducer,
     brokers_display: String,
     topic: String,
+    /// 每条记录附带的 Kafka headers（UTF-8 键；值见配置解析）。
+    headers: MessageHeaders,
     /// YAML 里写了 `security.protocol`=SSL/SASL_SSL 或 `ssl.*` 等，用于报错时说明协议能力。
     tls_or_ssl_keys_in_yaml: bool,
     /// 与 `kafka-rs` / 将来 client 对齐的透传配置（整表克隆，含 `acks`、`timeout-ms`、`compression`、TLS 等）。
     #[allow(dead_code)]
     pub extra: KafkaPassthroughFields,
+}
+
+/// YAML 标量 → record header value：`null` → Kafka 空值；字符串/数字/布尔 → UTF-8 字节。
+fn yaml_value_to_header_bytes(v: &serde_yaml::Value) -> Result<Option<Bytes>, String> {
+    match v {
+        serde_yaml::Value::Null => Ok(None),
+        serde_yaml::Value::String(s) => Ok(Some(Bytes::copy_from_slice(s.as_bytes()))),
+        serde_yaml::Value::Bool(b) => Ok(Some(Bytes::copy_from_slice(
+            if *b { b"true".as_slice() } else { b"false".as_slice() },
+        ))),
+        serde_yaml::Value::Number(n) => Ok(Some(Bytes::copy_from_slice(n.to_string().as_bytes()))),
+        serde_yaml::Value::Tagged(t) => yaml_value_to_header_bytes(&t.value),
+        serde_yaml::Value::Sequence(_) | serde_yaml::Value::Mapping(_) => Err(
+            "kafka.headers: value must be scalar (string, number, bool) or null".into(),
+        ),
+    }
+}
+
+fn message_headers_from_config(
+    headers: Option<&BTreeMap<String, serde_yaml::Value>>,
+) -> Result<MessageHeaders, String> {
+    let mut out: MessageHeaders = IndexMap::new();
+    let Some(map) = headers else {
+        return Ok(out);
+    };
+    for (k, v) in map {
+        let key_trim = k.trim();
+        if key_trim.is_empty() {
+            return Err("kafka.headers: header key must be non-empty".into());
+        }
+        let key_sb = StrBytes::from_string(key_trim.to_string());
+        let val = yaml_value_to_header_bytes(v)?;
+        out.insert(key_sb, val);
+    }
+    Ok(out)
 }
 
 fn uses_tls_security_protocol(extra: &KafkaPassthroughFields) -> bool {
@@ -256,6 +295,7 @@ fn timeout_ms_from_extra(extra: &KafkaPassthroughFields) -> Result<i32, String> 
 
 impl KafkaLineSink {
     pub fn try_new(k: &KafkaConfig) -> Result<Self, String> {
+        let headers = message_headers_from_config(k.headers.as_ref())?;
         let brokers: Vec<String> = k
             .brokers
             .iter()
@@ -275,6 +315,7 @@ impl KafkaLineSink {
             producer,
             brokers_display,
             topic: k.topic.trim().to_string(),
+            headers,
             tls_or_ssl_keys_in_yaml,
             extra: k.extra.clone(),
         })
@@ -287,7 +328,7 @@ impl LogLineSink for KafkaLineSink {
         let msg = Message::new(
             None,
             Some(Bytes::copy_from_slice(line.as_bytes())),
-            IndexMap::new(),
+            self.headers.clone(),
         );
         self.producer
             .produce(std::slice::from_ref(&msg))
@@ -320,6 +361,7 @@ pub fn validate_kafka_config(k: &KafkaConfig) -> Result<(), String> {
     acks_from_value(k.extra.get("acks"))?;
     timeout_ms_from_extra(&k.extra)?;
     compression_from_value(k.extra.get("compression"))?;
+    message_headers_from_config(k.headers.as_ref())?;
     Ok(())
 }
 

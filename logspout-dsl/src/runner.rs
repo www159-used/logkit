@@ -18,15 +18,18 @@ pub enum LineSinkType {
     Stdout,
 }
 
-/// `kafka:` 下除 `brokers` / `topic` 外的**全部**键（含 `acks`、`timeout-ms`、`compression`、TLS、SASL 等），YAML 原样落在 map 里。
+/// `kafka:` 下除 `brokers` / `topic` / `headers` 外的**全部**键（含 `acks`、`timeout-ms`、`compression`、TLS、SASL 等），YAML 原样落在 map 里。
 pub type KafkaPassthroughFields = BTreeMap<String, serde_yaml::Value>;
 
-/// 与 Kafka 客户端配置对齐：**仅** `brokers`、`topic` 为显式字段；**其余键**一律经 [`KafkaConfig::extra`] 透传（由 worker / 日后 client 接线解析）。
+/// 与 Kafka 客户端配置对齐：**`brokers` / `topic` / `headers`** 为显式字段；**其余键**一律经 [`KafkaConfig::extra`] 透传（由 worker / 日后 client 接线解析）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KafkaConfig {
     /// broker 地址列表，如 `127.0.0.1:9092`。
     pub brokers: Vec<String>,
     pub topic: String,
+    /// 每条 produce 的 **record headers**：键与值为 UTF-8 语义；YAML **`null`** 表示 Kafka **空值 header**（`Option::None`）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub headers: Option<BTreeMap<String, serde_yaml::Value>>,
     #[serde(flatten)]
     pub extra: KafkaPassthroughFields,
 }
@@ -151,7 +154,12 @@ pub fn format_sink_summary(sink: &SinkConfig) -> String {
             } else {
                 broker.to_string()
             };
-            format!("kafka: topic {} @ {}", k.topic, brokers)
+            let hdr = k.headers.as_ref().map(|h| h.len()).unwrap_or(0);
+            if hdr > 0 {
+                format!("kafka: topic {} @ {} (+{} headers)", k.topic, brokers, hdr)
+            } else {
+                format!("kafka: topic {} @ {}", k.topic, brokers)
+            }
         }
     }
 }
@@ -464,6 +472,35 @@ fields: {}
         assert_eq!(k.extra.get("acks").and_then(|v| v.as_i64()), Some(-1));
     }
 
+    /// 测试内容：Kafka sink 的 `headers` 映射能从 producer YAML 反序列化，且与 `extra` 透传键分离。
+    /// 输入：`sink.kafka` 含 `brokers`、`topic` 及 `headers`（字符串、带引号 trace-id、`null`、整数）。
+    /// 预期：`headers` 各键对应 YAML 类型正确；`empty-value` 为 null；`extra` 为空。
+    #[test]
+    fn deserialize_producer_yaml_kafka_headers() {
+        let y = r#"
+sink:
+  type: kafka
+  kafka:
+    brokers: ["127.0.0.1:9092"]
+    topic: t1
+    headers:
+      source: logspout
+      trace-id: "abc-42"
+      empty-value: null
+      count: 7
+template: "x"
+fields: {}
+"#;
+        let c: TemplateConfig = serde_yaml::from_str(y).unwrap();
+        let k = c.sink.kafka.as_ref().unwrap();
+        let h = k.headers.as_ref().expect("headers");
+        assert_eq!(h.get("source").and_then(|v| v.as_str()), Some("logspout"));
+        assert_eq!(h.get("trace-id").and_then(|v| v.as_str()), Some("abc-42"));
+        assert!(h.get("empty-value").unwrap().is_null());
+        assert_eq!(h.get("count").and_then(|v| v.as_i64()), Some(7));
+        assert!(k.extra.is_empty());
+    }
+
     #[test]
     fn deserialize_producer_yaml_max_size_defaults_to_zero() {
         let y = r#"
@@ -752,6 +789,9 @@ sink:
         assert_eq!(r.next_line().unwrap(), "0");
     }
 
+    /// 测试内容：`format_sink_summary` 对 stdout / file / kafka（含多 broker 与 headers）的摘要字符串。
+    /// 输入：构造 `SinkConfig`：无 kafka；file 有无 max-size；kafka 单/双 broker；kafka 带 1 个 header。
+    /// 预期：依次为 `stdout`、`file: a.log`、带 max-size 的 file 行、`kafka: topic t @ h1:9092 +1 more`、`(+1 headers)` 后缀。
     #[test]
     fn format_sink_summary_stdout_file_kafka() {
         assert_eq!(
@@ -789,10 +829,29 @@ sink:
                 kafka: Some(KafkaConfig {
                     brokers: vec!["h1:9092".into(), "h2:9092".into()],
                     topic: "t".into(),
+                    headers: None,
                     extra: BTreeMap::new(),
                 }),
             }),
             "kafka: topic t @ h1:9092 +1 more"
+        );
+        assert_eq!(
+            format_sink_summary(&SinkConfig {
+                sink_type: LineSinkType::Kafka,
+                max_size_bytes: 0,
+                output: None,
+                kafka: Some(KafkaConfig {
+                    brokers: vec!["h1:9092".into()],
+                    topic: "t".into(),
+                    headers: Some(
+                        [("a".into(), serde_yaml::Value::String("1".into()))]
+                            .into_iter()
+                            .collect(),
+                    ),
+                    extra: BTreeMap::new(),
+                }),
+            }),
+            "kafka: topic t @ h1:9092 (+1 headers)"
         );
     }
 
