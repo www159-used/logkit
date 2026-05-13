@@ -10,6 +10,6 @@ pub mod kafka_smoke;
 pub use daemon_api::{EmbeddedProducerWorker, SpawnedProducerTasks, TokioEmbeddedProducerWorker};
 pub use runtime::{run_producer_at_path, ProducerHeartbeatEnv};
 pub use sink::{
-    build_line_sink, validate_kafka_config, FileLineSink, KafkaLineSink, KafkaLineSinkError,
-    LogLineSink, StdoutLineSink,
+    build_line_sink, FileLineSink, KafkaLineSink, KafkaLineSinkError, LogLineSink,
+    StdoutLineSink,
 };

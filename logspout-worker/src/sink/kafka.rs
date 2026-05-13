@@ -493,18 +493,6 @@ pub(crate) fn produce_one_kafka_ssl_line(k: &KafkaConfig, payload: &str) -> Resu
     Ok(())
 }
 
-pub fn validate_kafka_config(k: &KafkaConfig) -> Result<(), KafkaLineSinkError> {
-    owned_headers_from_kafka_cfg(k.headers.as_ref())?;
-    let transport = kafka_transport_mode(k)?;
-    let (cfg, tls_scratch, _) = build_rdkafka_client_config(k, transport)?;
-    let producer: FutureProducer = cfg
-        .create()
-        .map_err(KafkaLineSinkError::ProducerCreate)?;
-    drop(producer);
-    drop(tls_scratch);
-    Ok(())
-}
-
 #[cfg(test)]
 mod kafka_asset_broker_connect_tests {
     //! 联网探针单测；默认 `#[ignore]`，见各用例 `///` 说明。
@@ -516,8 +504,7 @@ mod kafka_asset_broker_connect_tests {
     use crate::kafka_smoke::{
         kafka_config_fixture_jks_dir, probe_kafka_ssl_cluster, FIXTURE_BOOTSTRAP_BROKER,
     };
-    use crate::sink::validate_kafka_config;
-
+    use crate::sink::KafkaLineSink;
     fn fixture_kafka_config_for_probe() -> KafkaConfig {
         kafka_config_fixture_jks_dir(
             FIXTURE_BOOTSTRAP_BROKER,
@@ -538,12 +525,12 @@ mod kafka_asset_broker_connect_tests {
         assert!(n_brokers > 0, "expected at least one broker in metadata");
     }
 
-    /// 测试内容：JKS 配置在预校验阶段创建 librdkafka producer 时，临时 PEM 目录需覆盖整个 `create()` 生命周期。
+    /// 测试内容：JKS 配置在真实 Kafka sink 建连时，临时 PEM 目录需覆盖整个 `create()` 生命周期。
     /// 输入：`kafka_config_fixture_jks_dir(..., skip_hostname_verify=true)` 构造的 fixture JKS Kafka 配置。
-    /// 预期：`validate_kafka_config` 成功，不因临时 `ca-chain.pem` / cert / key 被提前删除而报 `ssl.*.location` 打开失败。
+    /// 预期：`KafkaLineSink::try_new` 成功，不因临时 `ca-chain.pem` / cert / key 被提前删除而报 `ssl.*.location` 打开失败。
     #[test]
-    fn validate_kafka_config_holds_jks_tempdir_through_create() {
+    fn kafka_line_sink_try_new_holds_jks_tempdir_through_create() {
         let k = fixture_kafka_config_for_probe();
-        validate_kafka_config(&k).expect("validate config with JKS fixture");
+        KafkaLineSink::try_new(&k).expect("create Kafka sink with JKS fixture");
     }
 }

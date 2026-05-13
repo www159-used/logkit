@@ -6,7 +6,7 @@ mod kafka_jks;
 mod stdout;
 
 pub use file::FileLineSink;
-pub use kafka::{validate_kafka_config, KafkaLineSink, KafkaLineSinkError};
+pub use kafka::{KafkaLineSink, KafkaLineSinkError};
 pub use stdout::StdoutLineSink;
 
 use std::path::Path;

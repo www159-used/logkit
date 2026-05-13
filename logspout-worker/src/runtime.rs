@@ -7,14 +7,14 @@ use std::time::Duration;
 
 use http::Uri;
 use hyper_util::rt::TokioIo;
-use logspout_dsl::{parse_template_config, SinkConfig, TemplateConfig, TemplateRunner};
+use logspout_dsl::{parse_template_config, TemplateConfig, TemplateRunner};
 use logspout_proto::logspout_client::LogspoutClient;
 use logspout_proto::HeartbeatRequest;
 use tokio::task::JoinHandle;
 use tonic::transport::Endpoint;
 use tower::service_fn;
 
-use crate::sink::{build_line_sink, validate_kafka_config, LogLineSink};
+use crate::sink::{build_line_sink, LogLineSink};
 
 /// 向守护进程上报心跳所需环境（与原先子进程环境变量一致）。
 #[derive(Debug, Clone)]
@@ -88,10 +88,6 @@ pub(crate) async fn run_producer_with_events(
         .map_err(|e| format!("parse producer config: {e}"))?;
     if cfg.template.trim().is_empty() {
         return Err(r#"producer config: "template" must be non-empty"#.into());
-    }
-
-    if let SinkConfig::Kafka { kafka: Some(k), .. } = &cfg.sink {
-        validate_kafka_config(k).map_err(|e| format!("{config_path}: {e}"))?;
     }
 
     let interval_ms = cfg.min_interval_ms;

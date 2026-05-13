@@ -1,4 +1,0 @@
-# LEEF 示例：文件输出（未设 max-size 时默认为 0）
-sink:
-  type: file
-  output: leef-v2.log

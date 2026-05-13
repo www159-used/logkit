@@ -4,7 +4,7 @@ use std::path::Path;
 use handlebars::Handlebars;
 use serde_json::{Map, Value};
 
-use crate::builtins::slots_from_fields;
+use crate::field_spec::slots_from_fields;
 use crate::facade::TemplateSlot;
 use crate::worker_config::{SinkConfig, TemplateConfig};
 use crate::{ConfigParseError, Error};

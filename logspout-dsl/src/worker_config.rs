@@ -4,16 +4,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::builtins::FieldSpec;
-
-/// 行日志写出方式（与 [`SinkConfig`] 的 YAML tag **`type`** 一致）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum LineSinkType {
-    Kafka,
-    File,
-    Stdout,
-}
+use crate::field_spec::FieldSpec;
 
 /// `sink.kafka:`：已知字段映射到结构体；**未建模的键**在反序列化时由 Serde 忽略（不报错、不保留），便于粘贴 Java client 风格配置。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -202,15 +193,6 @@ pub enum SinkConfig {
 }
 
 impl SinkConfig {
-    /// 与 YAML `sink.type` 对应的枚举，便于下游按类型分支。
-    pub fn line_sink_type(&self) -> LineSinkType {
-        match self {
-            SinkConfig::Stdout { .. } => LineSinkType::Stdout,
-            SinkConfig::File { .. } => LineSinkType::File,
-            SinkConfig::Kafka { .. } => LineSinkType::Kafka,
-        }
-    }
-
     /// `max-size` 在各变体上的取值（截断语义仅 [`SinkConfig::File`] 使用）。
     pub fn max_size_bytes(&self) -> u64 {
         match self {
