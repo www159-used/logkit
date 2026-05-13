@@ -312,14 +312,17 @@ fn build_rdkafka_client_config(
 ) -> Result<(ClientConfig, Option<TempDir>, Duration), KafkaLineSinkError> {
     let brokers: Vec<String> = k
         .brokers
-        .iter()
+        .as_ref()
+        .into_iter()
+        .flat_map(|v| v.iter())
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect();
     if brokers.is_empty() {
         return Err(invalid_kafka_cfg("kafka.brokers must list at least one broker"));
     }
-    if k.topic.trim().is_empty() {
+    let topic_trimmed = k.topic.as_deref().unwrap_or("").trim();
+    if topic_trimmed.is_empty() {
         return Err(invalid_kafka_cfg("kafka.topic must be non-empty"));
     }
 
@@ -332,7 +335,7 @@ fn build_rdkafka_client_config(
     }
 
     let timeout_ms = timeout_ms_from_kafka(k)?;
-    let queue_timeout = Duration::from_millis(timeout_ms.max(1000).min(300_000));
+    let queue_timeout = Duration::from_millis(timeout_ms.clamp(1000, 300_000));
 
     let mut cfg = ClientConfig::new();
     cfg.set("bootstrap.servers", brokers.join(","));
@@ -379,7 +382,9 @@ impl KafkaLineSink {
     pub fn try_new(k: &KafkaConfig) -> Result<Self, KafkaLineSinkError> {
         let brokers_display = k
             .brokers
-            .iter()
+            .as_ref()
+            .into_iter()
+            .flat_map(|v| v.iter())
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .collect::<Vec<_>>()
@@ -399,7 +404,7 @@ impl KafkaLineSink {
             tls_scratch,
             producer,
             brokers_display,
-            topic: k.topic.trim().to_string(),
+            topic: k.topic.as_deref().unwrap_or("").trim().to_string(),
             headers,
             kafka_config: k.clone(),
             tls_enabled,
@@ -473,7 +478,7 @@ pub(crate) fn produce_one_kafka_ssl_line(k: &KafkaConfig, payload: &str) -> Resu
     let producer: rdkafka::producer::ThreadedProducer<DefaultProducerContext> = cfg
         .create()
         .map_err(KafkaLineSinkError::ProducerCreate)?;
-    let topic = k.topic.trim();
+    let topic = k.topic.as_deref().unwrap_or("").trim();
     if topic.is_empty() {
         return Err(invalid_kafka_cfg("kafka.topic must be non-empty"));
     }
@@ -491,10 +496,12 @@ pub(crate) fn produce_one_kafka_ssl_line(k: &KafkaConfig, payload: &str) -> Resu
 pub fn validate_kafka_config(k: &KafkaConfig) -> Result<(), KafkaLineSinkError> {
     owned_headers_from_kafka_cfg(k.headers.as_ref())?;
     let transport = kafka_transport_mode(k)?;
-    let (cfg, _, _) = build_rdkafka_client_config(k, transport)?;
-    let _: FutureProducer = cfg
+    let (cfg, tls_scratch, _) = build_rdkafka_client_config(k, transport)?;
+    let producer: FutureProducer = cfg
         .create()
         .map_err(KafkaLineSinkError::ProducerCreate)?;
+    drop(producer);
+    drop(tls_scratch);
     Ok(())
 }
 
@@ -509,6 +516,7 @@ mod kafka_asset_broker_connect_tests {
     use crate::kafka_smoke::{
         kafka_config_fixture_jks_dir, probe_kafka_ssl_cluster, FIXTURE_BOOTSTRAP_BROKER,
     };
+    use crate::sink::validate_kafka_config;
 
     fn fixture_kafka_config_for_probe() -> KafkaConfig {
         kafka_config_fixture_jks_dir(
@@ -528,5 +536,14 @@ mod kafka_asset_broker_connect_tests {
         let k = fixture_kafka_config_for_probe();
         let (n_brokers, _n_topics) = probe_kafka_ssl_cluster(&k).expect("probe cluster");
         assert!(n_brokers > 0, "expected at least one broker in metadata");
+    }
+
+    /// 测试内容：JKS 配置在预校验阶段创建 librdkafka producer 时，临时 PEM 目录需覆盖整个 `create()` 生命周期。
+    /// 输入：`kafka_config_fixture_jks_dir(..., skip_hostname_verify=true)` 构造的 fixture JKS Kafka 配置。
+    /// 预期：`validate_kafka_config` 成功，不因临时 `ca-chain.pem` / cert / key 被提前删除而报 `ssl.*.location` 打开失败。
+    #[test]
+    fn validate_kafka_config_holds_jks_tempdir_through_create() {
+        let k = fixture_kafka_config_for_probe();
+        validate_kafka_config(&k).expect("validate config with JKS fixture");
     }
 }

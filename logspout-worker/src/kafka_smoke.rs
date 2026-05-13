@@ -34,8 +34,8 @@ pub fn kafka_config_fixture_jks_dir(
 ) -> KafkaConfig {
     let a = assets_dir;
     KafkaConfig {
-        brokers: vec![brokers_one_line.trim().to_string()],
-        topic: topic.trim().to_string(),
+        brokers: Some(vec![brokers_one_line.trim().to_string()]),
+        topic: Some(topic.trim().to_string()),
         headers: None,
         acks: None,
         timeout_ms: None,

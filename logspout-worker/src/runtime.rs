@@ -10,6 +10,7 @@ use hyper_util::rt::TokioIo;
 use logspout_dsl::{parse_template_config, LineSinkType, TemplateConfig, TemplateRunner};
 use logspout_proto::logspout_client::LogspoutClient;
 use logspout_proto::HeartbeatRequest;
+use tokio::task::JoinHandle;
 use tonic::transport::Endpoint;
 use tower::service_fn;
 
@@ -66,7 +67,7 @@ async fn heartbeat_loop(
     }
 }
 
-fn spawn_heartbeat(hb: ProducerHeartbeatEnv, events: Arc<AtomicU64>) {
+pub fn spawn_heartbeat_task(hb: ProducerHeartbeatEnv, events: Arc<AtomicU64>) -> JoinHandle<()> {
     let iv = hb.heartbeat_interval_secs.max(1);
     tokio::spawn(heartbeat_loop(
         hb.control_socket,
@@ -74,19 +75,13 @@ fn spawn_heartbeat(hb: ProducerHeartbeatEnv, events: Arc<AtomicU64>) {
         Duration::from_secs(iv),
         hb.client_connect_uri,
         events,
-    ));
+    ))
 }
 
-/// 从 producer YAML 路径读取配置并在 **`output_base` 下解析相对 `output`**，按 `min-interval` 循环写出。
-///
-/// - **嵌入 daemon**：`output_base` = `[worker].worker_output_dir`（勿依赖 `set_current_dir`，多实例共享进程 cwd）。
-/// - **独立二进制**：`output_base` = `std::env::current_dir()` 或期望的工作目录。
-///
-/// `heartbeat` 为 `Some` 时，并行向本机 daemon 套接字发送心跳（与子进程模式行为一致）。
-pub async fn run_producer_at_path(
+pub(crate) async fn run_producer_with_events(
     config_path: String,
     output_base: PathBuf,
-    heartbeat: Option<ProducerHeartbeatEnv>,
+    events: Arc<AtomicU64>,
 ) -> Result<(), String> {
     let raw = std::fs::read_to_string(&config_path).map_err(|e| format!("read config: {e}"))?;
     let cfg: TemplateConfig = parse_template_config(Path::new(&config_path), &raw)
@@ -108,11 +103,6 @@ pub async fn run_producer_at_path(
 
     let mut runner = TemplateRunner::try_new(cfg).map_err(|e| format!("producer config: {e}"))?;
 
-    let events = Arc::new(AtomicU64::new(0));
-    if let Some(hb) = heartbeat {
-        spawn_heartbeat(hb, events.clone());
-    }
-
     let sleep = Duration::from_millis(interval_ms.max(1));
     let mut tick = tokio::time::interval(sleep);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -124,4 +114,24 @@ pub async fn run_producer_at_path(
             .await
             .map_err(|e| format!("{config_path}: {e}"))?;
     }
+}
+
+/// 从 producer YAML 路径读取配置并在 **`output_base` 下解析相对 `output`**，按 `min-interval` 循环写出。
+///
+/// - **嵌入 daemon**：`output_base` = `[worker].worker_output_dir`（勿依赖 `set_current_dir`，多实例共享进程 cwd）。
+/// - **独立二进制**：`output_base` = `std::env::current_dir()` 或期望的工作目录。
+///
+/// `heartbeat` 为 `Some` 时，并行向本机 daemon 套接字发送心跳（与子进程模式行为一致）。
+pub async fn run_producer_at_path(
+    config_path: String,
+    output_base: PathBuf,
+    heartbeat: Option<ProducerHeartbeatEnv>,
+) -> Result<(), String> {
+    let events = Arc::new(AtomicU64::new(0));
+    let heartbeat_task = heartbeat.map(|hb| spawn_heartbeat_task(hb, events.clone()));
+    let result = run_producer_with_events(config_path, output_base, events).await;
+    if let Some(task) = heartbeat_task {
+        task.abort();
+    }
+    result
 }

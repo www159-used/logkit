@@ -14,7 +14,9 @@ use logspout_proto::{
     StartWorkerRequest, StatWorkerReply, StatWorkerRequest, StopWorkerReply, StopWorkerRequest,
     WorkerEntry, WorkerStatDetail,
 };
-use logspout_worker::{EmbeddedProducerWorker, ProducerHeartbeatEnv, TokioEmbeddedProducerWorker};
+use logspout_worker::{
+    EmbeddedProducerWorker, ProducerHeartbeatEnv, SpawnedProducerTasks, TokioEmbeddedProducerWorker,
+};
 use tokio::net::UnixListener;
 use tokio::sync::Mutex;
 use tokio_stream::wrappers::UnixListenerStream;
@@ -56,6 +58,7 @@ struct RunningWorker {
     /// 托管于 worker_output_dir/.logspout/{id}.yaml；[`logspout_worker::run_producer_at_path`] 启动时读入
     config_storage_path: String,
     worker_task: tokio::task::JoinHandle<()>,
+    heartbeat_task: Option<tokio::task::JoinHandle<()>>,
     spawned_at: Instant,
     last_heartbeat: Instant,
     last_reported_log_events: u64,
@@ -113,6 +116,9 @@ fn reap_exited(guard: &mut HashMap<String, RunningWorker>) {
     }
     for id in dead {
         if let Some(r) = guard.remove(&id) {
+            if let Some(task) = r.heartbeat_task {
+                task.abort();
+            }
             info!("producer worker task exited id={id}, removing state file");
             let _ = fs::remove_file(&r.config_storage_path);
         }
@@ -297,7 +303,10 @@ impl Logspout for LogspoutSvc {
         };
         let output_base = PathBuf::from(&self.inner.worker_output_dir);
         let cfg_path = abs_s.clone();
-        let worker_task = self.inner.producer_worker.spawn_producer_task(
+        let SpawnedProducerTasks {
+            worker_task,
+            heartbeat_task,
+        } = self.inner.producer_worker.spawn_producer_task(
             id.clone(),
             cfg_path,
             output_base,
@@ -318,6 +327,7 @@ impl Logspout for LogspoutSvc {
                 producer_yaml: yaml,
                 config_storage_path: abs_s,
                 worker_task,
+                heartbeat_task,
                 spawned_at: now,
                 last_heartbeat: now,
                 last_reported_log_events: 0,
@@ -363,6 +373,9 @@ impl Logspout for LogspoutSvc {
         };
         info!("rpc StopWorker id={}", id);
         let storage = running.config_storage_path.clone();
+        if let Some(task) = running.heartbeat_task {
+            task.abort();
+        }
         running.worker_task.abort();
         let _ = fs::remove_file(&storage);
         Ok(tonic::Response::new(StopWorkerReply {
@@ -433,6 +446,9 @@ impl Logspout for LogspoutSvc {
         if running.worker_task.is_finished() {
             warn!("rpc Heartbeat producer task already finished id={}", id);
             if let Some(r) = guard.remove(&id) {
+                if let Some(task) = r.heartbeat_task {
+                    task.abort();
+                }
                 let _ = fs::remove_file(&r.config_storage_path);
             }
             return Err(tonic::Status::failed_precondition(

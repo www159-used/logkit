@@ -1,6 +1,9 @@
 //! TLS metadata 探测与可选单次写入；配置构造见 [`logspout_worker::kafka_smoke::kafka_config_fixture_jks_dir`]。
 //!
-//! 仓库根目录示例：`./target/release/logspout-kafka-probe --assets-dir logspout-worker/assets --topic MYTOPIC --produce 'hello'`
+//! Fixture 证书与 JKS **仅**维护在 **`logspout-worker/assets/`**（不在仓库根重复）。
+//!
+//! - 在**工作区根**运行：`./target/release/logspout-kafka-probe`（默认 `--assets-dir logspout-worker/assets`）或显式传该路径。
+//! - 若当前目录已是 **`logspout-worker/`**，请传 `--assets-dir assets`。
 
 use std::path::PathBuf;
 
@@ -15,7 +18,11 @@ use logspout_worker::kafka_smoke::{
 struct Cli {
     #[arg(long, default_value = FIXTURE_BOOTSTRAP_BROKER)]
     brokers: String,
-    #[arg(long, default_value = "assets")]
+    #[arg(
+        long,
+        default_value = "logspout-worker/assets",
+        help = "含 keystore.jks / truststore.jks 的目录；在 logspout-worker 目录内运行时改为 assets"
+    )]
     assets_dir: PathBuf,
     #[arg(long, default_value = "logspout-kafka-probe")]
     topic: String,
