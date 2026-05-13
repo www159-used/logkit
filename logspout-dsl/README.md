@@ -1,6 +1,6 @@
 # logspout-dsl
 
-**Producer YAML** 的解析与校验：声明式 **`template`** + **`fields`** + 嵌套 **`sink:`**（`kafka` \| `file` \| `stdout`）。**`logspout start`** 读取单份 `.yaml` / `.yml`，经 [`parse_template_config`](src/runner.rs) 校验后序列化交给 daemon。
+**Worker 模板配置 YAML** 的解析与校验：声明式 **`template`** + **`fields`** + 嵌套 **`sink:`**（`kafka` \| `file` \| `stdout`）。**`logspout start`** 读取单份 `.yaml` / `.yml`，经 [`parse_template_config`](src/runner.rs) 校验后序列化交给 daemon；Serde 映射见 [`worker_config.rs`](src/worker_config.rs)。
 
 实现要点：内置字段类型（`FieldSpec`）、Handlebars 渲染、sink 摘要 `format_sink_summary` 等。
 

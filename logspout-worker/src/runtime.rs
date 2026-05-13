@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use http::Uri;
 use hyper_util::rt::TokioIo;
-use logspout_dsl::{parse_template_config, LineSinkType, TemplateConfig, TemplateRunner};
+use logspout_dsl::{parse_template_config, SinkConfig, TemplateConfig, TemplateRunner};
 use logspout_proto::logspout_client::LogspoutClient;
 use logspout_proto::HeartbeatRequest;
 use tokio::task::JoinHandle;
@@ -90,10 +90,8 @@ pub(crate) async fn run_producer_with_events(
         return Err(r#"producer config: "template" must be non-empty"#.into());
     }
 
-    if cfg.sink.sink_type == LineSinkType::Kafka {
-        if let Some(ref k) = cfg.sink.kafka {
-            validate_kafka_config(k).map_err(|e| format!("{config_path}: {e}"))?;
-        }
+    if let SinkConfig::Kafka { kafka: Some(k), .. } = &cfg.sink {
+        validate_kafka_config(k).map_err(|e| format!("{config_path}: {e}"))?;
     }
 
     let interval_ms = cfg.min_interval_ms;

@@ -18,15 +18,15 @@ pub enum Error {
     HandlebarsTemplate(#[from] handlebars::TemplateError),
 }
 
-/// 解析 producer 配置文件（仅 YAML）时的错误。
+/// 解析 worker 模板配置文件（仅 YAML）时的错误。
 #[derive(Debug, Error)]
 pub enum ConfigParseError {
-    #[error("producer config path must end with .yaml or .yml (got {0})")]
+    #[error("worker config path must end with .yaml or .yml (got {0})")]
     PathNotYaml(String),
-    #[error("producer YAML: {0}")]
+    #[error("worker config YAML: {0}")]
     Yaml(#[from] serde_yaml::Error),
     #[error("read {0}: {1}")]
     Io(String, #[source] std::io::Error),
-    #[error("merging producer config: {0}")]
+    #[error("merging worker config: {0}")]
     Merge(String),
 }

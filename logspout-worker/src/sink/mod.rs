@@ -12,7 +12,7 @@ pub use stdout::StdoutLineSink;
 use std::path::Path;
 
 use async_trait::async_trait;
-use logspout_dsl::{LineSinkType, TemplateConfig};
+use logspout_dsl::{SinkConfig, TemplateConfig};
 
 /// 写入单条渲染后的日志行（UTF-8 文本）。实现可为 stdout、文件、消息队列等。
 #[async_trait]
@@ -25,21 +25,19 @@ pub fn build_line_sink(
     cfg: &TemplateConfig,
     output_base: &Path,
 ) -> Result<Box<dyn LogLineSink>, String> {
-    match cfg.sink.sink_type {
-        LineSinkType::Kafka => {
-            let k = cfg
-                .sink
-                .kafka
-                .as_ref()
-                .expect("validate_template_sink ensures kafka");
-            Ok(Box::new(
-                KafkaLineSink::try_new(k).map_err(|e| e.to_string())?,
-            ))
-        }
-        LineSinkType::File => {
-            let rel = cfg
-                .sink
-                .output
+    match &cfg.sink {
+        SinkConfig::Kafka { kafka: Some(k), .. } => Ok(Box::new(
+            KafkaLineSink::try_new(k).map_err(|e| e.to_string())?,
+        )),
+        SinkConfig::Kafka { kafka: None, .. } => Err(
+            "internal: sink.type kafka but sink.kafka missing after validation".into(),
+        ),
+        SinkConfig::File {
+            output,
+            max_size_bytes,
+            ..
+        } => {
+            let rel = output
                 .as_deref()
                 .map(str::trim)
                 .filter(|s| !s.is_empty())
@@ -47,9 +45,9 @@ pub fn build_line_sink(
             Ok(Box::new(FileLineSink::open(
                 output_base,
                 rel,
-                cfg.sink.max_size_bytes,
+                *max_size_bytes,
             )?))
         }
-        LineSinkType::Stdout => Ok(Box::new(StdoutLineSink)),
+        SinkConfig::Stdout { .. } => Ok(Box::new(StdoutLineSink)),
     }
 }
