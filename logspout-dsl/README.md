@@ -1,6 +1,6 @@
 # logspout-dsl
 
-**Producer YAML** 的解析、校验与合并：声明式 **`template`** + **`fields`** + 嵌套 **`sink:`**（`kafka` \| `file` \| `stdout`）。**`logspout start`** 可将多个 YAML **按顺序合并**为一份后再序列化交给 daemon。
+**Producer YAML** 的解析与校验：声明式 **`template`** + **`fields`** + 嵌套 **`sink:`**（`kafka` \| `file` \| `stdout`）。**`logspout start`** 读取单份 `.yaml` / `.yml`，经 [`parse_template_config`](src/runner.rs) 校验后序列化交给 daemon。
 
 实现要点：内置字段类型（`FieldSpec`）、Handlebars 渲染、sink 摘要 `format_sink_summary` 等。
 
@@ -35,7 +35,7 @@
 
 行发到 Kafka；**不需要** `output`。参数在 **`sink.kafka:`**（`brokers`、`topic`、可选 **`headers:`**，以及 worker 识别的 `acks`、`timeout-ms`、`compression`、`security.protocol`、`ssl.*`、`sasl.*` 等字段）。**`ssl.truststore.location` / `ssl.keystore.location`** 支持 **`.pem` / `.crt` / `.jks` / `.p12`**：**`.jks`** 由 **`jks`**（纯 Rust）解析，**无需 `keytool`/JDK**；**`.p12`/`.pfx`** 仍调用 **`openssl pkcs12`**（须在 `PATH`）。并配置 **`ssl.truststore.password`** / **`ssl.keystore.password`**；客户端 **JKS** 含多个私钥时默认取**别名升序第一条**（可选 **`ssl.keystore.alias`** 显式指定）。示例：**[`etc/apache.sink.kafka.yaml`](../etc/apache.sink.kafka.yaml)**（勿提交真实口令）。
 
-**`sink.kafka.headers`**（可选）：YAML 可解析并参与合并/展示；**`logspout-worker`** 经 **rdkafka（librdkafka）** 会作为 **Kafka record headers** 逐条发送。值类型：**字符串** / **整数、浮点** / **布尔** / **`null`**（空值 header）；**不支持**嵌套 mapping / array。
+**`sink.kafka.headers`**（可选）：YAML 可解析并参与展示；**`logspout-worker`** 经 **rdkafka（librdkafka）** 会作为 **Kafka record headers** 逐条发送。值类型：**字符串** / **整数、浮点** / **布尔** / **`null`**（空值 header）；**不支持**嵌套 mapping / array。
 
 ## `fields`：内置 `type`
 
@@ -62,12 +62,8 @@ YAML 中为 **`type: <kebab-case>`**。以下为常用类型（完整枚举见 *
 | `template` | 子模板：嵌套 **`template`** + **`fields`** |
 | `one-of` | 多分支随机选一；分支可为**字面量**或内嵌 **`template`/`fields`**；**仅选中分支求值**（lazy） |
 
-## 合并多个 YAML
+## 单文件 producer
 
-```bash
-logspout start schema.yaml sink.yaml
-```
+**`logspout start`** 仅接受一份 YAML，须同时含 `template` / `fields` / **`sink:`**（及 `sink.type`）等必填项。若习惯拆分 schema 与 sink，请先用编辑器或 **`yq`** 等工具合成一份后再启动。仓库单文件示例：**[`etc/apache.combined.file.yaml`](../etc/apache.combined.file.yaml)**。
 
-后者覆盖前者同名键；仓库示例：**`etc/apache.schema.yaml`** + **`etc/apache.sink.file.yaml`**。
-
-更多示例：**[`etc/`](../etc/)**（Apache Combined、RFC 5424、LEEF 等）。
+更多片段与组合参考：**[`etc/`](../etc/)**（Apache Combined、RFC 5424、LEEF 等）。

@@ -1,19 +1,5 @@
-sink:
-  type: kafka
-  max-size: 0
-  kafka:
-    brokers:
-      - "192.168.1.60:9092"
-    topic: logriver
-    security.protocol: SSL
-    ssl.truststore.location: /opt/yotta/cert/truststore.jks
-    ssl.truststore.password: "CHANGE_ME_TRUSTSTORE_PASSWORD"
-    ssl.keystore.location: /opt/yotta/cert/keystore.jks
-    ssl.keystore.password: "CHANGE_ME_KEYSTORE_PASSWORD"
-    ssl.endpoint.identification.algorithm: ""
-    ssl.protocol: TLSv1.3
-    ssl.enabled.protocols: TLSv1.3
-
+# Apache Combined 造行 + 文件 sink（单文件示例，供 `logspout start` 使用）。
+# 原拆分示例见 apache.schema.yaml / apache.sink.file.yaml，可自行用 yq 等工具合并。
 min-interval: 100
 template: >-
   {{src_ip}} - {{user}} [{{timestamp}}] "{{method}} {{dst}} HTTP/1.1" {{status}} {{bytes}}
@@ -41,7 +27,6 @@ fields:
   status:
     type: pick
     values: ["200", "200", "200", "404", "301", "500"]
-  # 勿用字段名 len：`{{len}}` 与 handlebars 内置 helper 冲突
   bytes:
     type: counter
   referer:
@@ -54,9 +39,12 @@ fields:
         fields:
           host:
             type: pick
-            values:
-              ["www.example.com", "partner.example.net", "cdn.example.org"]
+            values: ["www.example.com", "partner.example.net", "cdn.example.org"]
           path:
             type: url-path
   ua:
     type: user-agent
+sink:
+  type: file
+  output: apache.log
+  max-size: 10mb

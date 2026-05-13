@@ -21,8 +21,12 @@ pub enum LineSinkType {
 /// `sink.kafka:`：已知字段映射到结构体；**未建模的键**在反序列化时由 Serde 忽略（不报错、不保留），便于粘贴 Java client 风格配置。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KafkaConfig {
-    pub brokers: Vec<String>,
-    pub topic: String,
+    /// **`None`** 仅当键在 YAML 中省略时；**有效配置**下须含至少一个非空 broker（见 [`validate_template_sink`] / worker 校验）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brokers: Option<Vec<String>>,
+    /// **`None`** 仅当键省略；**有效配置**下须为 **trim 后非空** topic。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub topic: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub headers: Option<BTreeMap<String, serde_yaml::Value>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -163,93 +167,8 @@ pub struct KafkaConfig {
     pub sasl_password: Option<String>,
 }
 
-impl KafkaConfig {
-    /// Merge a later producer layer’s `kafka` block over `self` (later non-empty / `Some` values win).
-    pub fn merge_overlay(mut self, b: KafkaConfig) -> Self {
-        if !b.brokers.is_empty() {
-            self.brokers = b.brokers;
-        }
-        if !b.topic.is_empty() {
-            self.topic = b.topic;
-        }
-        if b.headers.is_some() {
-            self.headers = b.headers;
-        }
-        if b.acks.is_some() {
-            self.acks = b.acks;
-        }
-        if b.timeout_ms.is_some() {
-            self.timeout_ms = b.timeout_ms;
-        }
-        if b.compression.is_some() {
-            self.compression = b.compression;
-        }
-        if b.security_protocol.is_some() {
-            self.security_protocol = b.security_protocol;
-        }
-        if b.ssl_endpoint_identification_algorithm.is_some() {
-            self.ssl_endpoint_identification_algorithm = b.ssl_endpoint_identification_algorithm;
-        }
-        if b.ssl_ca_pem.is_some() {
-            self.ssl_ca_pem = b.ssl_ca_pem;
-        }
-        if b.ssl_ca_location.is_some() {
-            self.ssl_ca_location = b.ssl_ca_location;
-        }
-        if b.ssl_truststore_location.is_some() {
-            self.ssl_truststore_location = b.ssl_truststore_location;
-        }
-        if b.ssl_truststore_password.is_some() {
-            self.ssl_truststore_password = b.ssl_truststore_password;
-        }
-        if b.ssl_certificate_pem.is_some() {
-            self.ssl_certificate_pem = b.ssl_certificate_pem;
-        }
-        if b.ssl_certificate_location.is_some() {
-            self.ssl_certificate_location = b.ssl_certificate_location;
-        }
-        if b.ssl_private_key_pem.is_some() {
-            self.ssl_private_key_pem = b.ssl_private_key_pem;
-        }
-        if b.ssl_key_location.is_some() {
-            self.ssl_key_location = b.ssl_key_location;
-        }
-        if b.ssl_key_pem.is_some() {
-            self.ssl_key_pem = b.ssl_key_pem;
-        }
-        if b.ssl_keystore_location.is_some() {
-            self.ssl_keystore_location = b.ssl_keystore_location;
-        }
-        if b.ssl_keystore_password.is_some() {
-            self.ssl_keystore_password = b.ssl_keystore_password;
-        }
-        if b.ssl_keystore_alias.is_some() {
-            self.ssl_keystore_alias = b.ssl_keystore_alias;
-        }
-        if b.ssl_protocol.is_some() {
-            self.ssl_protocol = b.ssl_protocol;
-        }
-        if b.ssl_enabled_protocols.is_some() {
-            self.ssl_enabled_protocols = b.ssl_enabled_protocols;
-        }
-        if b.sasl_mechanism.is_some() {
-            self.sasl_mechanism = b.sasl_mechanism;
-        }
-        if b.sasl_jaas_config.is_some() {
-            self.sasl_jaas_config = b.sasl_jaas_config;
-        }
-        if b.sasl_username.is_some() {
-            self.sasl_username = b.sasl_username;
-        }
-        if b.sasl_password.is_some() {
-            self.sasl_password = b.sasl_password;
-        }
-        self
-    }
-}
-
 /// 行日志 sink：**必填** `type`（`kafka` | `file` | `stdout`）。
-/// - **`output`**：仅 **`type: file`** 有意义；其它类型**不需要**，合并/解析入口会丢弃多余或前层残留的 `output`。
+/// - **`output`**：仅 **`type: file`** 有意义；其它类型**不需要**，[`parse_template_config`] 会丢弃多余或无意义的 `output`。
 /// - **`max-size`**：截断仅对 **`file`** 生效（他类型可省略或为 `0`）。可为整数（字节）或字符串，如 **`64KiB`**、**`10MiB`**、`1.5 GiB`（底数 1024）。
 /// - **`kafka`**：仅 **`type: kafka`** 时需要。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -272,24 +191,7 @@ pub struct SinkConfig {
     pub kafka: Option<KafkaConfig>,
 }
 
-/// 单层 YAML 里可选的 `sink:` 片段（合并时**后者覆盖前者**的各子字段）。
-#[derive(Debug, Clone, Default, Deserialize)]
-pub struct SinkLayer {
-    #[serde(rename = "type", default)]
-    pub sink_type: Option<LineSinkType>,
-    #[serde(
-        rename = "max-size",
-        default,
-        deserialize_with = "crate::human_size::deserialize_opt_max_size"
-    )]
-    pub max_size_bytes: Option<u64>,
-    #[serde(default)]
-    pub output: Option<String>,
-    #[serde(default)]
-    pub kafka: Option<KafkaConfig>,
-}
-
-/// 合并后的 producer 配置（CLI 合并多文件后序列化为**单份 YAML** 传给 daemon / 落盘）。
+/// Producer 配置（一份 YAML 对应一棵配置树；序列化后可由 daemon / worker 落盘或经 gRPC 传递）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TemplateConfig {
     /// Handlebars 源字符串（无须外置文件）。占位符须与 `fields` 键一致；**勿**用 `len` 等名，会与 handlebars 内置 helper（如 `{{len …}}`）冲突。
@@ -301,19 +203,6 @@ pub struct TemplateConfig {
     pub min_interval_ms: u64,
     /// 行日志写出：**`sink.type`** 及关联项（不可再扁平写在根上）。
     pub sink: SinkConfig,
-}
-
-/// 单层 YAML：**模板（造行）** 与 **`sink:`** 可拆在不同文件；[`load_and_merge_producer_paths`] 按路径顺序合并。
-#[derive(Debug, Clone, Default, Deserialize)]
-pub struct ProducerConfigLayer {
-    #[serde(default)]
-    pub template: Option<String>,
-    #[serde(default)]
-    pub fields: Option<BTreeMap<String, FieldSpec>>,
-    #[serde(rename = "min-interval", default)]
-    pub min_interval_ms: Option<u64>,
-    #[serde(default)]
-    pub sink: Option<SinkLayer>,
 }
 
 fn default_min_interval_ms() -> u64 {
@@ -335,7 +224,7 @@ fn yaml_extension_ok(path: &Path) -> Result<(), ConfigParseError> {
     Ok(())
 }
 
-/// `output` 仅对 [`LineSinkType::File`] 有效；其它类型去掉 `output`，避免单层误写或多层合并时残留前层的文件路径。
+/// `output` 仅对 [`LineSinkType::File`] 有效；其它类型去掉 `output`，避免误写 `output` 与 `sink.type` 不一致。
 fn normalize_sink_output(mut sink: SinkConfig) -> SinkConfig {
     if sink.sink_type != LineSinkType::File {
         sink.output = None;
@@ -359,103 +248,57 @@ pub fn format_sink_summary(sink: &SinkConfig) -> String {
             let Some(k) = sink.kafka.as_ref() else {
                 return "kafka: (missing kafka section)".into();
             };
-            let broker = k.brokers.first().map(|b| b.as_str()).unwrap_or("?");
-            let more = k.brokers.len().saturating_sub(1);
+            let broker = k
+                .brokers
+                .as_ref()
+                .and_then(|b| b.first())
+                .map(|b| b.as_str())
+                .unwrap_or("?");
+            let n = k.brokers.as_ref().map(|b| b.len()).unwrap_or(0);
+            let more = n.saturating_sub(1);
             let brokers = if more > 0 {
                 format!("{broker} +{more} more")
             } else {
                 broker.to_string()
             };
+            let topic = k.topic.as_deref().unwrap_or("?");
             let hdr = k.headers.as_ref().map(|h| h.len()).unwrap_or(0);
             if hdr > 0 {
-                format!("kafka: topic {} @ {} (+{} headers)", k.topic, brokers, hdr)
+                format!("kafka: topic {topic} @ {brokers} (+{hdr} headers)")
             } else {
-                format!("kafka: topic {} @ {}", k.topic, brokers)
+                format!("kafka: topic {topic} @ {brokers}")
             }
         }
     }
-}
-
-/// 将多层配置合并为一份 [`TemplateConfig`]（后者覆盖前者）。
-pub fn merge_producer_layers(
-    layers: Vec<ProducerConfigLayer>,
-) -> Result<TemplateConfig, ConfigParseError> {
-    if layers.is_empty() {
-        return Err(ConfigParseError::Merge(
-            "need at least one producer YAML path to merge".into(),
-        ));
-    }
-    let mut acc = ProducerConfigLayer::default();
-    let mut sink_acc = SinkLayer::default();
-    for layer in layers {
-        if layer.template.is_some() {
-            acc.template = layer.template;
-        }
-        if layer.fields.is_some() {
-            acc.fields = layer.fields;
-        }
-        if layer.min_interval_ms.is_some() {
-            acc.min_interval_ms = layer.min_interval_ms;
-        }
-        if let Some(s) = layer.sink {
-            if s.sink_type.is_some() {
-                sink_acc.sink_type = s.sink_type;
-            }
-            if s.max_size_bytes.is_some() {
-                sink_acc.max_size_bytes = s.max_size_bytes;
-            }
-            if s.output.is_some() {
-                sink_acc.output = s.output;
-            }
-            if let Some(new_kafka) = s.kafka {
-                sink_acc.kafka = Some(match sink_acc.kafka.take() {
-                    None => new_kafka,
-                    Some(prev) => prev.merge_overlay(new_kafka),
-                });
-            }
-        }
-    }
-    let template = acc.template.ok_or_else(|| {
-        ConfigParseError::Merge(
-            "merged config is missing required field `template` (provide it in some YAML layer)"
-                .into(),
-        )
-    })?;
-    if template.trim().is_empty() {
-        return Err(ConfigParseError::Merge(
-            "`template` must not be empty".into(),
-        ));
-    }
-    let sink_type = sink_acc.sink_type.ok_or_else(|| {
-        ConfigParseError::Merge(
-            "merged config is missing `sink.type` (set sink.type to kafka | file | stdout under `sink:` in some YAML)"
-                .into(),
-        )
-    })?;
-    let sink = normalize_sink_output(SinkConfig {
-        sink_type,
-        max_size_bytes: sink_acc.max_size_bytes.unwrap_or(0),
-        output: sink_acc.output,
-        kafka: sink_acc.kafka,
-    });
-    let cfg = TemplateConfig {
-        template,
-        fields: acc.fields.unwrap_or_default(),
-        min_interval_ms: acc.min_interval_ms.unwrap_or(1000),
-        sink,
-    };
-    validate_template_sink(&cfg)?;
-    Ok(cfg)
 }
 
 /// 检查 `sink.type` 与 `output` / `kafka` 是否一致。
-/// 非 `file` 的 `output` 应在进入此函数前丢弃（[`merge_producer_layers`] 与 [`parse_template_config`] 已处理）。
+/// 非 `file` 的 `output` 应在进入此函数前丢弃（[`parse_template_config`] 已处理）。
 pub fn validate_template_sink(cfg: &TemplateConfig) -> Result<(), ConfigParseError> {
     match cfg.sink.sink_type {
         LineSinkType::Kafka => {
-            if cfg.sink.kafka.is_none() {
+            let Some(k) = cfg.sink.kafka.as_ref() else {
                 return Err(ConfigParseError::Merge(
                     "`sink.type: kafka` requires a non-empty `sink.kafka:` section".into(),
+                ));
+            };
+            let brokers_ok = k
+                .brokers
+                .as_ref()
+                .is_some_and(|b| b.iter().any(|s| !s.trim().is_empty()));
+            if !brokers_ok {
+                return Err(ConfigParseError::Merge(
+                    "`sink.type: kafka` requires `sink.kafka.brokers` with at least one non-empty broker address"
+                        .into(),
+                ));
+            }
+            let topic_ok = k
+                .topic
+                .as_deref()
+                .is_some_and(|t| !t.trim().is_empty());
+            if !topic_ok {
+                return Err(ConfigParseError::Merge(
+                    "`sink.type: kafka` requires a non-empty `sink.kafka.topic`".into(),
                 ));
             }
         }
@@ -472,29 +315,7 @@ pub fn validate_template_sink(cfg: &TemplateConfig) -> Result<(), ConfigParseErr
     Ok(())
 }
 
-/// 读取多个 `.yaml` / `.yml`，按顺序合并（与 `logspout start a.yaml b.yaml` 一致）。
-pub fn load_and_merge_producer_paths<P: AsRef<Path>>(
-    paths: &[P],
-) -> Result<TemplateConfig, ConfigParseError> {
-    if paths.is_empty() {
-        return Err(ConfigParseError::Merge(
-            "need at least one config file path".into(),
-        ));
-    }
-    let mut layers = Vec::with_capacity(paths.len());
-    for path in paths {
-        let path = path.as_ref();
-        yaml_extension_ok(path)?;
-        let raw = std::fs::read_to_string(path)
-            .map_err(|e| ConfigParseError::Io(path.display().to_string(), e))?;
-        let layer: ProducerConfigLayer = serde_yaml::from_str(&raw)
-            .map_err(|e| ConfigParseError::Merge(format!("parse {}: {e}", path.display())))?;
-        layers.push(layer);
-    }
-    merge_producer_layers(layers)
-}
-
-/// 将合并后的配置序列化为单份 YAML 字符串（供 gRPC `producer_yaml` / daemon 落盘）。
+/// 将配置序列化为单份 YAML 字符串（供 gRPC `producer_yaml` / daemon 落盘）。
 pub fn template_config_to_yaml(cfg: &TemplateConfig) -> Result<String, serde_yaml::Error> {
     serde_yaml::to_string(cfg)
 }
@@ -649,8 +470,11 @@ fields: {}
 "#;
         let c: TemplateConfig = serde_yaml::from_str(y).unwrap();
         let k = c.sink.kafka.as_ref().expect("kafka");
-        assert_eq!(k.topic, "t1");
-        assert_eq!(k.brokers, vec!["127.0.0.1:9092".to_string()]);
+        assert_eq!(k.topic.as_deref(), Some("t1"));
+        assert_eq!(
+            k.brokers,
+            Some(vec!["127.0.0.1:9092".to_string()])
+        );
         assert!(k.acks.is_none());
         assert!(k.timeout_ms.is_none());
         assert!(k.compression.is_none());
@@ -752,8 +576,8 @@ fields: {}
 "#;
         let c: TemplateConfig = serde_yaml::from_str(y).unwrap();
         let k = c.sink.kafka.as_ref().unwrap();
-        assert_eq!(k.topic, "t1");
-        assert_eq!(k.brokers, vec!["127.0.0.1:9092".to_string()]);
+        assert_eq!(k.topic.as_deref(), Some("t1"));
+        assert_eq!(k.brokers.as_ref().unwrap().as_slice(), &["127.0.0.1:9092".to_string()]);
     }
 
     /// 测试内容：未写 `max-size` 时 file/stdout sink 的 `max_size_bytes` 默认 0。
@@ -836,6 +660,41 @@ fields: {}
         let e = parse_template_config(Path::new("t.yaml"), raw).unwrap_err();
         assert!(
             e.to_string().contains("max-size") || e.to_string().contains("unknown"),
+            "{e}"
+        );
+    }
+
+    /// 测试内容：`parse_template_config` 在 `sink.type: kafka` 时校验 `sink.kafka.topic` 非空。
+    /// 输入：含 `brokers` 但省略 `topic` 的最小 producer YAML。
+    /// 预期：`unwrap_err()`；错误信息含 `topic`。
+    #[test]
+    fn parse_template_config_rejects_kafka_missing_topic() {
+        let raw = r#"sink:
+  type: kafka
+  kafka:
+    brokers: ["127.0.0.1:9092"]
+template: "x"
+fields: {}
+"#;
+        let e = parse_template_config(Path::new("t.yaml"), raw).unwrap_err();
+        assert!(e.to_string().to_ascii_lowercase().contains("topic"), "{e}");
+    }
+
+    /// 测试内容：`parse_template_config` 在 `sink.type: kafka` 时校验至少一个非空 broker。
+    /// 输入：`topic` 有值但 `brokers` 省略。
+    /// 预期：`unwrap_err()`；错误信息含 `brokers`。
+    #[test]
+    fn parse_template_config_rejects_kafka_missing_brokers() {
+        let raw = r#"sink:
+  type: kafka
+  kafka:
+    topic: t
+template: "x"
+fields: {}
+"#;
+        let e = parse_template_config(Path::new("t.yaml"), raw).unwrap_err();
+        assert!(
+            e.to_string().to_ascii_lowercase().contains("brokers"),
             "{e}"
         );
     }
@@ -1055,40 +914,6 @@ fields:
         }
     }
 
-    /// 测试内容：`merge_producer_layers` 后层覆盖 sink 的 `output` 与 `max-size`。
-    /// 输入：第一层 file + `output: first.log`；第二层仅改 `output` 与 `max-size`。
-    /// 预期：合并后 `output == second.log`、`max_size_bytes == 99`；`min_interval` 等保留；counter 仍从 0 起。
-    #[test]
-    fn merge_two_layers_sink_overrides_output() {
-        let a: ProducerConfigLayer = serde_yaml::from_str(
-            r#"
-sink:
-  type: file
-  output: first.log
-template: "{{x}}"
-min-interval: 5
-fields:
-  x:
-    type: counter
-"#,
-        )
-        .unwrap();
-        let b: ProducerConfigLayer = serde_yaml::from_str(
-            r#"
-sink:
-  output: second.log
-  max-size: 99
-"#,
-        )
-        .unwrap();
-        let c = merge_producer_layers(vec![a, b]).unwrap();
-        assert_eq!(c.min_interval_ms, 5);
-        assert_eq!(c.sink.output.as_deref(), Some("second.log"));
-        assert_eq!(c.sink.max_size_bytes, 99);
-        let mut r = TemplateRunner::try_new(c).unwrap();
-        assert_eq!(r.next_line().unwrap(), "0");
-    }
-
     /// 测试内容：`format_sink_summary` 对 stdout / file / kafka（含多 broker 与 headers）的摘要字符串。
     /// 输入：构造 `SinkConfig`：无 kafka；file 有无 max-size；kafka 单/双 broker；kafka 带 1 个 header。
     /// 预期：依次为 `stdout`、`file: a.log`、带 max-size 的 file 行、`kafka: topic t @ h1:9092 +1 more`、`(+1 headers)` 后缀。
@@ -1127,8 +952,8 @@ sink:
                 max_size_bytes: 0,
                 output: None,
                 kafka: Some(KafkaConfig {
-                    brokers: vec!["h1:9092".into(), "h2:9092".into()],
-                    topic: "t".into(),
+                    brokers: Some(vec!["h1:9092".into(), "h2:9092".into()]),
+                    topic: Some("t".into()),
                     headers: None,
                     acks: None,
                     timeout_ms: None,
@@ -1163,8 +988,8 @@ sink:
                 max_size_bytes: 0,
                 output: None,
                 kafka: Some(KafkaConfig {
-                    brokers: vec!["h1:9092".into()],
-                    topic: "t".into(),
+                    brokers: Some(vec!["h1:9092".into()]),
+                    topic: Some("t".into()),
                     headers: Some(
                         [("a".into(), serde_yaml::Value::String("1".into()))]
                             .into_iter()
@@ -1233,9 +1058,9 @@ sink:
         );
     }
 
-    /// 测试内容：两层 Kafka 片段合并时可选字段叠加/保留。
-    /// 输入：第一层 `acks: 1`；第二层仅追加 `compression: gzip`（同 brokers/topic）。
-    /// 预期：合并后 `acks == 1`、`compression == gzip`、`brokers`/`topic` 不变。
+    /// 测试内容：两层 Kafka 片段合并时后层可只补丁可选字段，不重复写 `brokers`/`topic`。
+    /// 输入：第一层全量 Kafka；第二层仅 `compression: gzip`。
+    /// 预期：合并后 `acks == 1`、`compression == gzip`、`brokers`/`topic` 与第一层一致。
     #[test]
     fn merge_kafka_layers_overlay_optional_fields() {
         let a: ProducerConfigLayer = serde_yaml::from_str(
@@ -1256,16 +1081,17 @@ fields:
             r#"
 sink:
   kafka:
-    brokers: ["a:9092"]
-    topic: t
     compression: gzip
 "#,
         )
         .unwrap();
         let c = merge_producer_layers(vec![a, b]).unwrap();
         let k = c.sink.kafka.as_ref().unwrap();
-        assert_eq!(k.brokers, vec!["a:9092".to_string()]);
-        assert_eq!(k.topic, "t");
+        assert_eq!(
+            k.brokers,
+            Some(vec!["a:9092".to_string()])
+        );
+        assert_eq!(k.topic.as_deref(), Some("t"));
         assert_eq!(k.acks.as_ref().and_then(|v| v.as_i64()), Some(1));
         assert_eq!(k.compression.as_deref(), Some("gzip"));
     }

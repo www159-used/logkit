@@ -14,7 +14,7 @@ use tonic::transport::Endpoint;
 use tower::service_fn;
 
 use logspout_config::{load_merged, LogspoutError};
-use logspout_dsl::{load_and_merge_producer_paths, template_config_to_yaml};
+use logspout_dsl::{parse_template_config, template_config_to_yaml};
 
 #[derive(Parser)]
 #[command(
@@ -45,9 +45,9 @@ enum Commands {
     },
     List,
     Start {
-        /// Producer YAML：可多个路径，CLI 合并为单份配置再传给 daemon（后者覆盖前者）。
-        #[arg(required = true, num_args = 1.., value_name = "CONFIG.yaml")]
-        config_paths: Vec<String>,
+        /// Producer YAML（单文件；见 [`logspout_dsl`]）。
+        #[arg(required = true, value_name = "CONFIG.yaml")]
+        config: String,
     },
     Stop {
         id: String,
@@ -173,13 +173,16 @@ async fn run() -> Result<(), LogspoutError> {
                 println!();
             }
         }
-        Commands::Start { config_paths } => {
-            let paths: Vec<PathBuf> = config_paths.iter().map(PathBuf::from).collect();
-            let merged = load_and_merge_producer_paths(&paths)
+        Commands::Start { config } => {
+            let path = PathBuf::from(&config);
+            let raw = std::fs::read_to_string(&path).map_err(|e| {
+                LogspoutError::Cli(format!("read {}: {e}", path.display()))
+            })?;
+            let merged = parse_template_config(path.as_path(), &raw)
                 .map_err(|e| LogspoutError::Cli(e.to_string()))?;
             let producer_yaml = template_config_to_yaml(&merged)
-                .map_err(|e| LogspoutError::Cli(format!("serialize merged producer YAML: {e}")))?;
-            let config_label = config_paths.join(" + ");
+                .map_err(|e| LogspoutError::Cli(format!("serialize producer YAML: {e}")))?;
+            let config_label = config;
             let r = client
                 .start_worker(StartWorkerRequest {
                     producer_yaml,

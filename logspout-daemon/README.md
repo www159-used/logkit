@@ -33,7 +33,7 @@ logspout-daemon [--defaults-file PATH]
 
 ## 与 worker 的关系
 
-- **`logspout start`**（CLI）把合并后的 producer YAML 发给 daemon；daemon 分配 id、落盘副本并 **`TokioEmbeddedProducerWorker`** 驱动循环。
+- **`logspout start`**（CLI）把 producer YAML 发给 daemon；daemon 分配 id、落盘副本并 **`TokioEmbeddedProducerWorker`** 驱动循环。
 - 调试时可单独运行 **`logspout-worker -f`**（见 [`logspout-worker`](../logspout-worker/README.md)），不必经过 daemon。
 
 心跳间隔、超时、`worker_output_dir` 等见 **[`logspout-config`](../logspout-config/README.md)** 的 **`[worker]`** 段。

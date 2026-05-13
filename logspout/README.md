@@ -24,10 +24,10 @@
 | `ping` | 探测 daemon；打印配置中的 `ping_reply_text` |
 | `echo [TEXT...]` | 回显，用于链路测试 |
 | `list` | 列出运行中的实例：id、alive、healthy、sink 摘要 |
-| `start CONFIG.yaml [CONFIG.yaml ...]` | 按顺序**合并**多个 YAML 为单份 producer，再启动；展示标签为路径用 ` + ` 拼接 |
+| `start CONFIG.yaml` | 读取**单份** producer YAML，校验后启动；`config_label` 为该路径 |
 | `stop <id>` | 停止实例；`id` 支持完整 UUID，也支持**唯一前缀** |
 | `stat [前缀]` | 无参数：全部实例；有参数：按 id **前缀**筛选 |
-| `cat <id>` | 打印该实例内存中的合并后 YAML（`id` 规则同 `stop`） |
+| `cat <id>` | 打印该实例内存中的 producer YAML（`id` 规则同 `stop`） |
 
 ## 快速示例（在仓库根目录）
 
@@ -37,7 +37,7 @@
 
 ```bash
 ./target/release/logspout ping
-./target/release/logspout start etc/apache.schema.yaml etc/apache.sink.file.yaml
+./target/release/logspout start etc/apache.combined.file.yaml
 ./target/release/logspout list
 ./target/release/logspout stat
 ./target/release/logspout stop <id>
@@ -54,4 +54,4 @@ Producer 语法见 [`logspout-dsl`](../logspout-dsl/README.md)；示例文件在
 
 **`start` 失败或消息过大**
 
-- 合并后的 YAML 作为单次 RPC 载荷；必要时调大 TOML 里 `[protocol.grpc]` 的 **`max_encoding_message_size_bytes`** 等（见 [`logspout-config`](../logspout-config/README.md)）。
+- producer YAML 作为单次 RPC 载荷；必要时调大 TOML 里 `[protocol.grpc]` 的 **`max_encoding_message_size_bytes`** 等（见 [`logspout-config`](../logspout-config/README.md)）。
