@@ -9,6 +9,9 @@ members = [
     "logspout-daemon",
     "logspout-dsl",
     "logspout-worker",
+    "tools/resolve_oem",
+    "tools/parse_client_conf",
+    "tools/mysql_wrapper",
 ]
 
 [workspace.dependencies]

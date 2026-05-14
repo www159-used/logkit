@@ -1,0 +1,13 @@
+[package]
+name = "parse_client_conf"
+version = "0.1.0"
+edition = "2021"
+description = "Read client.conf and print ssl.* lines to stdout"
+license = "GPL-3.0"
+
+[dependencies]
+resolve_oem = { path = "../resolve_oem" }
+
+[[bin]]
+name = "parse_client_conf"
+path = "src/main.rs"

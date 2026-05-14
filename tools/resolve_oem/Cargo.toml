@@ -1,0 +1,9 @@
+[package]
+name = "resolve_oem"
+version = "0.1.0"
+edition = "2021"
+description = "Resolve OEM name from OEM_NAME env with yotta fallback"
+license = "GPL-3.0"
+
+[lib]
+path = "src/lib.rs"
