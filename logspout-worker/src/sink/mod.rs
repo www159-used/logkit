@@ -15,11 +15,22 @@ use std::path::Path;
 
 use async_trait::async_trait;
 use logspout_dsl::{SinkConfig, TemplateConfig};
+use thiserror::Error;
+
+/// 单行写出失败：按大类区分（便于调用方匹配或记录指标）。
+#[derive(Debug, Error)]
+pub enum EmitLineError {
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    #[error(transparent)]
+    Kafka(#[from] KafkaLineSinkError),
+}
 
 /// 写入单条渲染后的日志行（UTF-8 文本）。实现可为 stdout、文件、消息队列等。
 #[async_trait]
 pub trait LogLineSink: Send {
-    async fn emit_line(&mut self, line: &str) -> Result<(), String>;
+    /// 失败原因见 [`EmitLineError`]（本地 I/O 与 Kafka 配置/投递分层）。
+    async fn emit_line(&mut self, line: &str) -> Result<(), EmitLineError>;
 }
 
 /// 按 [`TemplateConfig::sink`] 构造行日志 sink（须已通过 [`validate_template_sink`]）。

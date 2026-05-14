@@ -28,12 +28,11 @@ rdkafka = { version = "0.36", default-features = false, features = [
   "tokio",
 ] }
 serde_yaml = { workspace = true }
-tempfile = "3"
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "time"] }
 tonic = { workspace = true }
 tower = { workspace = true }
 
-[[bin]]
-name = "logspout-kafka-probe"
-path = "src/bin/logspout-kafka-probe.rs"
+[dev-dependencies]
+logspout-dsl = { path = "../logspout-dsl" }
+rust-embed = { workspace = true }

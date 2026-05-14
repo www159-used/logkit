@@ -1,4 +1,4 @@
-//! [`JavaSslPemError`]：Java 风格 TLS 材料 → PEM 路径过程中的失败原因。
+//! [`JavaSslPemError`]：Java 风格 TLS 材料 → PEM 文本过程中的失败原因。
 
 use std::io;
 use std::path::Path;
@@ -41,13 +41,6 @@ pub enum JavaSslPemError {
     Io {
         operation: &'static str,
         path: String,
-        #[source]
-        source: io::Error,
-    },
-
-    #[error("java-ssl-pem · temp dir (`{label}`)")]
-    TempDir {
-        label: &'static str,
         #[source]
         source: io::Error,
     },

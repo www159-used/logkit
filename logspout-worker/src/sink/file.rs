@@ -4,7 +4,7 @@ use std::path::Path;
 
 use async_trait::async_trait;
 
-use super::LogLineSink;
+use super::{EmitLineError, LogLineSink};
 
 /// 追加写本地文件；`max_size > 0` 时超过则截断为空再继续写（与历史 worker 行为一致）。
 pub struct FileLineSink {
@@ -34,21 +34,18 @@ impl FileLineSink {
 
 #[async_trait]
 impl LogLineSink for FileLineSink {
-    async fn emit_line(&mut self, line: &str) -> Result<(), String> {
+    async fn emit_line(&mut self, line: &str) -> Result<(), EmitLineError> {
         writeln!(&mut self.writer, "{line}")
-            .and_then(|_| self.writer.flush())
-            .map_err(|e| format!("write output: {e}"))?;
+            .and_then(|_| self.writer.flush())?;
         if self.max_size == 0 {
             return Ok(());
         }
         let f = self.writer.get_mut();
-        let meta = f.metadata().map_err(|e| format!("metadata: {e}"))?;
+        let meta = f.metadata()?;
         if meta.len() <= self.max_size {
             return Ok(());
         }
-        f.set_len(0)
-            .and_then(|_| f.seek(SeekFrom::Start(0)))
-            .map_err(|e| format!("truncate output: {e}"))?;
+        f.set_len(0).and_then(|_| f.seek(SeekFrom::Start(0)))?;
         Ok(())
     }
 }

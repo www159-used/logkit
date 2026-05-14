@@ -2,8 +2,8 @@
 #   cargo build --release -p logspout-worker && ./target/release/logspout-worker -f tests/fixtures/kafka_asset_broker.yaml
 # 首次写出前会等待一个 min-interval；按 Ctrl+C 结束。topic 须已存在或集群允许自动创建。
 #
-# 若只需验证 TLS 与 metadata、不写 topic，请用：
-#   cargo run -p logspout-worker --bin logspout-kafka-probe
+# 若只需验证 TLS 与 metadata、不写 topic，请用集成测试（本文件即其 Kafka 配置来源）：
+#   cargo test -p logspout-worker --test kafka_probe kafka_probe_metadata_and_optional_produce -- --ignored --nocapture
 
 template: "logspout tls smoke line"
 min-interval: 60000

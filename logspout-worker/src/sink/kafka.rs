@@ -7,14 +7,13 @@ use rdkafka::config::ClientConfig;
 use rdkafka::error::KafkaError;
 use rdkafka::message::{Header, OwnedHeaders};
 use rdkafka::producer::{BaseRecord, DefaultProducerContext, FutureProducer, FutureRecord, Producer};
-use tempfile::TempDir;
 use thiserror::Error;
 use tokio::time::timeout;
 
 use super::context_id::next_context_id;
 use super::kafka_agent::{self, KafkaAgentRuntimeState};
 
-use super::LogLineSink;
+use super::{EmitLineError, LogLineSink};
 
 /// Kafka 行 sink 的配置校验、建连与 produce 阶段的错误。
 #[derive(Debug, Error)]
@@ -52,9 +51,6 @@ fn wall_clock_ms_i64() -> i64 {
 }
 
 pub struct KafkaLineSink {
-    /// JKS/P12 转 PEM 的临时目录；声明在 producer 之前以便 drop 时先关连接再删文件。
-    #[allow(dead_code)]
-    tls_scratch: Option<TempDir>,
     producer: FutureProducer,
     brokers_display: String,
     topic: String,
@@ -295,7 +291,7 @@ enum KafkaTransportMode {
 fn build_rdkafka_client_config(
     k: &KafkaConfig,
     transport: KafkaTransportMode,
-) -> Result<(ClientConfig, Option<TempDir>, Duration), KafkaLineSinkError> {
+) -> Result<(ClientConfig, Duration), KafkaLineSinkError> {
     let brokers: Vec<String> = k
         .brokers
         .as_ref()
@@ -337,14 +333,13 @@ fn build_rdkafka_client_config(
         cfg.set("compression.type", ct);
     }
 
-    let mut tls_scratch = None;
     match transport {
         KafkaTransportMode::Plaintext => {
             cfg.set("security.protocol", "PLAINTEXT");
         }
         KafkaTransportMode::Tls => {
             cfg.set("security.protocol", "ssl");
-            tls_scratch = super::kafka_jks::configure_librdkafka_ssl(&mut cfg, k)?;
+            super::kafka_jks::configure_librdkafka_ssl(&mut cfg, k)?;
             if let Some(ref sp) = k.ssl_protocol {
                 let t = sp.trim();
                 if !t.is_empty() {
@@ -360,7 +355,7 @@ fn build_rdkafka_client_config(
         }
     }
 
-    Ok((cfg, tls_scratch, queue_timeout))
+    Ok((cfg, queue_timeout))
 }
 
 impl KafkaLineSink {
@@ -383,7 +378,7 @@ impl KafkaLineSink {
         let transport = kafka_transport_mode(k)?;
         let tls_enabled = transport == KafkaTransportMode::Tls;
 
-        let (cfg, tls_scratch, queue_timeout) = build_rdkafka_client_config(k, transport)?;
+        let (cfg, queue_timeout) = build_rdkafka_client_config(k, transport)?;
 
         let producer: FutureProducer = cfg
             .create()
@@ -397,7 +392,6 @@ impl KafkaLineSink {
         };
 
         Ok(Self {
-            tls_scratch,
             producer,
             brokers_display,
             topic,
@@ -413,7 +407,7 @@ impl KafkaLineSink {
 
 #[async_trait]
 impl LogLineSink for KafkaLineSink {
-    async fn emit_line(&mut self, line: &str) -> Result<(), String> {
+    async fn emit_line(&mut self, line: &str) -> Result<(), EmitLineError> {
         let producer = self.producer.clone();
         let topic = self.topic.clone();
         let topic_for_send = topic.clone();
@@ -442,29 +436,31 @@ impl LogLineSink for KafkaLineSink {
         };
 
         match timeout(send_cap, fut).await {
-            Err(_) => Err(format!(
+            Err(_) => Err(KafkaLineSinkError::Produce(format!(
                 "kafka produce timed out after {:?} (brokers=[{}], topic={:?})",
                 send_cap, brokers_display, topic
-            )),
+            ))
+            .into()),
             Ok(dr) => match dr {
                 Ok(_) => Ok(()),
-                Err((e, _)) => Err(format_produce_err(
+                Err((e, _)) => Err(KafkaLineSinkError::Produce(format_produce_err(
                     &e,
                     &brokers_display,
                     &topic,
                     tls_enabled,
                     sasl_keys,
                     &kafka_config,
-                )),
+                ))
+                .into()),
             },
         }
     }
 }
 
-/// 使用与 [`KafkaLineSink`] 相同的 librdkafka 配置拉取一次集群 metadata（broker 数 / topic 数）；由 [`crate::kafka_smoke`] 对外暴露。
+/// 使用与 [`KafkaLineSink`] 相同的 librdkafka 配置拉取一次集群 metadata（broker 数 / topic 数）；集成测试见 `tests/kafka_probe.rs`。
 pub(crate) fn probe_kafka_ssl_cluster(k: &KafkaConfig) -> Result<(usize, usize), KafkaLineSinkError> {
     let transport = kafka_transport_mode(k)?;
-    let (cfg, _tls_scratch, _) = build_rdkafka_client_config(k, transport)?;
+    let (cfg, _) = build_rdkafka_client_config(k, transport)?;
     let producer: FutureProducer = cfg.create().map_err(KafkaLineSinkError::ProducerCreate)?;
     let meta = producer
         .client()
@@ -475,10 +471,10 @@ pub(crate) fn probe_kafka_ssl_cluster(k: &KafkaConfig) -> Result<(usize, usize),
     Ok((nb, nt))
 }
 
-/// 使用与 [`KafkaLineSink`] 相同的 TLS 配置发送**一条** UTF-8 文本到 `k.topic`（同步 flush）；由 [`crate::kafka_smoke`] 对外暴露。
+/// 使用与 [`KafkaLineSink`] 相同的 TLS 配置发送**一条** UTF-8 文本到 `k.topic`（同步 flush）；集成测试见 `tests/kafka_probe.rs`。
 pub(crate) fn produce_one_kafka_ssl_line(k: &KafkaConfig, payload: &str) -> Result<(), KafkaLineSinkError> {
     let transport = kafka_transport_mode(k)?;
-    let (cfg, tls_scratch, _) = build_rdkafka_client_config(k, transport)?;
+    let (cfg, _) = build_rdkafka_client_config(k, transport)?;
     let producer: rdkafka::producer::ThreadedProducer<DefaultProducerContext> = cfg
         .create()
         .map_err(KafkaLineSinkError::ProducerCreate)?;
@@ -493,50 +489,5 @@ pub(crate) fn produce_one_kafka_ssl_line(k: &KafkaConfig, payload: &str) -> Resu
         .flush(Duration::from_secs(30))
         .map_err(|e| KafkaLineSinkError::Produce(format!("kafka flush: {e}")))?;
     drop(producer);
-    drop(tls_scratch);
     Ok(())
-}
-
-#[cfg(test)]
-mod kafka_asset_broker_connect_tests {
-    //! 联网探针单测；默认 `#[ignore]`，见各用例 `///` 说明。
-
-    use std::path::PathBuf;
-
-    use logspout_dsl::KafkaConfig;
-
-    use crate::kafka_smoke::{
-        kafka_config_fixture_jks_dir, probe_kafka_ssl_cluster, FIXTURE_BOOTSTRAP_BROKER,
-    };
-    use crate::sink::KafkaLineSink;
-    fn fixture_kafka_config_for_probe() -> KafkaConfig {
-        kafka_config_fixture_jks_dir(
-            FIXTURE_BOOTSTRAP_BROKER,
-            "fixture-probe",
-            &PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join("..")
-                .join("assets"),
-            true,
-        )
-    }
-
-    /// 测试内容：用仓库 `assets` JKS 与 fixture 口令对真实 Kafka 拉一次 metadata。
-    /// 输入：`kafka_smoke::FIXTURE_BOOTSTRAP_BROKER` 可达集群；`kafka_config_fixture_jks_dir(..., skip_hostname_verify=true)`。
-    /// 预期：`probe_kafka_ssl_cluster` 成功且 `brokers.len() > 0`。
-    #[test]
-    #[ignore = "network: requires live Kafka SSL (see kafka_smoke::FIXTURE_BOOTSTRAP_BROKER)"]
-    fn probe_kafka_cluster_metadata_with_asset_jks() {
-        let k = fixture_kafka_config_for_probe();
-        let (n_brokers, _n_topics) = probe_kafka_ssl_cluster(&k).expect("probe cluster");
-        assert!(n_brokers > 0, "expected at least one broker in metadata");
-    }
-
-    /// 测试内容：JKS 配置在真实 Kafka sink 建连时，临时 PEM 目录需覆盖整个 `create()` 生命周期。
-    /// 输入：`kafka_config_fixture_jks_dir(..., skip_hostname_verify=true)` 构造的 fixture JKS Kafka 配置。
-    /// 预期：`KafkaLineSink::try_new` 成功，不因临时 `ca-chain.pem` / cert / key 被提前删除而报 `ssl.*.location` 打开失败。
-    #[test]
-    fn kafka_line_sink_try_new_holds_jks_tempdir_through_create() {
-        let k = fixture_kafka_config_for_probe();
-        KafkaLineSink::try_new(&k).expect("create Kafka sink with JKS fixture");
-    }
 }
