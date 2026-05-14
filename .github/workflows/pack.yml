@@ -52,7 +52,9 @@ jobs:
                "$GITHUB_WORKSPACE/target/$target/release/logspout-worker" \
                "$stage/bin/"
             cp "$GITHUB_WORKSPACE/etc/"* "$stage/etc/"
-            chmod +x "$stage/bin/logspout" "$stage/bin/logspout-daemon" "$stage/bin/logspout-worker"
+            cp "$GITHUB_WORKSPACE/bin/install.sh" "$stage/install.sh"
+            chmod +x "$stage/install.sh" \
+              "$stage/bin/logspout" "$stage/bin/logspout-daemon" "$stage/bin/logspout-worker"
             mkdir -p "$GITHUB_WORKSPACE/dist"
             tar -czf "$GITHUB_WORKSPACE/dist/logkit-${target}.tar.gz" \
               -C "$parent" --owner=0 --group=0 --numeric-owner logkit
@@ -99,7 +101,9 @@ jobs:
              "$GITHUB_WORKSPACE/target/$target/release/logspout-worker" \
              "$stage/bin/"
           cp "$GITHUB_WORKSPACE/etc/"* "$stage/etc/"
-          chmod +x "$stage/bin/logspout" "$stage/bin/logspout-daemon" "$stage/bin/logspout-worker"
+          cp "$GITHUB_WORKSPACE/bin/install.sh" "$stage/install.sh"
+          chmod +x "$stage/install.sh" \
+            "$stage/bin/logspout" "$stage/bin/logspout-daemon" "$stage/bin/logspout-worker"
           mkdir -p "$GITHUB_WORKSPACE/dist"
           COPYFILE_DISABLE=1 tar -czf "$GITHUB_WORKSPACE/dist/logkit-${target}.tar.gz" -C "$parent" logkit
           rm -rf "$parent"
