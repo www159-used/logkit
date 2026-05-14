@@ -164,9 +164,9 @@ fields: {}
         assert!(k.topic.is_none());
     }
 
-    /// 测试内容：`parse_template_config` 对 `mode: agent` 但缺 `domain` 应失败。
+    /// 测试内容：`parse_template_config` 对 `mode: agent` 且 `agent: {}`（无 `domain`）应成功。
     #[test]
-    fn parse_template_config_rejects_kafka_agent_missing_domain() {
+    fn parse_template_config_accepts_kafka_agent_without_domain() {
         let raw = r#"sink:
   type: kafka
   kafka:
@@ -176,11 +176,10 @@ fields: {}
 template: "{}"
 fields: {}
 "#;
-        let e = parse_template_config(Path::new("t.yaml"), raw).unwrap_err();
-        assert!(
-            e.to_string().to_ascii_lowercase().contains("domain"),
-            "{e}"
-        );
+        let c = parse_template_config(Path::new("t.yaml"), raw).unwrap();
+        let k = c.sink.kafka_section().unwrap();
+        assert_eq!(k.mode, KafkaSinkMode::Agent);
+        assert!(k.agent.as_ref().unwrap().domain.is_none());
     }
 
     /// 测试内容：`mode: agent` 且 `source_id` 非合法 UUID 应失败。

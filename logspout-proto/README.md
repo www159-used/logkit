@@ -16,4 +16,4 @@
 
 - **`logspout`**：客户端（[`logspout/README.md`](../logspout/README.md)）
 - **`logspout-daemon`**：服务端（[`logspout-daemon/README.md`](../logspout-daemon/README.md)）
-- **`logspout-worker`**：可选 **`Heartbeat`** 客户端（[`logspout-worker/README.md`](../logspout-worker/README.md)）
+- **`logspout-worker`**：嵌入 daemon 的任务内可选 **`Heartbeat`** 客户端（[`logspout-worker/README.md`](../logspout-worker/README.md)）

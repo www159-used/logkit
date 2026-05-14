@@ -1,4 +1,5 @@
-//! 读取 **`client.conf`**，将其中 **`ssl.*`** 键行输出到 stdout。
+//! 读取 **`client.conf`**，将 **`security.protocol`** 与 **`ssl.*`** 以 **YAML** 形式打到 stdout，
+//! 便于粘贴到 **`sink.kafka:`** 下（**不含** `brokers` / `topic`，由你自行填写）。
 //!
 //! **用法**：`parse_client_conf` 后可选跟 **一个** `client.conf` **文件**路径；**省略**则读默认绝对路径 **`/run/{OEM}_manager_agent/process/kafka/config/client.conf`**，其中 **`{OEM}`** 为 `resolve_oem::oem_name()`（环境变量 **`OEM_NAME`**，缺省 **`yotta`**）。
 
@@ -43,15 +44,53 @@ fn parse_args() -> PathBuf {
     }
 }
 
-fn key_starts_with_ssl(line: &str) -> bool {
+fn parse_kv_line(line: &str) -> Option<(&str, &str)> {
     let t = line.trim_end();
     if t.is_empty() || t.starts_with('#') || t.starts_with('!') {
-        return false;
+        return None;
     }
-    let Some((k, _)) = t.split_once('=') else {
-        return false;
-    };
-    k.trim().starts_with("ssl.")
+    let (k, v) = t.split_once('=')?;
+    let k = k.trim();
+    if k.is_empty() {
+        return None;
+    }
+    Some((k, v.trim()))
+}
+
+fn emit_kafka_yaml_key(key: &str) -> bool {
+    key == "security.protocol" || key.starts_with("ssl.")
+}
+
+/// 空串用 `""`；含 YAML 易歧义字符时用双引号并转义。
+fn yaml_scalar(value: &str) -> String {
+    if value.is_empty() {
+        return "\"\"".to_string();
+    }
+    let reserved = matches!(
+        value,
+        "true" | "false" | "null" | "~" | "yes" | "no" | "on" | "off"
+    );
+    let plain = !reserved
+        && !value.starts_with('-')
+        && value.chars().all(|c| {
+            c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '/' | '-' | '+')
+        });
+    if plain {
+        return value.to_string();
+    }
+    let mut out = String::with_capacity(value.len() + 2);
+    out.push('"');
+    for ch in value.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
 
 fn main() {
@@ -60,14 +99,25 @@ fn main() {
         eprintln!("parse_client_conf: 打开 {}: {e}", path.display());
         std::process::exit(1);
     });
+    let mut rows: Vec<(String, String)> = Vec::new();
     for line in BufReader::new(f).lines() {
         let line = line.unwrap_or_else(|e| {
             eprintln!("parse_client_conf: read: {e}");
             std::process::exit(1);
         });
-        if key_starts_with_ssl(&line) {
-            println!("{}", line.trim_end());
+        if let Some((k, v)) = parse_kv_line(&line) {
+            if emit_kafka_yaml_key(k) {
+                rows.push((k.to_string(), v.to_string()));
+            }
         }
+    }
+    let has_security = rows.iter().any(|(k, _)| k == "security.protocol");
+    let has_ssl = rows.iter().any(|(k, _)| k.starts_with("ssl."));
+    if has_ssl && !has_security {
+        println!("    security.protocol: SSL");
+    }
+    for (k, v) in rows {
+        println!("    {}: {}", k, yaml_scalar(&v));
     }
 }
 
@@ -80,5 +130,30 @@ mod tests {
         let oem = resolve_oem::oem_name();
         let expected = format!("/run/{oem}_manager_agent/process/kafka/config/client.conf");
         assert_eq!(default_client_conf_path(), PathBuf::from(expected));
+    }
+
+    #[test]
+    fn yaml_scalar_empty_is_quoted_empty() {
+        assert_eq!(yaml_scalar(""), "\"\"");
+    }
+
+    #[test]
+    fn yaml_scalar_plain_paths_and_tls() {
+        assert_eq!(yaml_scalar("/opt/yotta/cert/x.jks"), "/opt/yotta/cert/x.jks");
+        assert_eq!(yaml_scalar("TLSv1.3"), "TLSv1.3");
+    }
+
+    #[test]
+    fn yaml_scalar_quotes_special_chars() {
+        assert_eq!(yaml_scalar("a:b"), "\"a:b\"");
+        assert_eq!(yaml_scalar("x@y"), "\"x@y\"");
+    }
+
+    #[test]
+    fn parse_kv_trims_and_splits_first_equals() {
+        assert_eq!(
+            parse_kv_line("  ssl.keystore.password= ab=cd  "),
+            Some(("ssl.keystore.password", "ab=cd"))
+        );
     }
 }

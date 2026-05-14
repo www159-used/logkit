@@ -46,15 +46,20 @@ jobs:
             parent="$GITHUB_WORKSPACE/dist/.stage-$target"
             stage="$parent/logkit"
             rm -rf "$parent"
-            mkdir -p "$stage/bin" "$stage/etc"
+            mkdir -p "$stage/bin" "$stage/etc" "$stage/tools/bin"
             cp "$GITHUB_WORKSPACE/target/$target/release/logspout" \
                "$GITHUB_WORKSPACE/target/$target/release/logspout-daemon" \
-               "$GITHUB_WORKSPACE/target/$target/release/logspout-worker" \
                "$stage/bin/"
+            if [[ -f "$GITHUB_WORKSPACE/target/$target/release/parse_client_conf" ]]; then
+              cp "$GITHUB_WORKSPACE/target/$target/release/parse_client_conf" "$stage/tools/bin/"
+              chmod +x "$stage/tools/bin/parse_client_conf"
+            else
+              echo "warning: parse_client_conf missing for $target" >&2
+            fi
             cp "$GITHUB_WORKSPACE/etc/"* "$stage/etc/"
             cp "$GITHUB_WORKSPACE/bin/install.sh" "$stage/install.sh"
             chmod +x "$stage/install.sh" \
-              "$stage/bin/logspout" "$stage/bin/logspout-daemon" "$stage/bin/logspout-worker"
+              "$stage/bin/logspout" "$stage/bin/logspout-daemon"
             mkdir -p "$GITHUB_WORKSPACE/dist"
             tar -czf "$GITHUB_WORKSPACE/dist/logkit-${target}.tar.gz" \
               -C "$parent" --owner=0 --group=0 --numeric-owner logkit
@@ -95,15 +100,20 @@ jobs:
           parent="$GITHUB_WORKSPACE/dist/.stage-$target"
           stage="$parent/logkit"
           rm -rf "$parent"
-          mkdir -p "$stage/bin" "$stage/etc"
+          mkdir -p "$stage/bin" "$stage/etc" "$stage/tools/bin"
           cp "$GITHUB_WORKSPACE/target/$target/release/logspout" \
              "$GITHUB_WORKSPACE/target/$target/release/logspout-daemon" \
-             "$GITHUB_WORKSPACE/target/$target/release/logspout-worker" \
              "$stage/bin/"
+          if [[ -f "$GITHUB_WORKSPACE/target/$target/release/parse_client_conf" ]]; then
+            cp "$GITHUB_WORKSPACE/target/$target/release/parse_client_conf" "$stage/tools/bin/"
+            chmod +x "$stage/tools/bin/parse_client_conf"
+          else
+            echo "warning: parse_client_conf missing for $target" >&2
+          fi
           cp "$GITHUB_WORKSPACE/etc/"* "$stage/etc/"
           cp "$GITHUB_WORKSPACE/bin/install.sh" "$stage/install.sh"
           chmod +x "$stage/install.sh" \
-            "$stage/bin/logspout" "$stage/bin/logspout-daemon" "$stage/bin/logspout-worker"
+            "$stage/bin/logspout" "$stage/bin/logspout-daemon"
           mkdir -p "$GITHUB_WORKSPACE/dist"
           COPYFILE_DISABLE=1 tar -czf "$GITHUB_WORKSPACE/dist/logkit-${target}.tar.gz" -C "$parent" logkit
           rm -rf "$parent"

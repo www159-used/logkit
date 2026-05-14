@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 
+use log::error;
 use tokio::task::JoinHandle;
 
 use crate::runtime::{
@@ -43,7 +44,7 @@ impl EmbeddedProducerWorker for TokioEmbeddedProducerWorker {
         let heartbeat_task = heartbeat.map(|hb| spawn_heartbeat_task(hb, events.clone()));
         let worker_task = tokio::spawn(async move {
             if let Err(e) = run_producer_with_events(config_path, output_base, events).await {
-                eprintln!("logspout producer task {worker_id}: {e}");
+                error!("logspout producer task {worker_id}: {e}");
             }
         });
         SpawnedProducerTasks {

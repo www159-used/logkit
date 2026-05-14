@@ -91,17 +91,10 @@ pub fn validate_template_sink(cfg: &TemplateConfig) -> Result<(), ConfigParseErr
             if k.mode == KafkaSinkMode::Agent {
                 let Some(agent) = k.agent.as_ref() else {
                     return Err(ConfigParseError::Merge(
-                        "`sink.kafka.mode: agent` requires a `sink.kafka.agent:` mapping with non-empty `domain`"
+                        "`sink.kafka.mode: agent` requires a `sink.kafka.agent:` mapping（字段均可选，含 `domain`）"
                             .into(),
                     ));
                 };
-                let domain = agent.domain.as_deref().unwrap_or("").trim();
-                if domain.is_empty() {
-                    return Err(ConfigParseError::Merge(
-                        "`sink.kafka.agent.domain` must be non-empty when `sink.kafka.mode` is `agent`"
-                            .into(),
-                    ));
-                }
                 if let Some(ref sid) = agent.source_id {
                     let t = sid.trim();
                     if !validate_agent_source_id(t) {

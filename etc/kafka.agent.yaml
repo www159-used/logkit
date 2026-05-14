@@ -13,6 +13,7 @@ sink:
     brokers:
       - "127.0.0.1:9092"
     agent:
+      # domain 可省略；省略时 JSON 外壳不写 domain 字段
       domain: "example-domain"
     # topic 省略；实际写入 topic 恒为 raw_message
     acks: 1

@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 
 use serde::de::Error;
 use serde::{Deserialize, Deserializer, Serialize};
+use serde_yaml::Value;
 
 /// `acks` / `timeout-ms` 等：YAML 里可写字符串或未加引号的数字，统一落成 `Option<String>`。
 fn deserialize_optional_scalar_string<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
@@ -67,7 +68,8 @@ pub enum KafkaSinkMode {
     Agent,
 }
 
-/// `sink.kafka.agent:` 可选覆盖项；未填字段由 worker 在启动时生成或取本机信息。
+/// `sink.kafka.agent:` 可选覆盖项；**`domain` 可省略**（空则 JSON 外壳不写 `domain` 字段）。其余未填字段由 worker 在启动时生成或取本机信息。
+/// 未建模键落入 **`extras`**（反序列化时吸收，序列化时原样写回）。
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct KafkaAgentConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -94,9 +96,12 @@ pub struct KafkaAgentConfig {
     pub flag: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fields: Option<String>,
+    /// 未在结构体上建模的 **`agent:`** 键（任意 YAML 值）。
+    #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extras: BTreeMap<String, Value>,
 }
 
-/// `sink.kafka:`：已知字段映射到结构体；**未建模的键**在反序列化时由 Serde 忽略（不报错、不保留），便于粘贴 Java client 风格配置。
+/// `sink.kafka:`：已知字段映射到结构体；**未建模的键**落入 **`extras`**（便于整段粘贴 Java client / 其它扩展键）。
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct KafkaConfig {
     #[serde(default)]
@@ -256,6 +261,9 @@ pub struct KafkaConfig {
         rename = "sasl.password"
     )]
     pub sasl_password: Option<String>,
+    /// 未在结构体上建模的 **`kafka:`** 键（任意 YAML 值）。
+    #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extras: BTreeMap<String, Value>,
 }
 
 /// Agent 模式若配置 `source_id`，须为 **36 字符标准 UUID**（8-4-4-4-12，含连字符；十六进制大小写均可）。
@@ -325,6 +333,42 @@ kafka:
         assert!(k.topic.is_none());
         let a = k.agent.as_ref().expect("agent");
         assert_eq!(a.domain.as_deref(), Some("acme"));
+    }
+
+    #[test]
+    fn deserialize_kafka_collects_unmodeled_keys_in_extras() {
+        let y = r#"
+kafka:
+  brokers: ["127.0.0.1:9092"]
+  topic: t1
+  client.id: mycid
+  metadata.max.age.ms: 12345
+"#;
+        let w: Wrap = serde_yaml::from_str(y).unwrap();
+        let k = &w.kafka;
+        assert_eq!(
+            k.extras.get("client.id"),
+            Some(&Value::String("mycid".into()))
+        );
+        assert_eq!(
+            k.extras.get("metadata.max.age.ms"),
+            Some(&Value::Number(12345.into()))
+        );
+    }
+
+    #[test]
+    fn deserialize_kafka_agent_extras_absorbs_unknown() {
+        let y = r#"
+kafka:
+  mode: agent
+  brokers: ["127.0.0.1:9092"]
+  agent:
+    domain: acme
+    future.flag: true
+"#;
+        let w: Wrap = serde_yaml::from_str(y).unwrap();
+        let a = w.kafka.agent.as_ref().unwrap();
+        assert_eq!(a.extras.get("future.flag"), Some(&Value::Bool(true)));
     }
 
     #[test]

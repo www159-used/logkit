@@ -65,9 +65,6 @@ pub fn build_runtime_state(k: &KafkaConfig) -> Result<KafkaAgentRuntimeState, St
         .unwrap_or("")
         .trim()
         .to_string();
-    if domain.is_empty() {
-        return Err("sink.kafka.agent.domain must be non-empty".into());
-    }
 
     let source_id = match agent.source_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         Some(s) => {
@@ -111,6 +108,7 @@ pub fn build_runtime_state(k: &KafkaConfig) -> Result<KafkaAgentRuntimeState, St
 
 #[derive(serde::Serialize)]
 struct AgentEnvelope<'agent_envelope> {
+    #[serde(skip_serializing_if = "str::is_empty")]
     domain: &'agent_envelope str,
     #[serde(skip_serializing_if = "str::is_empty")]
     domain_token: &'agent_envelope str,
@@ -184,6 +182,23 @@ mod tests {
             brokers: Some(vec!["127.0.0.1:9092".into()]),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn build_payload_omits_empty_domain() {
+        let k = KafkaConfig {
+            mode: KafkaSinkMode::Agent,
+            agent: Some(KafkaAgentConfig {
+                domain: None,
+                ..Default::default()
+            }),
+            brokers: Some(vec!["127.0.0.1:9092".into()]),
+            ..Default::default()
+        };
+        let st = build_runtime_state(&k).unwrap();
+        assert!(st.domain.is_empty());
+        let j = build_payload(&st, "{}", 1, 1700000000000);
+        assert!(!j.contains("\"domain\""));
     }
 
     #[test]

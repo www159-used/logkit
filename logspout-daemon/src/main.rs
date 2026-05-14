@@ -1,4 +1,4 @@
-//! logspout-daemon — gRPC 控制面（Unix 套接字）；造日志由嵌入的 [`logspout_worker::run_producer_at_path`] 任务完成（亦可单独运行 `logspout-worker` 二进制调试）。
+//! logspout-daemon — gRPC 控制面（Unix 套接字）；造日志由进程内嵌入的 [`logspout_worker::run_producer_at_path`] 任务完成。
 
 use std::collections::HashMap;
 use std::fs;
@@ -31,7 +31,7 @@ use logspout_dsl::{format_sink_summary, parse_template_config};
 #[command(
     name = "logspout-daemon",
     version,
-    about = "logspout-daemon — gRPC control plane (Unix socket); log generation is driven in-process by the logspout-worker library",
+    about = "logspout-daemon — gRPC control plane (Unix socket); embedded logspout-worker drives producers",
     disable_help_subcommand = true
 )]
 struct LogspoutDaemonCli {

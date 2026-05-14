@@ -1,4 +1,4 @@
-//! `logspout-worker`：模板日志行输出（[`LogLineSink`]）与可嵌入 daemon 的 API（[`runtime::run_producer_at_path`]、[`daemon_api::EmbeddedProducerWorker`]）。
+//! `logspout-worker`：造日志库；由 **`logspout-daemon`** 进程内嵌入（[`daemon_api::EmbeddedProducerWorker`]、[`runtime::run_producer_at_path`]）。
 
 pub mod daemon_api;
 pub mod runtime;

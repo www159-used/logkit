@@ -113,7 +113,6 @@ pub(crate) async fn run_producer_with_events(
 /// 从 producer YAML 路径读取配置并在 **`output_base` 下解析相对 `output`**，按 `min-interval` 循环写出。
 ///
 /// - **嵌入 daemon**：`output_base` = `[worker].worker_output_dir`（勿依赖 `set_current_dir`，多实例共享进程 cwd）。
-/// - **独立二进制**：`output_base` = `std::env::current_dir()` 或期望的工作目录。
 ///
 /// `heartbeat` 为 `Some` 时，并行向本机 daemon 套接字发送心跳（与子进程模式行为一致）。
 pub async fn run_producer_at_path(

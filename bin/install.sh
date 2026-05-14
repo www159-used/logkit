@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 解压发行包得到 **logkit/** 目录后，进入该目录执行：**./install.sh**
-# 默认在 **~/.bashrc** 末尾追加 **export PATH="<本目录绝对路径>/bin:${PATH}"**，把本包里的命令放到 PATH 最前。
+# 默认在 **~/.bashrc** 末尾追加 **export PATH="<本目录>/bin:<本目录>/tools/bin:${PATH}"**。
 #
 # 环境变量（可选）：
 #   LOGKIT_RC  — 要修改的配置文件，默认 ~/.bashrc
@@ -18,11 +18,20 @@ fi
 
 block=$(
   printf '\n%s\n' "$MARKER"
-  printf 'export PATH="%s/bin:${PATH}"\n' "$ROOT"
+  printf 'export PATH="%s/bin:%s/tools/bin:${PATH}"\n' "$ROOT" "$ROOT"
 )
 
+# 已有主标记但缺 tools/bin（旧版 install）：只补一行。
 if [[ -f "$RC" ]] && grep -qF "$MARKER" "$RC" 2>/dev/null; then
-  echo "已配置过（$RC 中已有 $MARKER），跳过。"
+  if ! grep -qF "$ROOT/tools/bin" "$RC" 2>/dev/null; then
+    {
+      printf '\n# logkit tools/bin (supplement)\n'
+      printf 'export PATH="%s/tools/bin:${PATH}"\n' "$ROOT"
+    } >>"$RC"
+    echo "已在 $RC 中补充 tools/bin；请执行: source $RC"
+  else
+    echo "已配置过（$RC 中已有 $MARKER 与 tools/bin），跳过。"
+  fi
   exit 0
 fi
 

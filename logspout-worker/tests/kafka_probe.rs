@@ -81,6 +81,6 @@ fn kafka_probe_metadata_and_optional_produce() {
     let (n_brokers, n_topics) = probe_kafka_ssl_cluster(&k).expect("probe cluster");
     assert!(n_brokers > 0, "expected at least one broker");
     let topic = k.topic.as_deref().unwrap_or("(no topic)");
-    produce_one_kafka_ssl_line(&k, &PRODUCE_PAYLOAD).expect("produce one line");
+    produce_one_kafka_ssl_line(&k, PRODUCE_PAYLOAD).expect("produce one line");
     eprintln!("produce ok: topic={topic} topics_meta={n_topics}");
 }
