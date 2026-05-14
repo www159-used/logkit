@@ -1,0 +1,18 @@
+# Kafka sink `mode: agent`：发往固定 topic `raw_message`，value 为紧凑 JSON（`raw_message` 为模板渲染行）。
+# `sink.kafka.topic` 在 agent 模式下可省略；`sink.kafka.headers` 不生效。
+min-interval: 100
+template: '{"event":"demo","detail":"{{message}}"}'
+fields:
+  message:
+    type: lorem-word
+sink:
+  type: kafka
+  max-size: 0
+  kafka:
+    mode: agent
+    brokers:
+      - "127.0.0.1:9092"
+    agent:
+      domain: "example-domain"
+    # topic 省略；实际写入 topic 恒为 raw_message
+    acks: 1

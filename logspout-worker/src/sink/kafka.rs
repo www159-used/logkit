@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use logspout_dsl::KafkaConfig;
+use logspout_dsl::{KafkaConfig, KafkaSinkMode};
 use rdkafka::config::ClientConfig;
 use rdkafka::error::KafkaError;
 use rdkafka::message::{Header, OwnedHeaders};
@@ -11,6 +11,9 @@ use tempfile::TempDir;
 use thiserror::Error;
 use tokio::time::timeout;
 
+use super::context_id::next_context_id;
+use super::kafka_agent::{self, KafkaAgentRuntimeState};
+
 use super::LogLineSink;
 
 /// Kafka 行 sink 的配置校验、建连与 produce 阶段的错误。
@@ -18,6 +21,9 @@ use super::LogLineSink;
 pub enum KafkaLineSinkError {
     #[error("{0}")]
     InvalidConfig(String),
+
+    #[error(transparent)]
+    JavaSslPem(#[from] java_ssl_pem::JavaSslPemError),
 
     #[error("failed to create Kafka producer: {0}")]
     ProducerCreate(#[source] KafkaError),
@@ -30,6 +36,21 @@ fn invalid_kafka_cfg(msg: impl Into<String>) -> KafkaLineSinkError {
     KafkaLineSinkError::InvalidConfig(msg.into())
 }
 
+fn effective_produce_topic(k: &KafkaConfig) -> String {
+    match k.mode {
+        KafkaSinkMode::Agent => kafka_agent::KAFKA_AGENT_TOPIC.to_string(),
+        KafkaSinkMode::Common => k.topic.as_deref().unwrap_or("").trim().to_string(),
+    }
+}
+
+fn wall_clock_ms_i64() -> i64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis().min(i64::MAX as u128) as i64)
+        .unwrap_or(0)
+}
+
 pub struct KafkaLineSink {
     /// JKS/P12 转 PEM 的临时目录；声明在 producer 之前以便 drop 时先关连接再删文件。
     #[allow(dead_code)]
@@ -37,7 +58,7 @@ pub struct KafkaLineSink {
     producer: FutureProducer,
     brokers_display: String,
     topic: String,
-    /// 每条消息附带的 record headers（与配置一致，逐条 clone）。
+    /// 每条消息附带的 record headers（与配置一致，逐条 clone）。`agent` 模式为 `None`。
     headers: Option<OwnedHeaders>,
     /// 克隆的 Kafka 段配置（用于错误上下文与 TLS/SASL 提示）。
     #[allow(dead_code)]
@@ -46,6 +67,7 @@ pub struct KafkaLineSink {
     sasl_keys_in_yaml: bool,
     /// `send` 入队等待上限；投递另受 `message.timeout.ms` 等约束。
     queue_timeout: Duration,
+    agent_state: Option<KafkaAgentRuntimeState>,
 }
 
 fn kafka_frame_size_error_hint(err_display: &str) -> Option<&'static str> {
@@ -135,7 +157,7 @@ fn likely_encrypted_broker_config(k: &KafkaConfig) -> bool {
 }
 
 fn owned_headers_from_kafka_cfg(
-    headers: Option<&BTreeMap<String, serde_yaml::Value>>,
+    headers: Option<&BTreeMap<String, Option<String>>>,
 ) -> Result<Option<OwnedHeaders>, KafkaLineSinkError> {
     let Some(map) = headers else {
         return Ok(None);
@@ -144,69 +166,42 @@ fn owned_headers_from_kafka_cfg(
         return Ok(None);
     }
     let mut h = OwnedHeaders::new();
-    for (k, v) in map {
+    for (k, vo) in map {
         let key = k.trim();
         if key.is_empty() {
             return Err(invalid_kafka_cfg(
                 "kafka.headers: empty header key is not allowed",
             ));
         }
-        h = match v {
-            serde_yaml::Value::Null => h.insert(Header {
+        h = match vo {
+            None => h.insert(Header {
                 key,
                 value: None::<&[u8]>,
             }),
-            serde_yaml::Value::String(s) => h.insert(Header {
+            Some(s) => h.insert(Header {
                 key,
                 value: Some(s.as_bytes()),
             }),
-            serde_yaml::Value::Bool(b) => {
-                let s = if *b { "true" } else { "false" };
-                h.insert(Header {
-                    key,
-                    value: Some(s.as_bytes()),
-                })
-            }
-            serde_yaml::Value::Number(n) => {
-                let s = n.to_string();
-                h.insert(Header {
-                    key,
-                    value: Some(s.as_bytes()),
-                })
-            }
-            _ => {
-                return Err(invalid_kafka_cfg(
-                    "kafka.headers: only string, number, boolean, or null values are supported (no nested mapping/array)",
-                ));
-            }
         };
     }
     Ok(Some(h))
 }
 
-fn required_acks_rdkafka(v: Option<&serde_yaml::Value>) -> Result<&'static str, KafkaLineSinkError> {
-    let Some(v) = v else {
+fn required_acks_rdkafka(v: Option<&str>) -> Result<&'static str, KafkaLineSinkError> {
+    let Some(s) = v.map(str::trim).filter(|s| !s.is_empty()) else {
         return Ok("1");
     };
-    match v {
-        serde_yaml::Value::Number(n) => {
-            let Some(i) = n.as_i64() else {
-                return Err(invalid_kafka_cfg("kafka.acks: invalid number"));
-            };
-            match i {
-                -1 => Ok("all"),
-                0 => Ok("0"),
-                1 => Ok("1"),
-                _ => Err(invalid_kafka_cfg(format!(
-                    "kafka.acks: unsupported integer {i} (expected -1, 0, or 1)"
-                ))),
-            }
-        }
-        serde_yaml::Value::String(s) => required_acks_rdkafka_str(s.trim()),
-        _ => Err(invalid_kafka_cfg(
-            "kafka.acks: unsupported YAML type (use integer or string)",
-        )),
+    if let Ok(i) = s.parse::<i64>() {
+        return match i {
+            -1 => Ok("all"),
+            0 => Ok("0"),
+            1 => Ok("1"),
+            _ => Err(invalid_kafka_cfg(format!(
+                "kafka.acks: unsupported integer {i} (expected -1, 0, or 1)"
+            ))),
+        };
     }
+    required_acks_rdkafka_str(s)
 }
 
 fn required_acks_rdkafka_str(s: &str) -> Result<&'static str, KafkaLineSinkError> {
@@ -256,25 +251,16 @@ fn compression_rdkafka(cs: Option<&str>) -> Result<Option<&'static str>, KafkaLi
     }))
 }
 
-fn parse_timeout_ms(v: &serde_yaml::Value) -> Result<u64, KafkaLineSinkError> {
-    match v {
-        serde_yaml::Value::Number(n) => n
-            .as_u64()
-            .or_else(|| n.as_i64().map(|i| i as u64))
-            .ok_or_else(|| invalid_kafka_cfg("kafka.timeout-ms: invalid number")),
-        serde_yaml::Value::String(s) => s
-            .trim()
-            .parse()
-            .map_err(|_| invalid_kafka_cfg("kafka.timeout-ms: invalid string")),
-        _ => Err(invalid_kafka_cfg("kafka.timeout-ms: unsupported YAML type")),
-    }
+fn parse_timeout_ms(s: Option<&str>) -> Result<u64, KafkaLineSinkError> {
+    let Some(s) = s.map(str::trim).filter(|s| !s.is_empty()) else {
+        return Ok(30_000);
+    };
+    s.parse::<u64>()
+        .map_err(|_| invalid_kafka_cfg("kafka.timeout-ms: invalid string (expected positive integer ms)"))
 }
 
 fn timeout_ms_from_kafka(k: &KafkaConfig) -> Result<u64, KafkaLineSinkError> {
-    match k.timeout_ms.as_ref() {
-        None => Ok(30_000),
-        Some(v) => parse_timeout_ms(v),
-    }
+    parse_timeout_ms(k.timeout_ms.as_deref())
 }
 
 fn kafka_transport_mode(k: &KafkaConfig) -> Result<KafkaTransportMode, KafkaLineSinkError> {
@@ -321,9 +307,9 @@ fn build_rdkafka_client_config(
     if brokers.is_empty() {
         return Err(invalid_kafka_cfg("kafka.brokers must list at least one broker"));
     }
-    let topic_trimmed = k.topic.as_deref().unwrap_or("").trim();
+    let topic_trimmed = effective_produce_topic(k);
     if topic_trimmed.is_empty() {
-        return Err(invalid_kafka_cfg("kafka.topic must be non-empty"));
+        return Err(invalid_kafka_cfg("kafka.topic must be non-empty (or use sink.kafka.mode: agent for fixed topic raw_message)"));
     }
 
     let tls_enabled = transport == KafkaTransportMode::Tls;
@@ -346,7 +332,7 @@ fn build_rdkafka_client_config(
         "delivery.timeout.ms",
         timeout_ms.saturating_add(5000).max(10_000).to_string(),
     );
-    cfg.set("request.required.acks", required_acks_rdkafka(k.acks.as_ref())?);
+    cfg.set("request.required.acks", required_acks_rdkafka(k.acks.as_deref())?);
     if let Some(ct) = compression_rdkafka(k.compression.as_deref())? {
         cfg.set("compression.type", ct);
     }
@@ -358,8 +344,7 @@ fn build_rdkafka_client_config(
         }
         KafkaTransportMode::Tls => {
             cfg.set("security.protocol", "ssl");
-            tls_scratch = super::kafka_jks::configure_librdkafka_ssl(&mut cfg, k)
-                .map_err(KafkaLineSinkError::InvalidConfig)?;
+            tls_scratch = super::kafka_jks::configure_librdkafka_ssl(&mut cfg, k)?;
             if let Some(ref sp) = k.ssl_protocol {
                 let t = sp.trim();
                 if !t.is_empty() {
@@ -390,7 +375,11 @@ impl KafkaLineSink {
             .collect::<Vec<_>>()
             .join(", ");
 
-        let headers = owned_headers_from_kafka_cfg(k.headers.as_ref())?;
+        let headers = if k.mode == KafkaSinkMode::Agent {
+            None
+        } else {
+            owned_headers_from_kafka_cfg(k.headers.as_ref())?
+        };
         let transport = kafka_transport_mode(k)?;
         let tls_enabled = transport == KafkaTransportMode::Tls;
 
@@ -400,16 +389,24 @@ impl KafkaLineSink {
             .create()
             .map_err(KafkaLineSinkError::ProducerCreate)?;
 
+        let topic = effective_produce_topic(k);
+        let agent_state = if k.mode == KafkaSinkMode::Agent {
+            Some(kafka_agent::build_runtime_state(k).map_err(KafkaLineSinkError::InvalidConfig)?)
+        } else {
+            None
+        };
+
         Ok(Self {
             tls_scratch,
             producer,
             brokers_display,
-            topic: k.topic.as_deref().unwrap_or("").trim().to_string(),
+            topic,
             headers,
             kafka_config: k.clone(),
             tls_enabled,
             sasl_keys_in_yaml: sasl_keys_present(k),
             queue_timeout,
+            agent_state,
         })
     }
 }
@@ -428,9 +425,16 @@ impl LogLineSink for KafkaLineSink {
         let queue_to = rdkafka::util::Timeout::After(self.queue_timeout);
         let send_cap = self.queue_timeout.saturating_mul(4).max(Duration::from_secs(30));
 
+        let payload = if let Some(state) = &self.agent_state {
+            let ts = wall_clock_ms_i64();
+            kafka_agent::build_payload(state, line, next_context_id(), ts)
+        } else {
+            line.to_string()
+        };
+
         let fut = async move {
             let mut rec =
-                FutureRecord::<'_, (), str>::to(topic_for_send.as_str()).payload(line);
+                FutureRecord::<'_, (), str>::to(topic_for_send.as_str()).payload(payload.as_str());
             if let Some(h) = headers {
                 rec = rec.headers(h);
             }
@@ -478,12 +482,12 @@ pub(crate) fn produce_one_kafka_ssl_line(k: &KafkaConfig, payload: &str) -> Resu
     let producer: rdkafka::producer::ThreadedProducer<DefaultProducerContext> = cfg
         .create()
         .map_err(KafkaLineSinkError::ProducerCreate)?;
-    let topic = k.topic.as_deref().unwrap_or("").trim();
+    let topic = effective_produce_topic(k);
     if topic.is_empty() {
-        return Err(invalid_kafka_cfg("kafka.topic must be non-empty"));
+        return Err(invalid_kafka_cfg("kafka.topic must be non-empty (or use sink.kafka.mode: agent for fixed topic raw_message)"));
     }
     producer
-        .send(BaseRecord::<(), str>::to(topic).payload(payload))
+        .send(BaseRecord::<(), str>::to(topic.as_str()).payload(payload))
         .map_err(|(e, _)| KafkaLineSinkError::Produce(format!("kafka send: {e}")))?;
     producer
         .flush(Duration::from_secs(30))
@@ -509,7 +513,9 @@ mod kafka_asset_broker_connect_tests {
         kafka_config_fixture_jks_dir(
             FIXTURE_BOOTSTRAP_BROKER,
             "fixture-probe",
-            &PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets"),
+            &PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("..")
+                .join("assets"),
             true,
         )
     }

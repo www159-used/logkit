@@ -1,7 +1,9 @@
 //! 一行日志的输出目标：统一由 [`LogLineSink`] 约束，便于新增 syslog、gRPC 等实现。
 
+mod context_id;
 mod file;
 pub(crate) mod kafka;
+mod kafka_agent;
 mod kafka_jks;
 mod stdout;
 

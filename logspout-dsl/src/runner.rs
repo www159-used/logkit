@@ -6,7 +6,9 @@ use serde_json::{Map, Value};
 
 use crate::field_spec::slots_from_fields;
 use crate::facade::TemplateSlot;
-use crate::worker_config::{SinkConfig, TemplateConfig};
+use crate::worker_config::{
+    validate_agent_source_id, KafkaSinkMode, SinkConfig, TemplateConfig,
+};
 use crate::{ConfigParseError, Error};
 
 fn yaml_extension_ok(path: &Path) -> Result<(), ConfigParseError> {
@@ -52,8 +54,11 @@ pub fn format_sink_summary(sink: &SinkConfig) -> String {
             } else {
                 broker.to_string()
             };
-            let topic = k.topic.as_deref().unwrap_or("?");
-            let hdr = k.headers.as_ref().map(|h| h.len()).unwrap_or(0);
+            let (topic, hdr) = if k.mode == KafkaSinkMode::Agent {
+                ("raw_message (agent)", 0usize)
+            } else {
+                (k.topic.as_deref().unwrap_or("?"), k.headers.as_ref().map(|h| h.len()).unwrap_or(0))
+            };
             if hdr > 0 {
                 format!("kafka: topic {topic} @ {brokers} (+{hdr} headers)")
             } else {
@@ -83,14 +88,40 @@ pub fn validate_template_sink(cfg: &TemplateConfig) -> Result<(), ConfigParseErr
                         .into(),
                 ));
             }
-            let topic_ok = k
-                .topic
-                .as_deref()
-                .is_some_and(|t| !t.trim().is_empty());
-            if !topic_ok {
-                return Err(ConfigParseError::Merge(
-                    "`sink.type: kafka` requires a non-empty `sink.kafka.topic`".into(),
-                ));
+            if k.mode == KafkaSinkMode::Agent {
+                let Some(agent) = k.agent.as_ref() else {
+                    return Err(ConfigParseError::Merge(
+                        "`sink.kafka.mode: agent` requires a `sink.kafka.agent:` mapping with non-empty `domain`"
+                            .into(),
+                    ));
+                };
+                let domain = agent.domain.as_deref().unwrap_or("").trim();
+                if domain.is_empty() {
+                    return Err(ConfigParseError::Merge(
+                        "`sink.kafka.agent.domain` must be non-empty when `sink.kafka.mode` is `agent`"
+                            .into(),
+                    ));
+                }
+                if let Some(ref sid) = agent.source_id {
+                    let t = sid.trim();
+                    if !validate_agent_source_id(t) {
+                        return Err(ConfigParseError::Merge(
+                            "`sink.kafka.agent.source_id` must be a 36-character UUID (8-4-4-4-12 hex with hyphens)"
+                                .into(),
+                        ));
+                    }
+                }
+            } else {
+                let topic_ok = k
+                    .topic
+                    .as_deref()
+                    .is_some_and(|t| !t.trim().is_empty());
+                if !topic_ok {
+                    return Err(ConfigParseError::Merge(
+                        "`sink.type: kafka` requires a non-empty `sink.kafka.topic` when `sink.kafka.mode` is `common` (default)"
+                            .into(),
+                    ));
+                }
             }
         }
         SinkConfig::File { output, .. } => {
@@ -516,30 +547,7 @@ fields:
                 kafka: Some(Box::new(KafkaConfig {
                     brokers: Some(vec!["h1:9092".into(), "h2:9092".into()]),
                     topic: Some("t".into()),
-                    headers: None,
-                    acks: None,
-                    timeout_ms: None,
-                    compression: None,
-                    security_protocol: None,
-                    ssl_endpoint_identification_algorithm: None,
-                    ssl_ca_pem: None,
-                    ssl_ca_location: None,
-                    ssl_truststore_location: None,
-                    ssl_truststore_password: None,
-                    ssl_certificate_pem: None,
-                    ssl_certificate_location: None,
-                    ssl_private_key_pem: None,
-                    ssl_key_location: None,
-                    ssl_key_pem: None,
-                    ssl_keystore_location: None,
-                    ssl_keystore_password: None,
-                    ssl_keystore_alias: None,
-                    ssl_protocol: None,
-                    ssl_enabled_protocols: None,
-                    sasl_mechanism: None,
-                    sasl_jaas_config: None,
-                    sasl_username: None,
-                    sasl_password: None,
+                    ..Default::default()
                 })),
             }),
             "kafka: topic t @ h1:9092 +1 more"
@@ -551,33 +559,9 @@ fields:
                     brokers: Some(vec!["h1:9092".into()]),
                     topic: Some("t".into()),
                     headers: Some(
-                        [("a".into(), serde_yaml::Value::String("1".into()))]
-                            .into_iter()
-                            .collect(),
+                        [("a".into(), Some("1".into()))].into_iter().collect(),
                     ),
-                    acks: None,
-                    timeout_ms: None,
-                    compression: None,
-                    security_protocol: None,
-                    ssl_endpoint_identification_algorithm: None,
-                    ssl_ca_pem: None,
-                    ssl_ca_location: None,
-                    ssl_truststore_location: None,
-                    ssl_truststore_password: None,
-                    ssl_certificate_pem: None,
-                    ssl_certificate_location: None,
-                    ssl_private_key_pem: None,
-                    ssl_key_location: None,
-                    ssl_key_pem: None,
-                    ssl_keystore_location: None,
-                    ssl_keystore_password: None,
-                    ssl_keystore_alias: None,
-                    ssl_protocol: None,
-                    ssl_enabled_protocols: None,
-                    sasl_mechanism: None,
-                    sasl_jaas_config: None,
-                    sasl_username: None,
-                    sasl_password: None,
+                    ..Default::default()
                 })),
             }),
             "kafka: topic t @ h1:9092 (+1 headers)"
