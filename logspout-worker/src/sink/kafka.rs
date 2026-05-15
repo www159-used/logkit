@@ -340,18 +340,6 @@ fn build_rdkafka_client_config(
         KafkaTransportMode::Tls => {
             cfg.set("security.protocol", "ssl");
             super::kafka_jks::configure_librdkafka_ssl(&mut cfg, k)?;
-            if let Some(ref sp) = k.ssl_protocol {
-                let t = sp.trim();
-                if !t.is_empty() {
-                    cfg.set("ssl.protocol", t);
-                }
-            }
-            if let Some(ref ep) = k.ssl_enabled_protocols {
-                let t = ep.trim();
-                if !t.is_empty() {
-                    cfg.set("ssl.enabled.protocols", t);
-                }
-            }
         }
     }
 
@@ -419,16 +407,20 @@ impl LogLineSink for KafkaLineSink {
         let queue_to = rdkafka::util::Timeout::After(self.queue_timeout);
         let send_cap = self.queue_timeout.saturating_mul(4).max(Duration::from_secs(30));
 
-        let payload = if let Some(state) = &self.agent_state {
+        let (payload, key) = if let Some(state) = &self.agent_state {
             let ts = wall_clock_ms_i64();
-            kafka_agent::build_payload(state, line, next_context_id(), ts)
+            let msg = kafka_agent::build_message(state, line, next_context_id(), ts);
+            (msg.payload, msg.key)
         } else {
-            line.to_string()
+            (line.to_string(), None)
         };
 
         let fut = async move {
             let mut rec =
-                FutureRecord::<'_, (), str>::to(topic_for_send.as_str()).payload(payload.as_str());
+                FutureRecord::<'_, str, str>::to(topic_for_send.as_str()).payload(payload.as_str());
+            if let Some(ref k) = key {
+                rec = rec.key(k.as_str());
+            }
             if let Some(h) = headers {
                 rec = rec.headers(h);
             }

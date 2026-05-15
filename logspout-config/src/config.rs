@@ -47,7 +47,7 @@ pub struct ProtocolSection {
     pub grpc: GrpcSection,
 }
 
-/// [worker] — 造日志实例；默认在 `logspout-daemon` **进程内** 运行 [`logspout_worker::run_producer_at_path`]。
+/// [worker] — 造日志实例；默认在 `logspout-daemon` **进程内** 直接消费内存中的 producer 配置运行。
 #[derive(Debug, Clone, Deserialize)]
 pub struct WorkerSection {
     /// 造日志写入路径的根目录（**必填**）；producer YAML 里 `output` 为**相对该目录**的路径。

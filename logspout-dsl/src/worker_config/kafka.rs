@@ -68,7 +68,7 @@ pub enum KafkaSinkMode {
     Agent,
 }
 
-/// `sink.kafka.agent:` 可选覆盖项；**`domain` 可省略**（空则 JSON 外壳不写 `domain` 字段）。其余未填字段由 worker 在启动时生成或取本机信息。
+/// `sink.kafka.agent:` 可选覆盖项；**`domain` 可省略**（空则 JSON 外壳不写 `domain` 字段）。其余未填字段由 worker 在启动时生成或取本机信息（如 `log_id` 现为每条消息自动生成）。
 /// 未建模键落入 **`extras`**（反序列化时吸收，序列化时原样写回）。
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct KafkaAgentConfig {
@@ -88,8 +88,6 @@ pub struct KafkaAgentConfig {
     pub hostname: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ip: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub log_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -1,14 +1,17 @@
 //! 供 **`logspout-daemon`** 使用的嵌入 worker 约定：用 trait 约束「如何 spawn 造日志任务」，便于测试替换或日后其它实现。
 
 use std::path::PathBuf;
+use std::panic::AssertUnwindSafe;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 
-use log::error;
+use futures_util::FutureExt;
+use logspout_dsl::TemplateConfig;
 use tokio::task::JoinHandle;
+use tracing::{info_span, Instrument};
 
 use crate::runtime::{
-    run_producer_with_events, spawn_heartbeat_task, ProducerHeartbeatEnv,
+    run_producer_with_config, spawn_heartbeat_task, ProducerHeartbeatEnv,
 };
 
 pub struct SpawnedProducerTasks {
@@ -22,31 +25,62 @@ pub trait EmbeddedProducerWorker: Send + Sync {
     fn spawn_producer_task(
         &self,
         worker_id: String,
-        config_path: String,
+        config_label: String,
+        producer_cfg: TemplateConfig,
         output_base: PathBuf,
         heartbeat: Option<ProducerHeartbeatEnv>,
     ) -> SpawnedProducerTasks;
 }
 
-/// 默认实现：调用 [`run_producer_at_path`]（模板 + sink + 可选心跳）。
+/// 默认实现：直接消费 daemon 传入的内存配置（模板 + sink + 可选心跳）。
 #[derive(Debug, Default, Clone, Copy)]
 pub struct TokioEmbeddedProducerWorker;
+
+fn panic_payload_to_string(payload: Box<dyn std::any::Any + Send>) -> String {
+    if let Some(s) = payload.downcast_ref::<&str>() {
+        (*s).to_string()
+    } else if let Some(s) = payload.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "non-string panic payload".to_string()
+    }
+}
 
 impl EmbeddedProducerWorker for TokioEmbeddedProducerWorker {
     fn spawn_producer_task(
         &self,
         worker_id: String,
-        config_path: String,
+        config_label: String,
+        producer_cfg: TemplateConfig,
         output_base: PathBuf,
         heartbeat: Option<ProducerHeartbeatEnv>,
     ) -> SpawnedProducerTasks {
         let events = Arc::new(AtomicU64::new(0));
         let heartbeat_task = heartbeat.map(|hb| spawn_heartbeat_task(hb, events.clone()));
-        let worker_task = tokio::spawn(async move {
-            if let Err(e) = run_producer_with_events(config_path, output_base, events).await {
-                error!("logspout producer task {worker_id}: {e}");
+        let span = info_span!("worker", id = %worker_id);
+        let worker_task = tokio::spawn(
+            async move {
+                let result = AssertUnwindSafe(run_producer_with_config(
+                    config_label,
+                    producer_cfg,
+                    output_base,
+                    events,
+                ))
+                .catch_unwind()
+                .await;
+                match result {
+                    Ok(Ok(())) => {}
+                    Ok(Err(e)) => {
+                        tracing::error!("logspout producer task failed: {e}");
+                    }
+                    Err(payload) => {
+                        let detail = panic_payload_to_string(payload);
+                        tracing::error!("logspout producer task panicked: {detail}");
+                    }
+                }
             }
-        });
+            .instrument(span),
+        );
         SpawnedProducerTasks {
             worker_task,
             heartbeat_task,

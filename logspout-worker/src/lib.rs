@@ -1,11 +1,11 @@
-//! `logspout-worker`：造日志库；由 **`logspout-daemon`** 进程内嵌入（[`daemon_api::EmbeddedProducerWorker`]、[`runtime::run_producer_at_path`]）。
+//! `logspout-worker`：造日志库；由 **`logspout-daemon`** 进程内嵌入（[`daemon_api::EmbeddedProducerWorker`]、`runtime` 内存配置运行入口）。
 
 pub mod daemon_api;
 pub mod runtime;
 pub mod sink;
 
 pub use daemon_api::{EmbeddedProducerWorker, SpawnedProducerTasks, TokioEmbeddedProducerWorker};
-pub use runtime::{run_producer_at_path, ProducerHeartbeatEnv};
+pub use runtime::ProducerHeartbeatEnv;
 pub use sink::{
     build_line_sink, EmitLineError, FileLineSink, KafkaLineSink, KafkaLineSinkError, LogLineSink,
     StdoutLineSink,

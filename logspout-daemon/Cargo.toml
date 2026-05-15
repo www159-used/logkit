@@ -16,7 +16,7 @@ logspout-dsl = { path = "../logspout-dsl" }
 logspout-proto = { path = "../logspout-proto" }
 logspout-worker = { path = "../logspout-worker" }
 serde_json = { workspace = true }
-tokio = { workspace = true, features = ["fs", "net", "rt-multi-thread", "sync"] }
+tokio = { workspace = true, features = ["net", "rt-multi-thread", "sync"] }
 tokio-stream = { workspace = true }
 tonic = { workspace = true }
 tower = { workspace = true }

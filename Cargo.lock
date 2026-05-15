@@ -1230,13 +1230,14 @@ name = "logspout-worker"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "base64",
  "fake",
+ "futures-util",
  "hostname",
  "http",
  "hyper-util",
  "java-ssl-pem",
  "local-ip-address",
- "log",
  "logspout-dsl",
  "logspout-proto",
  "rdkafka",
@@ -1248,6 +1249,7 @@ dependencies = [
  "tokio",
  "tonic",
  "tower 0.5.3",
+ "tracing",
  "uuid",
 ]
 
@@ -2382,6 +2384,7 @@ version = "0.1.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "63e71662fa4b2a2c3a26f570f037eb95bb1f85397f3cd8076caed2f026a6d100"
 dependencies = [
+ "log",
  "pin-project-lite",
  "tracing-attributes",
  "tracing-core",

@@ -5,6 +5,7 @@ mod file;
 pub(crate) mod kafka;
 mod kafka_agent;
 mod kafka_jks;
+mod log_id;
 mod stdout;
 
 pub use file::FileLineSink;
@@ -50,11 +51,15 @@ pub fn build_line_sink(
             max_size_bytes,
             ..
         } => {
-            let rel = output
+            let Some(rel) = output
                 .as_deref()
                 .map(str::trim)
                 .filter(|s| !s.is_empty())
-                .expect("validate_template_sink ensures output");
+            else {
+                return Err(
+                    "internal: sink.type file but output missing after validation".into(),
+                );
+            };
             Ok(Box::new(FileLineSink::open(
                 output_base,
                 rel,

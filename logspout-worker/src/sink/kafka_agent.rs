@@ -5,6 +5,8 @@ use fake::Fake;
 use logspout_dsl::{validate_agent_source_id, KafkaConfig, KafkaSinkMode};
 use uuid::Uuid;
 
+use super::log_id::next_log_id;
+
 pub const KAFKA_AGENT_TOPIC: &str = "raw_message";
 
 /// 进程内固定的 agent 元数据（每条仅补时间戳、`context_id`、`raw_message`）。
@@ -18,11 +20,16 @@ pub struct KafkaAgentRuntimeState {
     pub tag: String,
     pub hostname: String,
     pub ip: String,
-    pub log_id: String,
     pub source_type: String,
     pub source_id: String,
     pub flag: i64,
     pub fields: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct KafkaAgentMessage {
+    pub payload: String,
+    pub key: Option<String>,
 }
 
 fn random_alphanum(len: usize) -> String {
@@ -94,7 +101,6 @@ pub fn build_runtime_state(k: &KafkaConfig) -> Result<KafkaAgentRuntimeState, St
         tag: or_random(agent.tag.as_deref(), 8),
         hostname,
         ip,
-        log_id: or_random(agent.log_id.as_deref(), 16),
         source_type: random_alphanum(12),
         source_id,
         flag: agent.flag.unwrap_or(0),
@@ -141,7 +147,13 @@ struct AgentEnvelope<'agent_envelope> {
     source_id: &'agent_envelope str,
 }
 
-pub fn build_payload(state: &KafkaAgentRuntimeState, raw_message: &str, context_id: i64, ts_ms: i64) -> String {
+pub fn build_message(
+    state: &KafkaAgentRuntimeState,
+    raw_message: &str,
+    context_id: i64,
+    ts_ms: i64,
+) -> KafkaAgentMessage {
+    let log_id = next_log_id();
     let env = AgentEnvelope {
         domain: state.domain.as_str(),
         domain_token: state.domain_token.as_str(),
@@ -149,7 +161,7 @@ pub fn build_payload(state: &KafkaAgentRuntimeState, raw_message: &str, context_
         tag: state.tag.as_str(),
         token: state.token.as_str(),
         hostname: state.hostname.as_str(),
-        log_id: state.log_id.as_str(),
+        log_id: log_id.as_str(),
         context_id,
         timestamp: ts_ms,
         recv_timestamp: ts_ms,
@@ -163,7 +175,19 @@ pub fn build_payload(state: &KafkaAgentRuntimeState, raw_message: &str, context_
         source_type: state.source_type.as_str(),
         source_id: state.source_id.as_str(),
     };
-    serde_json::to_string(&env).expect("agent envelope serialization")
+    KafkaAgentMessage {
+        payload: match serde_json::to_string(&env) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::error!("agent envelope serialization failed: {e}");
+                format!(
+                    "{{\"log_id\":\"{}\",\"context_id\":{},\"timestamp\":{},\"recv_timestamp\":{},\"log_timestamp\":{},\"source_update_timestamp\":{},\"raw_message\":\"serialization_error\"}}",
+                    log_id, context_id, ts_ms, ts_ms, ts_ms, ts_ms
+                )
+            }
+        },
+        key: Some(log_id),
+    }
 }
 
 #[cfg(test)]
@@ -184,6 +208,9 @@ mod tests {
         }
     }
 
+    /// 测试内容：agent 模式在 `domain` 为空时应省略 `domain` 字段，但仍保留默认 `flag`。
+    /// 输入：`mode: agent` 且 `agent.domain` 省略的最小 Kafka 配置，生成一条 `{}` 原始消息。
+    /// 预期：输出 JSON 不含 `domain`，且包含默认 `flag: 0`。
     #[test]
     fn build_payload_omits_empty_domain() {
         let k = KafkaConfig {
@@ -197,17 +224,25 @@ mod tests {
         };
         let st = build_runtime_state(&k).unwrap();
         assert!(st.domain.is_empty());
-        let j = build_payload(&st, "{}", 1, 1700000000000);
+        let j = build_message(&st, "{}", 1, 1700000000000).payload;
         assert!(!j.contains("\"domain\""));
+        assert!(j.contains("\"flag\":0"));
     }
 
+    /// 测试内容：agent 模式生成的 JSON 中 `log_id` 与 Kafka message key 应保持一致。
+    /// 输入：带 `domain` 的最小 agent Kafka 配置，以及一条 JSON 原始消息。
+    /// 预期：输出包含 `domain`、`raw_message`、`context_id`；解析出的 `log_id` 与 `key` 相同，且默认 `flag` 为 `0`。
     #[test]
-    fn build_payload_contains_domain_and_raw_message() {
+    fn build_message_contains_domain_raw_message_and_key_matches_log_id() {
         let k = sample_agent_kafka();
         let st = build_runtime_state(&k).unwrap();
-        let j = build_payload(&st, r#"{"x":1}"#, 123, 1700000000000);
-        assert!(j.contains("\"domain\":\"dom1\""));
-        assert!(j.contains("\"raw_message\":\"{\\\"x\\\":1}\""));
-        assert!(j.contains("\"context_id\":123"));
+        let m = build_message(&st, r#"{"x":1}"#, 123, 1700000000000);
+        assert!(m.payload.contains("\"domain\":\"dom1\""));
+        assert!(m.payload.contains("\"raw_message\":\"{\\\"x\\\":1}\""));
+        assert!(m.payload.contains("\"context_id\":123"));
+        let v: serde_json::Value = serde_json::from_str(&m.payload).unwrap();
+        let log_id = v["log_id"].as_str().unwrap();
+        assert_eq!(v["flag"].as_i64(), Some(0));
+        assert_eq!(m.key.as_deref(), Some(log_id));
     }
 }

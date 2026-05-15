@@ -1,4 +1,4 @@
-//! logspout-daemon — gRPC 控制面（Unix 套接字）；造日志由进程内嵌入的 [`logspout_worker::run_producer_at_path`] 任务完成。
+//! logspout-daemon — gRPC 控制面（Unix 套接字）；造日志由进程内嵌入的 worker 任务直接消费内存中的 producer 配置完成。
 
 use std::collections::HashMap;
 use std::fs;
@@ -55,8 +55,6 @@ struct RunningWorker {
     config_label: String,
     /// gRPC 投递的 YAML 全文（内存副本；`cat` 直接返回，不依赖托管文件是否仍存在）
     producer_yaml: String,
-    /// 托管于 worker_output_dir/.logspout/{id}.yaml；[`logspout_worker::run_producer_at_path`] 启动时读入
-    config_storage_path: String,
     worker_task: tokio::task::JoinHandle<()>,
     heartbeat_task: Option<tokio::task::JoinHandle<()>>,
     spawned_at: Instant,
@@ -119,8 +117,7 @@ fn reap_exited(guard: &mut HashMap<String, RunningWorker>) {
             if let Some(task) = r.heartbeat_task {
                 task.abort();
             }
-            info!("producer worker task exited id={id}, removing state file");
-            let _ = fs::remove_file(&r.config_storage_path);
+            info!("producer worker task exited id={id}");
         }
     }
 }
@@ -277,24 +274,6 @@ impl Logspout for LogspoutSvc {
         };
 
         let id = uuid::Uuid::new_v4().to_string();
-        let worker_out = PathBuf::from(&self.inner.worker_output_dir);
-        let storage_dir = worker_out.join(".logspout");
-        tokio::fs::create_dir_all(&storage_dir).await.map_err(|e| {
-            tonic::Status::internal(format!("create_dir_all {}: {e}", storage_dir.display()))
-        })?;
-        let storage_rel = storage_dir.join(format!("{id}.yaml"));
-        tokio::fs::write(&storage_rel, yaml.as_bytes())
-            .await
-            .map_err(|e| {
-                tonic::Status::internal(format!("write {}: {e}", storage_rel.display()))
-            })?;
-        let abs_s = fs::canonicalize(&storage_rel)
-            .map_err(|e| {
-                tonic::Status::internal(format!("canonicalize {}: {e}", storage_rel.display()))
-            })?
-            .to_string_lossy()
-            .into_owned();
-
         let hb = ProducerHeartbeatEnv {
             control_socket: self.inner.control_socket_path.clone(),
             worker_id: id.clone(),
@@ -302,13 +281,13 @@ impl Logspout for LogspoutSvc {
             client_connect_uri: self.inner.client_connect_uri.clone(),
         };
         let output_base = PathBuf::from(&self.inner.worker_output_dir);
-        let cfg_path = abs_s.clone();
         let SpawnedProducerTasks {
             worker_task,
             heartbeat_task,
         } = self.inner.producer_worker.spawn_producer_task(
             id.clone(),
-            cfg_path,
+            config_label.clone(),
+            tpl,
             output_base,
             Some(hb),
         );
@@ -325,7 +304,6 @@ impl Logspout for LogspoutSvc {
             RunningWorker {
                 config_label,
                 producer_yaml: yaml,
-                config_storage_path: abs_s,
                 worker_task,
                 heartbeat_task,
                 spawned_at: now,
@@ -372,12 +350,10 @@ impl Logspout for LogspoutSvc {
             return Err(tonic::Status::not_found("no such worker id"));
         };
         info!("rpc StopWorker id={}", id);
-        let storage = running.config_storage_path.clone();
         if let Some(task) = running.heartbeat_task {
             task.abort();
         }
         running.worker_task.abort();
-        let _ = fs::remove_file(&storage);
         Ok(tonic::Response::new(StopWorkerReply {
             status: "stopped".into(),
         }))
@@ -449,7 +425,6 @@ impl Logspout for LogspoutSvc {
                 if let Some(task) = r.heartbeat_task {
                     task.abort();
                 }
-                let _ = fs::remove_file(&r.config_storage_path);
             }
             return Err(tonic::Status::failed_precondition(
                 "producer worker task has ended",

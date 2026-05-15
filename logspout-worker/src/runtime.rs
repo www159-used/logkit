@@ -1,13 +1,13 @@
-//! 与 `logspout-daemon` 或独立 CLI 对接的运行循环：**同进程** `tokio::spawn` 或单独二进制均可调用。
+//! 与 `logspout-daemon` 对接的运行循环：在 **同进程** Tokio 任务中直接消费内存里的 producer 配置。
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
 use http::Uri;
 use hyper_util::rt::TokioIo;
-use logspout_dsl::{parse_template_config, TemplateConfig, TemplateRunner};
+use logspout_dsl::{TemplateConfig, TemplateRunner};
 use logspout_proto::logspout_client::LogspoutClient;
 use logspout_proto::HeartbeatRequest;
 use tokio::task::JoinHandle;
@@ -78,14 +78,12 @@ pub fn spawn_heartbeat_task(hb: ProducerHeartbeatEnv, events: Arc<AtomicU64>) ->
     ))
 }
 
-pub(crate) async fn run_producer_with_events(
-    config_path: String,
+pub(crate) async fn run_producer_with_config(
+    config_name: String,
+    cfg: TemplateConfig,
     output_base: PathBuf,
     events: Arc<AtomicU64>,
 ) -> Result<(), String> {
-    let raw = std::fs::read_to_string(&config_path).map_err(|e| format!("read config: {e}"))?;
-    let cfg: TemplateConfig = parse_template_config(Path::new(&config_path), &raw)
-        .map_err(|e| format!("parse producer config: {e}"))?;
     if cfg.template.trim().is_empty() {
         return Err(r#"producer config: "template" must be non-empty"#.into());
     }
@@ -93,7 +91,7 @@ pub(crate) async fn run_producer_with_events(
     let interval_ms = cfg.min_interval_ms;
 
     let mut sink: Box<dyn LogLineSink> =
-        build_line_sink(&cfg, output_base.as_path()).map_err(|e| format!("{config_path}: {e}"))?;
+        build_line_sink(&cfg, output_base.as_path()).map_err(|e| format!("{config_name}: {e}"))?;
 
     let mut runner = TemplateRunner::try_new(cfg).map_err(|e| format!("producer config: {e}"))?;
 
@@ -106,25 +104,6 @@ pub(crate) async fn run_producer_with_events(
         events.fetch_add(1, Ordering::Relaxed);
         sink.emit_line(&line)
             .await
-            .map_err(|e| format!("{config_path}: {e}"))?;
+            .map_err(|e| format!("{config_name}: {e}"))?;
     }
-}
-
-/// 从 producer YAML 路径读取配置并在 **`output_base` 下解析相对 `output`**，按 `min-interval` 循环写出。
-///
-/// - **嵌入 daemon**：`output_base` = `[worker].worker_output_dir`（勿依赖 `set_current_dir`，多实例共享进程 cwd）。
-///
-/// `heartbeat` 为 `Some` 时，并行向本机 daemon 套接字发送心跳（与子进程模式行为一致）。
-pub async fn run_producer_at_path(
-    config_path: String,
-    output_base: PathBuf,
-    heartbeat: Option<ProducerHeartbeatEnv>,
-) -> Result<(), String> {
-    let events = Arc::new(AtomicU64::new(0));
-    let heartbeat_task = heartbeat.map(|hb| spawn_heartbeat_task(hb, events.clone()));
-    let result = run_producer_with_events(config_path, output_base, events).await;
-    if let Some(task) = heartbeat_task {
-        task.abort();
-    }
-    result
 }

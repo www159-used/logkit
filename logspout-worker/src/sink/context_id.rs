@@ -29,7 +29,13 @@ impl ContextIdGenerator {
         let sequence_id = (inc & SEQ_MASK) as i64;
 
         let mut ts = now_ms_i64();
-        let mut guard = self.last_ts.lock().expect("context_id last_ts mutex poisoned");
+        let mut guard = match self.last_ts.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                tracing::warn!("context_id last_ts mutex poisoned; recovering inner state");
+                poisoned.into_inner()
+            }
+        };
         ts = ts.max(*guard);
         if sequence_id == 0 {
             ts = ts.saturating_add(1);

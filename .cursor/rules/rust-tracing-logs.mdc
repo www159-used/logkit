@@ -1,0 +1,36 @@
+---
+description: Rust 日志规范：worker 侧统一用 tracing，并保留模块路径调用。
+globs:
+  - "**/*.rs"
+alwaysApply: false
+---
+
+# Rust：Tracing 日志风格
+
+适用：本仓库 Rust 代码，尤其是 **`logspout-worker`** 与其异步任务链路。
+
+## 规则
+
+- **worker 侧日志统一使用 `tracing`**，不要新增 `log::info!` / `log::warn!` / `log::error!`。
+- 调用时**保留模块路径**，优先写成 **`tracing::error!`**、**`tracing::warn!`**、**`tracing::info!`**，不要通过 `use tracing::{error, warn, info}` 后再写裸宏。
+- 需要绑定 worker 上下文时，在**创建异步任务**处使用 **`tracing::info_span!`** 并对 future 做 **`.instrument(span)`**；不要靠手工字符串前缀长期维持上下文。
+- 对可能发生但不值得打挂任务的异常（如时钟异常、mutex poisoned），优先**记录日志并降级恢复**，避免直接 `panic!` / `expect(...)`。
+
+## 示例
+
+```rust
+let span = tracing::info_span!(
+    "worker_task",
+    worker_id = %worker_id,
+    config_path = %config_path,
+);
+
+tokio::spawn(
+    async move {
+        if let Err(e) = run().await {
+            tracing::error!("worker task failed: {e}");
+        }
+    }
+    .instrument(span),
+);
+```
