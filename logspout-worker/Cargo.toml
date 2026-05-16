@@ -11,7 +11,6 @@ futures-util = { version = "0.3", default-features = false, features = ["std"] }
 http = { workspace = true }
 hyper-util = { workspace = true }
 java-ssl-pem = { path = "../java-ssl-pem" }
-# Kafka：rdkafka（librdkafka，cmake）。`ssl-vendored`：openssl-sys/vendored（便于 musl 交叉）。`curl`+`curl-static`：librdkafka 2.12 在 `WITH_OAUTHBEARER_OIDC=0` 时仍 `#ifdef WITH_OAUTHBEARER_OIDC` 包含 curl.h；宿主有 libcurl 头时不易察觉，交叉到 musl 会缺头文件，故一并静态编 curl-sys。
 logspout-dsl = { path = "../logspout-dsl" }
 logspout-proto = { path = "../logspout-proto" }
 fake = { version = "5", default-features = true }
@@ -20,7 +19,7 @@ local-ip-address = "0.6"
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 uuid = { workspace = true }
-rdkafka = { version = "0.36", default-features = false, features = [
+rdkafka = { version = "0.39", default-features = false, features = [
   "cmake-build",
   "libz",
   "ssl-vendored",

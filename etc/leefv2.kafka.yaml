@@ -1,0 +1,66 @@
+# LEEF v2 单行造行 + Kafka sink（供 `logspout start` 使用）。
+# 走普通 Kafka 文本发送；topic / brokers 可按环境自行调整。
+min-interval: 100
+template: >-
+  LEEF:2.0|Yottabyte|logspout|1.0|{{event_id}}|devTime={{dev_time}}	devTimeFormat=yyyy-MM-dd'T'HH:mm:ss.SSSXXX	sev={{severity}}	cat={{category}}	src={{src_ip}}	dst={{dst_ip}}	proto={{proto}}	srcPort={{src_port}}	dstPort={{dst_port}}	usrName={{user}}	action={{action}}	outcome={{outcome}}	ww_id={{ww_id}}	msg={{message}}
+fields:
+  event_id:
+    type: template
+    template: "{{verb}}-{{target}}"
+    fields:
+      verb:
+        type: lorem-word
+      target:
+        type: lorem-word
+  dev_time:
+    type: timestamp
+    format: "%Y-%m-%dT%H:%M:%S%.3f%:z"
+  severity:
+    type: integer
+    min: 1
+    max: 10
+  category:
+    type: pick
+    values: [authentication, firewall, vpn, endpoint, audit]
+  src_ip:
+    type: ipv4
+  dst_ip:
+    type: ipv4
+  proto:
+    type: pick
+    values: [TCP, TCP, TCP, UDP, ICMP]
+  src_port:
+    type: integer
+    min: 1024
+    max: 65535
+  dst_port:
+    type: pick
+    values: ["22", "53", "80", "443", "8443", "9200"]
+  user:
+    type: username
+  action:
+    type: pick
+    values: [allow, allow, allow, deny, deny, reset]
+  outcome:
+    type: pick
+    values: [success, success, success, failure]
+  ww_id:
+    type: counter
+  message:
+    type: sentence
+    min: 3
+    max: 10
+
+sink:
+  type: kafka
+  max-size: 0
+  kafka:
+    brokers:
+      - "192.168.1.60:9092"
+    topic: logriver
+    security.protocol: SSL
+    ssl.truststore.location: /opt/yotta/cert/truststore.jks
+    ssl.truststore.password:
+    ssl.keystore.location: /opt/yotta/cert/keystore.jks
+    ssl.keystore.password:
+    ssl.endpoint.identification.algorithm: ""
