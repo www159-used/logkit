@@ -1,0 +1,16 @@
+[package]
+name = "logen"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0"
+
+[dependencies]
+clap = { workspace = true }
+http = { workspace = true }
+hyper-util = { workspace = true }
+logen-config = { path = "../logen-config" }
+logen-dsl = { path = "../logen-dsl" }
+logen-proto = { path = "../logen-proto" }
+tokio = { workspace = true, features = ["macros", "net", "rt"] }
+tonic = { workspace = true }
+tower = { workspace = true }

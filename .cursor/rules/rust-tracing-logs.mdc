@@ -7,7 +7,7 @@ alwaysApply: false
 
 # Rust：Tracing 日志风格
 
-适用：本仓库 Rust 代码，尤其是 **`logspout-worker`** 与其异步任务链路。
+适用：本仓库 Rust 代码，尤其是 **`logen-worker`** 与其异步任务链路。
 
 ## 规则
 

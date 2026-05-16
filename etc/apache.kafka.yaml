@@ -1,4 +1,4 @@
-# Apache Combined 造行 + 文件 sink（单文件示例，供 `logspout start` 使用）。
+# Apache Combined 造行 + 文件 sink（单文件示例，供 `logen start` 使用）。
 # 原拆分示例见 apache.schema.yaml / apache.sink.file.yaml，可自行用 yq 等工具合并。
 min-interval: 100
 template: >-
@@ -47,10 +47,9 @@ fields:
 
 sink:
   type: kafka
-  max-size: 0
   kafka:
     brokers:
-      - "192.168.1.60:9092"
+      - 
     topic: logriver
     mode: agent
     agent: 

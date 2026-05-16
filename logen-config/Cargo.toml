@@ -1,0 +1,11 @@
+[package]
+name = "logen-config"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0"
+
+[dependencies]
+rust-embed = "8"
+serde = { workspace = true }
+thiserror = { workspace = true }
+toml = "0.8"

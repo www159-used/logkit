@@ -11,8 +11,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 RC="${LOGKIT_RC:-$HOME/.bashrc}"
 MARKER="# logkit PATH (bin/install.sh)"
 
-if [[ ! -d "$ROOT/bin" ]] || [[ ! -x "$ROOT/bin/logspout" ]]; then
-  echo "error: 未找到 $ROOT/bin/logspout（请在解压后的 logkit 根目录执行 ./install.sh）" >&2
+if [[ ! -d "$ROOT/bin" ]] || [[ ! -x "$ROOT/bin/logen" ]]; then
+  echo "error: 未找到 $ROOT/bin/logen（请在解压后的 logkit 根目录执行 ./install.sh）" >&2
   exit 1
 fi
 

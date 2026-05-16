@@ -1,0 +1,27 @@
+# Reference defaults (embedded). Override with --defaults-file merged on top.
+#
+# [common].tmp_dir：单实例根目录（sock / pid / logend.log 均在其下）。多实例须使用不同的 tmp_dir。
+[common]
+tmp_dir = "/tmp/logend"
+
+[daemon]
+pid_record_suffix = "\n"
+# logend：未设置 RUST_LOG 时的默认级别（flexi_logger）；设置 RUST_LOG 则优先环境变量。
+log_level = "debug"
+
+# gRPC 实际走 Unix 套接字；tonic 客户端仍需要一个形式上合法的 HTTP URI 作 Endpoint，并不发起 TCP。
+[protocol.grpc]
+max_decoding_message_size_bytes = 4194304
+max_encoding_message_size_bytes = 4194304
+ping_reply_text = "PONG"
+client_connect_uri = "http://127.0.0.1:1"
+
+# 造日志：`logend` 内嵌 worker 任务并直接消费内存中的 producer 配置。
+# worker_output_dir 必填；producer YAML 的 output 相对此目录。若 producer 含 **kafka** 段则行日志发往 Kafka，output 被忽略。
+# producer YAML（非本文件）：**`sink.type: file`** 时可写 **`max-size`**（整数字节或人类可读如 **64KiB**、**10MiB**，1024 进制）；输出文件超过则清空再继续写；**0 或不写 = 不限制**。
+#
+# 兼容：`[log_server]`、`[log_worker]` 会在合并后并入 `[worker]`。
+[worker]
+worker_output_dir = "./output"
+heartbeat_timeout_secs = 30
+heartbeat_interval_secs = 1

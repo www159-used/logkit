@@ -1,4 +1,4 @@
-# 紧凑单行 JSON 造行 + 文件 sink（供 `logspout start` 使用）。
+# 紧凑单行 JSON 造行 + 文件 sink（供 `logen start` 使用）。
 # 主打压行：固定单行、键名更像业务日志，同时尽量多用 fake 字段生成器。
 min-interval: 100
 template: >-

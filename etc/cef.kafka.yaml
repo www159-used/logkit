@@ -1,8 +1,8 @@
-# CEF 单行造行 + Kafka sink（供 `logspout start` 使用）。
+# CEF 单行造行 + Kafka sink（供 `logen start` 使用）。
 # 走普通 Kafka 文本发送；topic / brokers / TLS 口令按环境自行调整。
 min-interval: 100
 template: >-
-  CEF:0|Yottabyte|logspout|1.0|{{signature_id}}|{{event_name}}|{{severity}}|rt={{rt}} src={{src_ip}} dst={{dst_ip}} spt={{src_port}} dpt={{dst_port}} proto={{proto}} act={{action}} outcome={{outcome}} duser={{user}} externalId={{ww_id}} cs1Label=tenant cs1={{tenant}} cs2Label=trace_id cs2={{trace_id}} msg={{message}}
+  CEF:0|Yottabyte|logen|1.0|{{signature_id}}|{{event_name}}|{{severity}}|rt={{rt}} src={{src_ip}} dst={{dst_ip}} spt={{src_port}} dpt={{dst_port}} proto={{proto}} act={{action}} outcome={{outcome}} duser={{user}} externalId={{ww_id}} cs1Label=tenant cs1={{tenant}} cs2Label=trace_id cs2={{trace_id}} msg={{message}}
 fields:
   signature_id:
     type: template
@@ -62,10 +62,9 @@ fields:
 
 sink:
   type: kafka
-  max-size: 0
   kafka:
     brokers:
-      - "192.168.1.60:9092"
+      - 
     topic: logriver
     security.protocol: SSL
     ssl.truststore.location: /opt/yotta/cert/truststore.jks

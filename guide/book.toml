@@ -1,0 +1,12 @@
+[book]
+title = "logkit"
+description = "日志调试工具包"
+authors = ["ww"]
+language = "zh-CN"
+
+[build]
+build-dir = "book"
+
+[output.html]
+additional-js = ["assets/mermaid-init.js"]
+additional-css = ["assets/mermaid.css"]

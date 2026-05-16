@@ -1,3 +1,9 @@
+# mdBook（logen-dsl 生成物）
+logen-dsl/guide/book/
+
+# mdBook（仓库根总览生成物）
+guide/book/
+
 # Rust
 /target/
 /dist/

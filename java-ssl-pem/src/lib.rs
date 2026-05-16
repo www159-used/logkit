@@ -539,7 +539,7 @@ mod tests {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("assets")
     }
 
-    /// 与 `logspout-worker/tests/fixtures/kafka_asset_broker.yaml` 中 `sink.kafka` 口令一致（勿与真实环境口令混用）。
+    /// 与 `logen-worker/tests/fixtures/kafka_asset_broker.yaml` 中 `sink.kafka` 口令一致（勿与真实环境口令混用）。
     const FIXTURE_TRUSTSTORE_PASSWORD: &str = "vKFoWrbf_El1pCtcUVHZn0ygI5Mu8izQ";
     const FIXTURE_KEYSTORE_PASSWORD: &str =
         "8c4804e1504aa139bd827c9c016f11d4cc7174a95352f5068a3cb2c1f4849e91";

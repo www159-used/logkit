@@ -1,8 +1,8 @@
-# LEEF v2 单行造行 + Kafka sink（供 `logspout start` 使用）。
+# LEEF v2 单行造行 + Kafka sink（供 `logen start` 使用）。
 # 走普通 Kafka 文本发送；topic / brokers 可按环境自行调整。
 min-interval: 100
 template: >-
-  LEEF:2.0|Yottabyte|logspout|1.0|{{event_id}}|devTime={{dev_time}}	devTimeFormat=yyyy-MM-dd'T'HH:mm:ss.SSSXXX	sev={{severity}}	cat={{category}}	src={{src_ip}}	dst={{dst_ip}}	proto={{proto}}	srcPort={{src_port}}	dstPort={{dst_port}}	usrName={{user}}	action={{action}}	outcome={{outcome}}	ww_id={{ww_id}}	msg={{message}}
+  LEEF:2.0|Yottabyte|logen|1.0|{{event_id}}|devTime={{dev_time}}	devTimeFormat=yyyy-MM-dd'T'HH:mm:ss.SSSXXX	sev={{severity}}	cat={{category}}	src={{src_ip}}	dst={{dst_ip}}	proto={{proto}}	srcPort={{src_port}}	dstPort={{dst_port}}	usrName={{user}}	action={{action}}	outcome={{outcome}}	ww_id={{ww_id}}	msg={{message}}
 fields:
   event_id:
     type: template
@@ -53,10 +53,9 @@ fields:
 
 sink:
   type: kafka
-  max-size: 0
   kafka:
     brokers:
-      - "192.168.1.60:9092"
+      - 
     topic: logriver
     security.protocol: SSL
     ssl.truststore.location: /opt/yotta/cert/truststore.jks

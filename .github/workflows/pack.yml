@@ -47,8 +47,8 @@ jobs:
             stage="$parent/logkit"
             rm -rf "$parent"
             mkdir -p "$stage/bin" "$stage/etc" "$stage/tools/bin"
-            cp "$GITHUB_WORKSPACE/target/$target/release/logspout" \
-               "$GITHUB_WORKSPACE/target/$target/release/logspout-daemon" \
+            cp "$GITHUB_WORKSPACE/target/$target/release/logen" \
+               "$GITHUB_WORKSPACE/target/$target/release/logend" \
                "$stage/bin/"
             if [[ -f "$GITHUB_WORKSPACE/target/$target/release/parse_client_conf" ]]; then
               cp "$GITHUB_WORKSPACE/target/$target/release/parse_client_conf" "$stage/tools/bin/"
@@ -59,7 +59,7 @@ jobs:
             cp "$GITHUB_WORKSPACE/etc/"* "$stage/etc/"
             cp "$GITHUB_WORKSPACE/bin/install.sh" "$stage/install.sh"
             chmod +x "$stage/install.sh" \
-              "$stage/bin/logspout" "$stage/bin/logspout-daemon"
+              "$stage/bin/logen" "$stage/bin/logend"
             mkdir -p "$GITHUB_WORKSPACE/dist"
             tar -czf "$GITHUB_WORKSPACE/dist/logkit-${target}.tar.gz" \
               -C "$parent" --owner=0 --group=0 --numeric-owner logkit
@@ -101,8 +101,8 @@ jobs:
           stage="$parent/logkit"
           rm -rf "$parent"
           mkdir -p "$stage/bin" "$stage/etc" "$stage/tools/bin"
-          cp "$GITHUB_WORKSPACE/target/$target/release/logspout" \
-             "$GITHUB_WORKSPACE/target/$target/release/logspout-daemon" \
+          cp "$GITHUB_WORKSPACE/target/$target/release/logen" \
+             "$GITHUB_WORKSPACE/target/$target/release/logend" \
              "$stage/bin/"
           if [[ -f "$GITHUB_WORKSPACE/target/$target/release/parse_client_conf" ]]; then
             cp "$GITHUB_WORKSPACE/target/$target/release/parse_client_conf" "$stage/tools/bin/"
@@ -113,7 +113,7 @@ jobs:
           cp "$GITHUB_WORKSPACE/etc/"* "$stage/etc/"
           cp "$GITHUB_WORKSPACE/bin/install.sh" "$stage/install.sh"
           chmod +x "$stage/install.sh" \
-            "$stage/bin/logspout" "$stage/bin/logspout-daemon"
+            "$stage/bin/logen" "$stage/bin/logend"
           mkdir -p "$GITHUB_WORKSPACE/dist"
           COPYFILE_DISABLE=1 tar -czf "$GITHUB_WORKSPACE/dist/logkit-${target}.tar.gz" -C "$parent" logkit
           rm -rf "$parent"
