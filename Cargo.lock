@@ -1042,7 +1042,7 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
 name = "java-ssl-pem"
-version = "0.1.0"
+version = "1.5.0"
 dependencies = [
  "jks",
  "pem",
@@ -1137,7 +1137,7 @@ checksum = "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897"
 
 [[package]]
 name = "logen"
-version = "0.1.0"
+version = "1.5.0"
 dependencies = [
  "clap",
  "http",
@@ -1152,7 +1152,7 @@ dependencies = [
 
 [[package]]
 name = "logen-config"
-version = "0.1.0"
+version = "1.5.0"
 dependencies = [
  "rust-embed",
  "serde",
@@ -1162,7 +1162,7 @@ dependencies = [
 
 [[package]]
 name = "logen-dsl"
-version = "0.1.0"
+version = "1.5.0"
 dependencies = [
  "chrono",
  "fake",
@@ -1176,7 +1176,7 @@ dependencies = [
 
 [[package]]
 name = "logen-proto"
-version = "0.1.0"
+version = "1.5.0"
 dependencies = [
  "prost",
  "tonic",
@@ -1186,7 +1186,7 @@ dependencies = [
 
 [[package]]
 name = "logen-worker"
-version = "0.1.0"
+version = "1.5.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1214,7 +1214,7 @@ dependencies = [
 
 [[package]]
 name = "logend"
-version = "0.1.0"
+version = "1.5.0"
 dependencies = [
  "clap",
  "flexi_logger",
@@ -1438,7 +1438,7 @@ dependencies = [
 
 [[package]]
 name = "parse_client_conf"
-version = "0.1.0"
+version = "1.5.0"
 dependencies = [
  "resolve_oem",
 ]
@@ -1821,7 +1821,7 @@ checksum = "dc897dd8d9e8bd1ed8cdad82b5966c3e0ecae09fb1907d58efaa013543185d0a"
 
 [[package]]
 name = "resolve_oem"
-version = "0.1.0"
+version = "1.5.0"
 
 [[package]]
 name = "rust-embed"
