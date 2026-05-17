@@ -1188,10 +1188,10 @@ dependencies = [
 name = "logen-worker"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "async-trait",
  "base64",
  "fake",
- "futures-util",
  "hostname",
  "http",
  "hyper-util",

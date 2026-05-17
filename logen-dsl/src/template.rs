@@ -1,14 +1,14 @@
+//! 模板解析与渲染：[`TemplateRunner`]、[`parse_worker_config`] 等。
+
 use std::collections::BTreeMap;
 use std::path::Path;
 
 use handlebars::Handlebars;
 use serde_json::{Map, Value};
 
-use crate::field_spec::slots_from_fields;
+use crate::field_spec::{slots_from_fields, FieldSpec};
 use crate::facade::TemplateSlot;
-use crate::worker_config::{
-    validate_agent_source_id, KafkaSinkMode, SinkConfig, TemplateConfig,
-};
+use crate::worker_config::{validate_sink, WorkerConfig};
 use crate::{ConfigParseError, Error};
 
 fn yaml_extension_ok(path: &Path) -> Result<(), ConfigParseError> {
@@ -22,127 +22,17 @@ fn yaml_extension_ok(path: &Path) -> Result<(), ConfigParseError> {
     Ok(())
 }
 
-/// 供 list / stat 等展示的一行 **`sink:`** 摘要（`stdout` / `file:` / `kafka:`）。
-pub fn format_sink_summary(sink: &SinkConfig) -> String {
-    match sink {
-        SinkConfig::Stdout => "stdout".into(),
-        SinkConfig::File {
-            max_size_bytes,
-            output,
-        } => {
-            let path = output.as_deref().unwrap_or("?");
-            if *max_size_bytes > 0 {
-                format!("file: {path} (max-size: {} bytes)", max_size_bytes)
-            } else {
-                format!("file: {path}")
-            }
-        }
-        SinkConfig::Kafka { kafka, .. } => {
-            let Some(k) = kafka.as_deref() else {
-                return "kafka: (missing kafka section)".into();
-            };
-            let broker = k
-                .brokers
-                .as_ref()
-                .and_then(|b| b.first())
-                .map(|b| b.as_str())
-                .unwrap_or("?");
-            let n = k.brokers.as_ref().map(|b| b.len()).unwrap_or(0);
-            let more = n.saturating_sub(1);
-            let brokers = if more > 0 {
-                format!("{broker} +{more} more")
-            } else {
-                broker.to_string()
-            };
-            let (topic, hdr) = if k.mode == KafkaSinkMode::Agent {
-                ("raw_message (agent)", 0usize)
-            } else {
-                (k.topic.as_deref().unwrap_or("?"), k.headers.as_ref().map(|h| h.len()).unwrap_or(0))
-            };
-            if hdr > 0 {
-                format!("kafka: topic {topic} @ {brokers} (+{hdr} headers)")
-            } else {
-                format!("kafka: topic {topic} @ {brokers}")
-            }
-        }
-    }
-}
-
-/// 检查 `sink.type` 与 `output` / `kafka` 是否一致。
-/// 非 `file` 写错的 `output` 键由 Serde 忽略（internally tagged 变体无该字段）。
-pub fn validate_template_sink(cfg: &TemplateConfig) -> Result<(), ConfigParseError> {
-    match &cfg.sink {
-        SinkConfig::Kafka { kafka, .. } => {
-            let Some(k) = kafka.as_deref() else {
-                return Err(ConfigParseError::Merge(
-                    "`sink.type: kafka` requires a non-empty `sink.kafka:` section".into(),
-                ));
-            };
-            let brokers_ok = k
-                .brokers
-                .as_ref()
-                .is_some_and(|b| b.iter().any(|s| !s.trim().is_empty()));
-            if !brokers_ok {
-                return Err(ConfigParseError::Merge(
-                    "`sink.type: kafka` requires `sink.kafka.brokers` with at least one non-empty broker address"
-                        .into(),
-                ));
-            }
-            if k.mode == KafkaSinkMode::Agent {
-                let Some(agent) = k.agent.as_ref() else {
-                    return Err(ConfigParseError::Merge(
-                        "`sink.kafka.mode: agent` requires a `sink.kafka.agent:` mapping（字段均可选，含 `domain`）"
-                            .into(),
-                    ));
-                };
-                if let Some(ref sid) = agent.source_id {
-                    let t = sid.trim();
-                    if !validate_agent_source_id(t) {
-                        return Err(ConfigParseError::Merge(
-                            "`sink.kafka.agent.source_id` must be a 36-character UUID (8-4-4-4-12 hex with hyphens)"
-                                .into(),
-                        ));
-                    }
-                }
-            } else {
-                let topic_ok = k
-                    .topic
-                    .as_deref()
-                    .is_some_and(|t| !t.trim().is_empty());
-                if !topic_ok {
-                    return Err(ConfigParseError::Merge(
-                        "`sink.type: kafka` requires a non-empty `sink.kafka.topic` when `sink.kafka.mode` is `common` (default)"
-                            .into(),
-                    ));
-                }
-            }
-        }
-        SinkConfig::File { output, .. } => {
-            let o = output.as_deref().unwrap_or("").trim();
-            if o.is_empty() {
-                return Err(ConfigParseError::Merge(
-                    "`sink.type: file` requires a non-empty `sink.output` path".into(),
-                ));
-            }
-        }
-        SinkConfig::Stdout => {}
-    }
-    Ok(())
-}
-
-/// 将配置序列化为单份 YAML 字符串（供 gRPC `producer_yaml` / daemon 落盘）。
-pub fn template_config_to_yaml(cfg: &TemplateConfig) -> Result<String, serde_yaml::Error> {
+pub fn worker_config_to_yaml(cfg: &WorkerConfig) -> Result<String, serde_yaml::Error> {
     serde_yaml::to_string(cfg)
 }
 
-/// 仅接受路径扩展名为 `.yaml` / `.yml`，内容按 YAML 反序列化为 [`TemplateConfig`]。
-pub fn parse_template_config(
+pub fn parse_worker_config(
     config_path: &Path,
     raw: &str,
-) -> Result<TemplateConfig, ConfigParseError> {
+) -> Result<WorkerConfig, ConfigParseError> {
     yaml_extension_ok(config_path)?;
-    let cfg: TemplateConfig = serde_yaml::from_str(raw)?;
-    validate_template_sink(&cfg)?;
+    let cfg: WorkerConfig = serde_yaml::from_str(raw)?;
+    validate_sink(&cfg.sink)?;
     Ok(cfg)
 }
 
@@ -154,15 +44,20 @@ pub struct TemplateRunner {
 }
 
 impl TemplateRunner {
-    pub fn try_new(cfg: TemplateConfig) -> Result<Self, Error> {
-        if cfg.template.trim().is_empty() {
+    /// 仅依赖渲染所需的 `template` 与 `fields`（与 `sink` / `min-interval` 无关）。
+    pub fn try_new(
+        template: impl AsRef<str>,
+        fields: BTreeMap<String, FieldSpec>,
+    ) -> Result<Self, Error> {
+        let template = template.as_ref();
+        if template.trim().is_empty() {
             return Err(Error::EmptyTemplate);
         }
         let mut hb = Handlebars::new();
         hb.set_strict_mode(false);
         hb.register_escape_fn(handlebars::no_escape);
-        hb.register_template_string("inline", &cfg.template)?;
-        let slots = slots_from_fields(cfg.fields)?;
+        hb.register_template_string("inline", template)?;
+        let slots = slots_from_fields(fields)?;
         Ok(Self {
             hb,
             template: "inline".to_string(),
@@ -187,10 +82,14 @@ mod tests {
     use std::path::Path;
 
     use super::*;
-    use crate::worker_config::{KafkaConfig, SinkConfig, TemplateConfig};
+    use crate::worker_config::{SinkConfig, WorkerConfig};
 
     fn sink_stdout() -> SinkConfig {
         SinkConfig::Stdout
+    }
+
+    fn try_runner(cfg: WorkerConfig) -> TemplateRunner {
+        TemplateRunner::try_new(cfg.template, cfg.fields).unwrap()
     }
 
     /// 测试内容：多字段模板一次渲染，各 facade 占位符均展开且以 ` | ` 风格串联。
@@ -198,7 +97,7 @@ mod tests {
     /// 预期：首行含分隔符 ` | `（各段非空拼接）。
     #[test]
     fn render_with_facades() {
-        let cfg = TemplateConfig {
+        let cfg = WorkerConfig {
             template: "{{ts}} | {{name}} | {{ip}} | {{n}}".to_string(),
             fields: [
                 (
@@ -219,7 +118,7 @@ mod tests {
             min_interval_ms: 1000,
             sink: sink_stdout(),
         };
-        let mut r = TemplateRunner::try_new(cfg).unwrap();
+        let mut r = try_runner(cfg);
         let line = r.next_line().unwrap();
         assert!(line.contains(" | "));
     }
@@ -229,7 +128,7 @@ mod tests {
     /// 预期：连续三行为 `n=0`、`n=1`、`n=2`。
     #[test]
     fn counter_starts_at_zero_and_increments() {
-        let cfg = TemplateConfig {
+        let cfg = WorkerConfig {
             template: "n={{n}}".to_string(),
             fields: [("n".to_string(), crate::FieldSpec::Counter)]
                 .into_iter()
@@ -237,17 +136,17 @@ mod tests {
             min_interval_ms: 1000,
             sink: sink_stdout(),
         };
-        let mut r = TemplateRunner::try_new(cfg).unwrap();
+        let mut r = try_runner(cfg);
         assert_eq!(r.next_line().unwrap(), "n=0");
         assert_eq!(r.next_line().unwrap(), "n=1");
         assert_eq!(r.next_line().unwrap(), "n=2");
     }
 
-    /// 测试内容：`parse_template_config` 后 `TemplateRunner` 对最小 counter 模板渲染首行。
+    /// 测试内容：`parse_worker_config` 后 `TemplateRunner` 对最小 counter 模板渲染首行。
     /// 输入：`min-interval: 1`、`stdout` sink、模板 `x={{c}}`、字段 `counter`。
     /// 预期：首行为 `x=0`。
     #[test]
-    fn parse_template_config_minimal_counter_template_renders() {
+    fn parse_worker_config_minimal_counter_template_renders() {
         let y = r#"
 sink:
   type: stdout
@@ -257,16 +156,16 @@ fields:
   c:
     type: counter
 "#;
-        let c = parse_template_config(Path::new("t.yaml"), y).unwrap();
-        let mut r = TemplateRunner::try_new(c).unwrap();
+        let c = parse_worker_config(Path::new("t.yaml"), y).unwrap();
+        let mut r = try_runner(c);
         assert_eq!(r.next_line().unwrap(), "x=0");
     }
 
-    /// 测试内容：`parse_template_config` 对非法 `max-size` 单位报错。
+    /// 测试内容：`parse_worker_config` 对非法 `max-size` 单位报错。
     /// 输入：路径 `t.yaml`，`type: file` 且 `max-size: 12xyz`。
     /// 预期：`unwrap_err()`；错误信息含 `max-size` 或 `unknown`。
     #[test]
-    fn parse_template_config_rejects_bad_max_size_unit() {
+    fn parse_worker_config_rejects_bad_max_size_unit() {
         let raw = r#"sink:
   type: file
   output: a.log
@@ -274,18 +173,18 @@ fields:
 template: "x"
 fields: {}
 "#;
-        let e = parse_template_config(Path::new("t.yaml"), raw).unwrap_err();
+        let e = parse_worker_config(Path::new("t.yaml"), raw).unwrap_err();
         assert!(
             e.to_string().contains("max-size") || e.to_string().contains("unknown"),
             "{e}"
         );
     }
 
-    /// 测试内容：`parse_template_config` 在 `sink.type: kafka` 时校验 `sink.kafka.topic` 非空。
+    /// 测试内容：`parse_worker_config` 在 `sink.type: kafka` 时校验 `sink.kafka.topic` 非空。
     /// 输入：含 `brokers` 但省略 `topic` 的最小 worker 配置 YAML。
     /// 预期：`unwrap_err()`；错误信息含 `topic`。
     #[test]
-    fn parse_template_config_rejects_kafka_missing_topic() {
+    fn parse_worker_config_rejects_kafka_missing_topic() {
         let raw = r#"sink:
   type: kafka
   kafka:
@@ -293,15 +192,15 @@ fields: {}
 template: "x"
 fields: {}
 "#;
-        let e = parse_template_config(Path::new("t.yaml"), raw).unwrap_err();
+        let e = parse_worker_config(Path::new("t.yaml"), raw).unwrap_err();
         assert!(e.to_string().to_ascii_lowercase().contains("topic"), "{e}");
     }
 
-    /// 测试内容：`parse_template_config` 在 `sink.type: kafka` 时校验至少一个非空 broker。
+    /// 测试内容：`parse_worker_config` 在 `sink.type: kafka` 时校验至少一个非空 broker。
     /// 输入：`topic` 有值但 `brokers` 省略。
     /// 预期：`unwrap_err()`；错误信息含 `brokers`。
     #[test]
-    fn parse_template_config_rejects_kafka_missing_brokers() {
+    fn parse_worker_config_rejects_kafka_missing_brokers() {
         let raw = r#"sink:
   type: kafka
   kafka:
@@ -309,7 +208,7 @@ fields: {}
 template: "x"
 fields: {}
 "#;
-        let e = parse_template_config(Path::new("t.yaml"), raw).unwrap_err();
+        let e = parse_worker_config(Path::new("t.yaml"), raw).unwrap_err();
         assert!(
             e.to_string().to_ascii_lowercase().contains("brokers"),
             "{e}"
@@ -320,7 +219,7 @@ fields: {}
     /// 输入：`example.yaml` 与合法 worker 配置片段。
     /// 预期：`min_interval_ms == 2`。
     #[test]
-    fn parse_template_config_yaml_by_extension() {
+    fn parse_worker_config_yaml_by_extension() {
         let raw = r#"sink:
   type: stdout
 template: "a={{c}}"
@@ -328,7 +227,7 @@ min-interval: 2
 fields:
   c: { type: counter }
 "#;
-        let c = parse_template_config(Path::new("example.yaml"), raw).unwrap();
+        let c = parse_worker_config(Path::new("example.yaml"), raw).unwrap();
         assert_eq!(c.min_interval_ms, 2);
     }
 
@@ -336,11 +235,11 @@ fields:
     /// 输入：路径 `bad.json`。
     /// 预期：错误信息提示需 `.yaml`。
     #[test]
-    fn parse_template_config_rejects_non_yaml_extension() {
+    fn parse_worker_config_rejects_non_yaml_extension() {
         let raw = r#"template: "x"
 fields: {}
 "#;
-        let e = parse_template_config(Path::new("bad.json"), raw).unwrap_err();
+        let e = parse_worker_config(Path::new("bad.json"), raw).unwrap_err();
         assert!(e.to_string().contains(".yaml"), "unexpected error: {e}");
     }
 
@@ -349,7 +248,7 @@ fields: {}
     /// 预期：渲染行同时包含 `.` 与 `-`。
     #[test]
     fn hostname_slot_contains_two_labels_and_suffix() {
-        let cfg = TemplateConfig {
+        let cfg = WorkerConfig {
             template: "{{h}}".to_string(),
             fields: [("h".to_string(), crate::FieldSpec::Hostname)]
                 .into_iter()
@@ -357,7 +256,7 @@ fields: {}
             min_interval_ms: 1000,
             sink: sink_stdout(),
         };
-        let mut r = TemplateRunner::try_new(cfg).unwrap();
+        let mut r = try_runner(cfg);
         let line = r.next_line().unwrap();
         assert!(line.contains('.'), "{line:?}");
         assert!(line.contains('-'), "{line:?}");
@@ -391,8 +290,8 @@ fields:
           b:
             type: lorem-word
 "#;
-        let c: TemplateConfig = serde_yaml::from_str(y).unwrap();
-        let mut r = TemplateRunner::try_new(c).unwrap();
+        let c: WorkerConfig = serde_yaml::from_str(y).unwrap();
+        let mut r = try_runner(c);
         let line = r.next_line().unwrap();
         assert!(
             line.starts_with("[id iut=\"3\" src=\"") && line.ends_with("\"]"),
@@ -406,7 +305,7 @@ fields:
     /// 预期：`TemplateRunner::try_new` 成功；首行为 `fixed`。
     #[test]
     fn field_type_template_empty_subfields_ok() {
-        let c = TemplateConfig {
+        let c = WorkerConfig {
             template: "{{x}}".to_string(),
             fields: [(
                 "x".to_string(),
@@ -420,7 +319,7 @@ fields:
             min_interval_ms: 1,
             sink: sink_stdout(),
         };
-        let mut r = TemplateRunner::try_new(c).unwrap();
+        let mut r = try_runner(c);
         assert_eq!(r.next_line().unwrap(), "fixed");
     }
 
@@ -444,8 +343,8 @@ fields:
           c:
             type: counter
 "#;
-        let c: TemplateConfig = serde_yaml::from_str(y).unwrap();
-        let mut r = TemplateRunner::try_new(c).unwrap();
+        let c: WorkerConfig = serde_yaml::from_str(y).unwrap();
+        let mut r = try_runner(c);
         let mut next_expected: u64 = 0;
         for _ in 0..800 {
             let line = r.next_line().unwrap();
@@ -470,7 +369,7 @@ fields:
     /// 预期：`TemplateRunner::try_new` 返回 `Err`。
     #[test]
     fn field_type_one_of_empty_branches_rejected() {
-        let c = TemplateConfig {
+        let c = WorkerConfig {
             template: "{{x}}".to_string(),
             fields: [(
                 "x".to_string(),
@@ -481,7 +380,7 @@ fields:
             min_interval_ms: 1,
             sink: sink_stdout(),
         };
-        assert!(TemplateRunner::try_new(c).is_err());
+        assert!(TemplateRunner::try_new(c.template, c.fields).is_err());
     }
 
     /// 测试内容：`Sentence` 字段词数落在 `[min,max]` 闭区间。
@@ -489,7 +388,7 @@ fields:
     /// 预期：每行按空白分词后词数在 2～4 之间。
     #[test]
     fn sentence_word_count_in_range() {
-        let cfg = TemplateConfig {
+        let cfg = WorkerConfig {
             template: "{{s}}".to_string(),
             fields: [(
                 "s".to_string(),
@@ -500,56 +399,11 @@ fields:
             min_interval_ms: 1000,
             sink: sink_stdout(),
         };
-        let mut r = TemplateRunner::try_new(cfg).unwrap();
+        let mut r = try_runner(cfg);
         for _ in 0..20 {
             let line = r.next_line().unwrap();
             let n = line.split_whitespace().count();
             assert!((2..=4).contains(&n), "{line:?}");
         }
-    }
-
-    /// 测试内容：`format_sink_summary` 对 stdout / file / kafka（含多 broker 与 headers）的摘要字符串。
-    /// 输入：构造 `SinkConfig`：无 kafka；file 有无 max-size；kafka 单/双 broker；kafka 带 1 个 header。
-    /// 预期：依次为 `stdout`、`file: a.log`、带 max-size 的 file 行、`kafka: topic t @ h1:9092 +1 more`、`(+1 headers)` 后缀。
-    #[test]
-    fn format_sink_summary_stdout_file_kafka() {
-        assert_eq!(format_sink_summary(&SinkConfig::Stdout), "stdout");
-        assert_eq!(
-            format_sink_summary(&SinkConfig::File {
-                max_size_bytes: 0,
-                output: Some("a.log".into()),
-            }),
-            "file: a.log"
-        );
-        assert_eq!(
-            format_sink_summary(&SinkConfig::File {
-                max_size_bytes: 100,
-                output: Some("a.log".into()),
-            }),
-            "file: a.log (max-size: 100 bytes)"
-        );
-        assert_eq!(
-            format_sink_summary(&SinkConfig::Kafka {
-                kafka: Some(Box::new(KafkaConfig {
-                    brokers: Some(vec!["h1:9092".into(), "h2:9092".into()]),
-                    topic: Some("t".into()),
-                    ..Default::default()
-                })),
-            }),
-            "kafka: topic t @ h1:9092 +1 more"
-        );
-        assert_eq!(
-            format_sink_summary(&SinkConfig::Kafka {
-                kafka: Some(Box::new(KafkaConfig {
-                    brokers: Some(vec!["h1:9092".into()]),
-                    topic: Some("t".into()),
-                    headers: Some(
-                        [("a".into(), Some("1".into()))].into_iter().collect(),
-                    ),
-                    ..Default::default()
-                })),
-            }),
-            "kafka: topic t @ h1:9092 (+1 headers)"
-        );
     }
 }

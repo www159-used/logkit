@@ -150,6 +150,14 @@ fn java_ssl_material_from_kafka(k: &KafkaConfig) -> Result<JavaSslMaterial<'_>, 
 pub(crate) fn configure_librdkafka_ssl(
     cfg: &mut ClientConfig,
     k: &KafkaConfig,
+) -> Result<(), super::SinkError> {
+    configure_librdkafka_ssl_inner(cfg, k)?;
+    Ok(())
+}
+
+fn configure_librdkafka_ssl_inner(
+    cfg: &mut ClientConfig,
+    k: &KafkaConfig,
 ) -> Result<(), JavaSslPemError> {
     let verify = kafka_ssl_verify_certificate(k);
     let m = java_ssl_material_from_kafka(k)?;

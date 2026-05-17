@@ -1,4 +1,4 @@
-//! 根级 `TemplateConfig`（`template` / `fields` / `min-interval` / `sink`）。
+//! 根级 [`WorkerConfig`]（`template` / `fields` / `min-interval` / `sink`）。
 
 use std::collections::BTreeMap;
 
@@ -8,9 +8,9 @@ use crate::field_spec::FieldSpec;
 
 use super::sink::SinkConfig;
 
-/// Worker 模板配置（一份 `.yaml` 对应一棵配置树；序列化后可由 daemon / worker 落盘或经 gRPC 传递）。
+/// 一份 worker 实例配置（`.yaml` 对应整棵配置树；序列化后可由 daemon / worker 落盘或经 gRPC 传递）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TemplateConfig {
+pub struct WorkerConfig {
     /// Handlebars 源字符串（无须外置文件）。占位符须与 `fields` 键一致；**勿**用 `len` 等名，会与 handlebars 内置 helper（如 `{{len …}}`）冲突。
     pub template: String,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -27,8 +27,8 @@ mod tests {
     use std::path::Path;
 
     use super::super::kafka::KafkaSinkMode;
-    use super::TemplateConfig;
-    use crate::parse_template_config;
+    use super::WorkerConfig;
+    use crate::parse_worker_config;
 
     /// 测试内容：最小 worker 配置 YAML 仅经 Serde 反序列化后的字段。
     #[test]
@@ -42,7 +42,7 @@ fields:
   c:
     type: counter
 "#;
-        let c: TemplateConfig = serde_yaml::from_str(y).unwrap();
+        let c: WorkerConfig = serde_yaml::from_str(y).unwrap();
         assert_eq!(c.min_interval_ms, 1);
         assert_eq!(c.sink.max_size_bytes(), 0);
         assert_eq!(c.template, "x={{c}}");
@@ -50,7 +50,7 @@ fields:
 
     /// 测试内容：整份 YAML 中 `sink.kafka` 最小段反序列化。
     #[test]
-    fn template_yaml_kafka_section_minimal() {
+    fn worker_yaml_kafka_section_minimal() {
         let y = r#"
 sink:
   type: kafka
@@ -60,7 +60,7 @@ sink:
 template: "x"
 fields: {}
 "#;
-        let c: TemplateConfig = serde_yaml::from_str(y).unwrap();
+        let c: WorkerConfig = serde_yaml::from_str(y).unwrap();
         let k = c.sink.kafka_section().expect("kafka");
         assert_eq!(k.mode, KafkaSinkMode::Common);
         assert_eq!(k.topic.as_deref(), Some("t1"));
@@ -76,7 +76,7 @@ sink:
 template: "x"
 fields: {}
 "#;
-        let c: TemplateConfig = serde_yaml::from_str(y).unwrap();
+        let c: WorkerConfig = serde_yaml::from_str(y).unwrap();
         assert_eq!(c.sink.max_size_bytes(), 0);
     }
 
@@ -91,7 +91,7 @@ sink:
 template: "x"
 fields: {}
 "#;
-        let c: TemplateConfig = serde_yaml::from_str(y).unwrap();
+        let c: WorkerConfig = serde_yaml::from_str(y).unwrap();
         assert_eq!(c.sink.max_size_bytes(), 65536);
     }
 
@@ -106,7 +106,7 @@ sink:
 template: "x"
 fields: {}
 "#;
-        let c: TemplateConfig = serde_yaml::from_str(y).unwrap();
+        let c: WorkerConfig = serde_yaml::from_str(y).unwrap();
         assert_eq!(c.sink.max_size_bytes(), 65536);
     }
 
@@ -121,7 +121,7 @@ sink:
 template: "x"
 fields: {}
 "#;
-        let c: TemplateConfig = serde_yaml::from_str(y).unwrap();
+        let c: WorkerConfig = serde_yaml::from_str(y).unwrap();
         assert_eq!(
             c.sink.max_size_bytes(),
             (1.5_f64 * 1048576_f64).round() as u64
@@ -139,7 +139,7 @@ template: >-
   part3
 fields: {}
 "#;
-        let c: TemplateConfig = serde_yaml::from_str(y).unwrap();
+        let c: WorkerConfig = serde_yaml::from_str(y).unwrap();
         assert!(
             !c.template.contains('\n'),
             "folded scalar should be one line: {:?}",
@@ -149,9 +149,9 @@ fields: {}
         assert!(c.template.contains("part3"));
     }
 
-    /// 测试内容：`parse_template_config` 对 `mode: agent` 且无 `topic` 应成功。
+    /// 测试内容：`parse_worker_config` 对 `mode: agent` 且无 `topic` 应成功。
     #[test]
-    fn parse_template_config_accepts_kafka_agent_without_topic() {
+    fn parse_worker_config_accepts_kafka_agent_without_topic() {
         let raw = r#"sink:
   type: kafka
   kafka:
@@ -162,15 +162,15 @@ fields: {}
 template: "{}"
 fields: {}
 "#;
-        let c = parse_template_config(Path::new("t.yaml"), raw).unwrap();
+        let c = parse_worker_config(Path::new("t.yaml"), raw).unwrap();
         let k = c.sink.kafka_section().unwrap();
         assert_eq!(k.mode, KafkaSinkMode::Agent);
         assert!(k.topic.is_none());
     }
 
-    /// 测试内容：`parse_template_config` 对 `mode: agent` 且 `agent: {}`（无 `domain`）应成功。
+    /// 测试内容：`parse_worker_config` 对 `mode: agent` 且 `agent: {}`（无 `domain`）应成功。
     #[test]
-    fn parse_template_config_accepts_kafka_agent_without_domain() {
+    fn parse_worker_config_accepts_kafka_agent_without_domain() {
         let raw = r#"sink:
   type: kafka
   kafka:
@@ -180,7 +180,7 @@ fields: {}
 template: "{}"
 fields: {}
 "#;
-        let c = parse_template_config(Path::new("t.yaml"), raw).unwrap();
+        let c = parse_worker_config(Path::new("t.yaml"), raw).unwrap();
         let k = c.sink.kafka_section().unwrap();
         assert_eq!(k.mode, KafkaSinkMode::Agent);
         assert!(k.agent.as_ref().unwrap().domain.is_none());
@@ -188,7 +188,7 @@ fields: {}
 
     /// 测试内容：`mode: agent` 且 `source_id` 非合法 UUID 应失败。
     #[test]
-    fn parse_template_config_rejects_bad_agent_source_id() {
+    fn parse_worker_config_rejects_bad_agent_source_id() {
         let raw = r#"sink:
   type: kafka
   kafka:
@@ -200,7 +200,7 @@ fields: {}
 template: "{}"
 fields: {}
 "#;
-        let e = parse_template_config(Path::new("t.yaml"), raw).unwrap_err();
+        let e = parse_worker_config(Path::new("t.yaml"), raw).unwrap_err();
         assert!(
             e.to_string().to_ascii_lowercase().contains("source_id")
                 || e.to_string().to_ascii_lowercase().contains("source id"),
@@ -210,7 +210,7 @@ fields: {}
 
     /// 测试内容：`mode: agent` 但省略 `agent:` 块时应失败。
     #[test]
-    fn parse_template_config_rejects_kafka_agent_missing_agent_block() {
+    fn parse_worker_config_rejects_kafka_agent_missing_agent_block() {
         let raw = r#"sink:
   type: kafka
   kafka:
@@ -219,7 +219,7 @@ fields: {}
 template: "{}"
 fields: {}
 "#;
-        let e = parse_template_config(Path::new("t.yaml"), raw).unwrap_err();
+        let e = parse_worker_config(Path::new("t.yaml"), raw).unwrap_err();
         assert!(
             e.to_string().to_ascii_lowercase().contains("agent"),
             "{e}"

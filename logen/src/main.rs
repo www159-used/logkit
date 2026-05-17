@@ -14,7 +14,7 @@ use tonic::transport::Endpoint;
 use tower::service_fn;
 
 use logen_config::{load_merged, LogenError};
-use logen_dsl::{parse_template_config, template_config_to_yaml};
+use logen_dsl::{parse_worker_config, worker_config_to_yaml};
 
 #[derive(Parser)]
 #[command(
@@ -45,7 +45,7 @@ enum Commands {
     },
     List,
     Start {
-        /// Producer YAML（单文件；见 [`logen_dsl`]）。
+        ///实例 YAML（单文件；见 [`logen_dsl`]）。
         #[arg(required = true, value_name = "CONFIG.yaml")]
         config: String,
     },
@@ -55,7 +55,7 @@ enum Commands {
     Stat {
         id_prefix: Option<String>,
     },
-    /// 打印运行中实例的 producer YAML（id 支持唯一前缀，与 stop 相同）
+    /// 打印运行中 worker 实例的 YAML（id 支持唯一前缀，与 stop 相同）
     Cat {
         id: String,
     },
@@ -178,14 +178,14 @@ async fn run() -> Result<(), LogenError> {
             let raw = std::fs::read_to_string(&path).map_err(|e| {
                 LogenError::Cli(format!("read {}: {e}", path.display()))
             })?;
-            let merged = parse_template_config(path.as_path(), &raw)
+            let merged = parse_worker_config(path.as_path(), &raw)
                 .map_err(|e| LogenError::Cli(e.to_string()))?;
-            let producer_yaml = template_config_to_yaml(&merged)
-                .map_err(|e| LogenError::Cli(format!("serialize producer YAML: {e}")))?;
+            let instance_yaml = worker_config_to_yaml(&merged)
+                .map_err(|e| LogenError::Cli(format!("serialize instance YAML: {e}")))?;
             let config_label = config;
             let r = client
                 .start_worker(StartWorkerRequest {
-                    producer_yaml,
+                    instance_yaml,
                     config_label,
                 })
                 .await

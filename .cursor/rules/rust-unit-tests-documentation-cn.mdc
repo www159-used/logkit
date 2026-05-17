@@ -34,7 +34,7 @@ alwaysApply: false
     /// 输入：含 `source`、`trace-id`、null 与整数字段的 `sink.kafka.headers`。
     /// 预期：`headers` 各键类型正确；未设置 `acks`、`compression` 等可选字段。
     #[test]
-    fn deserialize_producer_yaml_kafka_headers() {
+    fn deserialize_instance_yaml_kafka_headers() {
         // ...
     }
 ```

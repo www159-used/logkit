@@ -1,4 +1,4 @@
-//! logend — gRPC 控制面（Unix 套接字）；造日志由进程内嵌入的 worker 任务直接消费内存中的 producer 配置完成。
+//! logend — gRPC 控制面（Unix 套接字）；造日志由进程内嵌入的 worker 任务直接消费内存中的实例配置完成。
 
 use std::collections::HashMap;
 use std::fs;
@@ -15,7 +15,7 @@ use logen_proto::{
     WorkerEntry, WorkerStatDetail,
 };
 use logen_worker::{
-    EmbeddedProducerWorker, ProducerHeartbeatEnv, SpawnedProducerTasks, TokioEmbeddedProducerWorker,
+    EmbeddedWorker, WorkerHeartbeatEnv, SpawnedWorkerTasks, TokioEmbeddedWorker,
 };
 use tokio::net::UnixListener;
 use tokio::sync::Mutex;
@@ -25,13 +25,13 @@ use tonic::transport::Server;
 use flexi_logger::{Duplicate, FileSpec, Logger, WriteMode};
 use log::{debug, info, trace, warn};
 use logen_config::{load_merged, LogenConfig, LogenError, WorkerSection};
-use logen_dsl::{format_sink_summary, parse_template_config};
+use logen_dsl::{format_sink_summary, parse_worker_config};
 
 #[derive(Parser)]
 #[command(
     name = "logend",
     version,
-    about = "logend — gRPC control plane (Unix socket); embedded logen-worker drives producers",
+    about = "logend — gRPC control plane (Unix socket); embedded logen-worker drives worker instances",
     disable_help_subcommand = true
 )]
 struct LogendCli {
@@ -54,7 +54,7 @@ struct RunningWorker {
     /// `logen start` 传入的展示标签（多为用户本地路径）
     config_label: String,
     /// gRPC 投递的 YAML 全文（内存副本；`cat` 直接返回，不依赖托管文件是否仍存在）
-    producer_yaml: String,
+    instance_yaml: String,
     worker_task: tokio::task::JoinHandle<()>,
     heartbeat_task: Option<tokio::task::JoinHandle<()>>,
     spawned_at: Instant,
@@ -72,7 +72,7 @@ struct LogenSvcState {
     control_socket_path: String,
     client_connect_uri: String,
     worker_output_dir: String,
-    producer_worker: Arc<dyn EmbeddedProducerWorker>,
+    embedded_worker: Arc<dyn EmbeddedWorker>,
     workers: Mutex<HashMap<String, RunningWorker>>,
 }
 
@@ -117,7 +117,7 @@ fn reap_exited(guard: &mut HashMap<String, RunningWorker>) {
             if let Some(task) = r.heartbeat_task {
                 task.abort();
             }
-            info!("producer worker task exited id={id}");
+            info!("worker task exited id={id}");
         }
     }
 }
@@ -256,15 +256,15 @@ impl Logen for LogenSvc {
         req: tonic::Request<StartWorkerRequest>,
     ) -> Result<tonic::Response<StartWorkerReply>, tonic::Status> {
         let msg = req.into_inner();
-        let yaml = msg.producer_yaml;
+        let yaml = msg.instance_yaml;
         if yaml.trim().is_empty() {
             return Err(tonic::Status::invalid_argument(
-                "producer_yaml required (non-empty producer .yaml / .yml body)",
+                "instance_yaml required (non-empty instance .yaml / .yml body)",
             ));
         }
-        let tpl = parse_template_config(Path::new("producer.yaml"), &yaml)
-            .map_err(|e| tonic::Status::invalid_argument(format!("producer YAML: {e}")))?;
-        let sink_summary = format_sink_summary(&tpl.sink);
+        let worker_cfg = parse_worker_config(Path::new("instance.yaml"), &yaml)
+            .map_err(|e| tonic::Status::invalid_argument(format!("实例 YAML: {e}")))?;
+        let sink_summary = format_sink_summary(&worker_cfg.sink);
 
         let label = msg.config_label;
         let config_label = if label.trim().is_empty() {
@@ -274,20 +274,20 @@ impl Logen for LogenSvc {
         };
 
         let id = uuid::Uuid::new_v4().to_string();
-        let hb = ProducerHeartbeatEnv {
+        let hb = WorkerHeartbeatEnv {
             control_socket: self.inner.control_socket_path.clone(),
             worker_id: id.clone(),
             heartbeat_interval_secs: self.inner.worker.heartbeat_interval_secs.max(1),
             client_connect_uri: self.inner.client_connect_uri.clone(),
         };
         let output_base = PathBuf::from(&self.inner.worker_output_dir);
-        let SpawnedProducerTasks {
+        let SpawnedWorkerTasks {
             worker_task,
             heartbeat_task,
-        } = self.inner.producer_worker.spawn_producer_task(
+        } = self.inner.embedded_worker.spawn_worker_task(
             id.clone(),
             config_label.clone(),
-            tpl,
+            worker_cfg,
             output_base,
             Some(hb),
         );
@@ -303,7 +303,7 @@ impl Logen for LogenSvc {
             id.clone(),
             RunningWorker {
                 config_label,
-                producer_yaml: yaml,
+                instance_yaml: yaml,
                 worker_task,
                 heartbeat_task,
                 spawned_at: now,
@@ -391,7 +391,7 @@ impl Logen for LogenSvc {
         };
         debug!("rpc CatWorker id={}", id);
         let label = running.config_label.clone();
-        let yaml = running.producer_yaml.clone();
+        let yaml = running.instance_yaml.clone();
         drop(guard);
         Ok(tonic::Response::new(CatWorkerReply {
             config_path: label,
@@ -420,14 +420,14 @@ impl Logen for LogenSvc {
             return Err(tonic::Status::not_found("no such worker id"));
         };
         if running.worker_task.is_finished() {
-            warn!("rpc Heartbeat producer task already finished id={}", id);
+            warn!("rpc Heartbeat worker task already finished id={}", id);
             if let Some(r) = guard.remove(&id) {
                 if let Some(task) = r.heartbeat_task {
                     task.abort();
                 }
             }
             return Err(tonic::Status::failed_precondition(
-                "producer worker task has ended",
+                "worker task has ended",
             ));
         }
         let now = Instant::now();
@@ -460,7 +460,7 @@ async fn run(cfg: LogenConfig) -> Result<(), LogenError> {
     let worker_output_dir = cfg.worker.worker_output_dir.trim().to_string();
     if worker_output_dir.is_empty() {
         return Err(LogenError::Cli(
-            "[worker].worker_output_dir must be set (non-empty directory; producer YAML \"output\" is relative to it)"
+            "[worker].worker_output_dir must be set (non-empty directory;实例 YAML \"output\" is relative to it)"
                 .into(),
         ));
     }
@@ -538,7 +538,7 @@ async fn run(cfg: LogenConfig) -> Result<(), LogenError> {
             control_socket_path,
             client_connect_uri,
             worker_output_dir,
-            producer_worker: Arc::new(TokioEmbeddedProducerWorker),
+            embedded_worker: Arc::new(TokioEmbeddedWorker),
             workers: Mutex::new(HashMap::new()),
         }),
     };

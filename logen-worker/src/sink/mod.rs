@@ -1,6 +1,7 @@
-//! 一行日志的输出目标：统一由 [`LogLineSink`] 约束，便于新增 syslog、gRPC 等实现。
+//! 一行日志的输出目标：统一由 [`LogLineSink`] 约束。
 
 mod context_id;
+mod error;
 mod file;
 pub(crate) mod kafka;
 mod kafka_agent;
@@ -8,58 +9,49 @@ mod kafka_jks;
 mod log_id;
 mod stdout;
 
+pub use error::{KafkaConfigError, SinkError};
 pub use file::FileLineSink;
-pub use kafka::{KafkaLineSink, KafkaLineSinkError};
+pub use kafka::KafkaLineSink;
 pub use stdout::StdoutLineSink;
 
 use std::path::Path;
 
 use async_trait::async_trait;
-use logen_dsl::{SinkConfig, TemplateConfig};
-use thiserror::Error;
+use logen_dsl::SinkConfig;
 
-/// 单行写出失败：按大类区分（便于调用方匹配或记录指标）。
-#[derive(Debug, Error)]
-pub enum EmitLineError {
-    #[error(transparent)]
-    Io(#[from] std::io::Error),
-    #[error(transparent)]
-    Kafka(#[from] KafkaLineSinkError),
-}
-
-/// 写入单条渲染后的日志行（UTF-8 文本）。实现可为 stdout、文件、消息队列等。
+/// 写入单条渲染后的日志行（UTF-8 文本）。
 #[async_trait]
 pub trait LogLineSink: Send {
-    /// 失败原因见 [`EmitLineError`]（本地 I/O 与 Kafka 配置/投递分层）。
-    async fn emit_line(&mut self, line: &str) -> Result<(), EmitLineError>;
+    async fn emit_line(&mut self, line: &str) -> Result<(), SinkError>;
 }
 
-/// 按 [`TemplateConfig::sink`] 构造行日志 sink（须已通过 [`validate_template_sink`]）。
+/// 按 [`SinkConfig`] 构造行日志 sink（须已通过 [`validate_sink`](logen_dsl::validate_sink)）。
 pub fn build_line_sink(
-    cfg: &TemplateConfig,
+    sink: &SinkConfig,
     output_base: &Path,
-) -> Result<Box<dyn LogLineSink>, String> {
-    match &cfg.sink {
-        SinkConfig::Kafka { kafka: Some(k), .. } => Ok(Box::new(
-            KafkaLineSink::try_new(k).map_err(|e| e.to_string())?,
+) -> Result<Box<dyn LogLineSink>, SinkError> {
+    match sink {
+        SinkConfig::Kafka { kafka: Some(k), .. } => {
+            let s = KafkaLineSink::new(k)?;
+            Ok(Box::new(s))
+        }
+        SinkConfig::Kafka { kafka: None, .. } => Err(SinkError::Internal(
+            "sink.type kafka but sink.kafka missing after validation".into(),
         )),
-        SinkConfig::Kafka { kafka: None, .. } => Err(
-            "internal: sink.type kafka but sink.kafka missing after validation".into(),
-        ),
         SinkConfig::File {
             output,
             max_size_bytes,
             ..
         } => {
-            let Some(rel) = output
+            let rel = output
                 .as_deref()
                 .map(str::trim)
                 .filter(|s| !s.is_empty())
-            else {
-                return Err(
-                    "internal: sink.type file but output missing after validation".into(),
-                );
-            };
+                .ok_or_else(|| {
+                    SinkError::Internal(
+                        "sink.type file but output missing after validation".into(),
+                    )
+                })?;
             Ok(Box::new(FileLineSink::open(
                 output_base,
                 rel,

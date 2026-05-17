@@ -12,7 +12,7 @@ alwaysApply: false
 - **只写一行**，概括本次改动的主要结果；不要写成文件清单或路径枚举。
 - 优先写可感知结果（行为、协议、配置、排障），例如：
   - `feature: Kafka sink 支持 record headers 配置`
-  - `fix: 修正 producer 合并后 sink 类型校验错误`
+  - `fix: 修正实例 YAML 合并后 sink 类型校验错误`
 - 避免模糊词：「调整一下」「改点东西」「小修小补」等。
 
 ## Body（第二段，**仅重大时写**）

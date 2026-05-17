@@ -34,7 +34,7 @@
 
 | 键 | 含义 |
 |----|------|
-| `max_decoding_message_size_bytes` / `max_encoding_message_size_bytes` | gRPC 消息大小上限；`start` 会传送整份 producer YAML。 |
+| `max_decoding_message_size_bytes` / `max_encoding_message_size_bytes` | gRPC 消息大小上限；`start` 会传送整份实例 YAML。 |
 | `ping_reply_text` | `logen ping` 返回值。 |
 | `client_connect_uri` | tonic 所需的**形式合法** HTTP URI；**实际仍为 Unix 套接字传输**，不对该主机建 TCP。 |
 
@@ -45,7 +45,7 @@
 | `worker_output_dir` | **必填**。**`sink.type: file`** 时，`output` 相对此目录；daemon 托管的配置副本也在此目录树约定位置。 |
 | `heartbeat_timeout_secs` / `heartbeat_interval_secs` | 心跳与健康判定（见 `logen list` / `stat`）。 |
 
-若 producer 使用 **Kafka**（`sink.type: kafka`），行日志发往 Kafka，**不再使用**基于 `worker_output_dir` 的文件 `output`（与 `conf.ref.toml` 注释一致）。
+若实例 YAML 使用 **Kafka**（`sink.type: kafka`），行日志发往 Kafka，**不再使用**基于 `worker_output_dir` 的文件 `output`（与 `conf.ref.toml` 注释一致）。
 
 ### 兼容
 
@@ -54,4 +54,4 @@
 ## 相关文档
 
 - 客户端与 daemon：**[`logen`](../logen/README.md)**、**[`logend`](../logend/README.md)**  
-- Producer 语法：**[`logen-dsl` 规范](../logen-dsl/guide/src/intro.md)**（`mdbook build` 见该目录）  
+-实例 YAML 语法：**[`logen-dsl` 规范](../logen-dsl/guide/src/intro.md)**（`mdbook build` 见该目录）  

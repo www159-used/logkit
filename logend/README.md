@@ -33,7 +33,7 @@ logend [--defaults-file PATH]
 
 ## 与 worker 的关系
 
-- **`logen start`**（CLI）把 producer YAML 发给 daemon；daemon 分配 id、落盘副本并 **`TokioEmbeddedProducerWorker`** 驱动循环。
+- **`logen start`**（CLI）把实例 YAML 发给 daemon；daemon 分配 id、落盘副本并 **`TokioEmbeddedWorker`** 驱动循环。
 
 心跳间隔、超时、`worker_output_dir` 等见 **[`logen-config`](../logen-config/README.md)** 的 **`[worker]`** 段。
 

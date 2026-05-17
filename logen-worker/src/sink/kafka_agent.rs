@@ -6,6 +6,7 @@ use logen_dsl::{validate_agent_source_id, KafkaConfig, KafkaSinkMode};
 use uuid::Uuid;
 
 use super::log_id::next_log_id;
+use super::{KafkaConfigError, SinkError};
 
 pub const KAFKA_AGENT_TOPIC: &str = "raw_message";
 
@@ -58,14 +59,19 @@ fn or_random(opt: Option<&str>, rnd_len: usize) -> String {
 }
 
 /// 由已通过校验的 `KafkaConfig`（`mode == Agent`）构造运行时状态。
-pub fn build_runtime_state(k: &KafkaConfig) -> Result<KafkaAgentRuntimeState, String> {
+pub fn build_runtime_state(k: &KafkaConfig) -> Result<KafkaAgentRuntimeState, SinkError> {
+    build_runtime_state_inner(k)
+}
+
+fn build_runtime_state_inner(k: &KafkaConfig) -> Result<KafkaAgentRuntimeState, SinkError> {
     if k.mode != KafkaSinkMode::Agent {
-        return Err("internal: build_runtime_state requires mode agent".into());
+        return Err(SinkError::Internal(
+            "build_runtime_state requires mode agent".into(),
+        ));
     }
-    let agent = k
-        .agent
-        .as_ref()
-        .ok_or_else(|| "missing sink.kafka.agent".to_string())?;
+    let agent = k.agent.as_ref().ok_or_else(|| {
+        SinkError::Internal("missing sink.kafka.agent after validation".into())
+    })?;
     let domain = agent
         .domain
         .as_deref()
@@ -76,7 +82,10 @@ pub fn build_runtime_state(k: &KafkaConfig) -> Result<KafkaAgentRuntimeState, St
     let source_id = match agent.source_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         Some(s) => {
             if !validate_agent_source_id(s) {
-                return Err("sink.kafka.agent.source_id must be a 36-character UUID (8-4-4-4-12 hex with hyphens)".into());
+                return Err(KafkaConfigError::new(
+                    "sink.kafka.agent.source_id must be a 36-character UUID (8-4-4-4-12 hex with hyphens)",
+                )
+                .into());
             }
             s.to_string()
         }

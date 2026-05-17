@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package logen.v1;
 
-// Control plane on Unix socket (gRPC over UDS). Log generation runs via embedded producer worker tasks.
+// Control plane on Unix socket (gRPC over UDS). Log generation runs via embedded logen-worker tasks.
 service Logen {
   rpc Ping(PingRequest) returns (PingReply);
   rpc Echo(EchoRequest) returns (EchoReply);
@@ -37,7 +37,7 @@ message WorkerEntry {
   string config_path = 2;
   bool alive = 3;
   bool healthy = 4;
-  // 自 producer YAML 的 `sink:` 摘要（与嵌套 sink 一致）
+  // 自实例 YAML 的 `sink:` 摘要（与嵌套 sink 一致）
   string sink_summary = 5;
 }
 
@@ -46,9 +46,9 @@ message ListWorkersReply {
 }
 
 message StartWorkerRequest {
-  // producer YAML 全文（由 logen 客户端读取本地文件后填入）
-  string producer_yaml = 1;
-  // 展示用标签，常为 `logen start` 传入的本地 YAML 路径（producer_yaml 须含完整 `sink:` 块）
+  // 实例 YAML 全文（由 logen 客户端读取本地文件后填入）
+  string instance_yaml = 1;
+  // 展示用标签，常为 `logen start` 传入的本地 YAML 路径（instance_yaml 须含完整 `sink:` 块）
   string config_label = 2;
 }
 
@@ -103,7 +103,7 @@ message WorkerStatDetail {
   double eps_interval = 10;
   // 外推的当前累计事件数（用于对照）
   double log_events_estimated = 11;
-  // 自 producer YAML 的 `sink:` 摘要（与嵌套 sink 一致）
+  // 自实例 YAML 的 `sink:` 摘要（与嵌套 sink 一致）
   string sink_summary = 12;
 }
 

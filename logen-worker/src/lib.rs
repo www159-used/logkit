@@ -1,35 +1,29 @@
-//! `logen-worker`：造日志库；由 **`logend`** 进程内嵌入（[`daemon_api::EmbeddedProducerWorker`]、`runtime` 内存配置运行入口）。
+//! `logen-worker`：造日志库；由 **`logend`** 进程内嵌入（[`daemon_api::EmbeddedWorker`]、`runtime` 内存配置运行入口）。
 
 pub mod daemon_api;
 pub mod runtime;
 pub mod sink;
 
-pub use daemon_api::{EmbeddedProducerWorker, SpawnedProducerTasks, TokioEmbeddedProducerWorker};
-pub use runtime::ProducerHeartbeatEnv;
+pub use daemon_api::{EmbeddedWorker, SpawnedWorkerTasks, TokioEmbeddedWorker};
+pub use runtime::WorkerHeartbeatEnv;
 pub use sink::{
-    build_line_sink, EmitLineError, FileLineSink, KafkaLineSink, KafkaLineSinkError, LogLineSink,
+    build_line_sink, FileLineSink, KafkaConfigError, KafkaLineSink, LogLineSink, SinkError,
     StdoutLineSink,
 };
 
 /// **仅供集成测试** [`tests/kafka_probe`]：对集群发 metadata 请求并返回 `(broker 数, topic 元数据条目数)`。
-///
-/// 实现位于 [`sink::kafka::probe_kafka_ssl_cluster`]，为 `pub(crate)`；集成测试 crate 无法直接引用，故在此做薄转发。
-/// 与 [`KafkaLineSink`] 使用相同的 librdkafka 客户端配置路径。**非稳定对外 API**，故 `#[doc(hidden)]`。
 #[doc(hidden)]
 pub fn probe_kafka_ssl_cluster(
     k: &logen_dsl::KafkaConfig,
-) -> Result<(usize, usize), KafkaLineSinkError> {
+) -> Result<(usize, usize), SinkError> {
     sink::kafka::probe_kafka_ssl_cluster(k)
 }
 
-/// **仅供集成测试** [`tests/kafka_probe`]：按当前 TLS 配置向配置中的 topic **发送一条** UTF-8 文本（用于可选冒烟 produce）。
-///
-/// 实现位于 [`sink::kafka::produce_one_kafka_ssl_line`]，为 `pub(crate)`；集成测试 crate 无法直接引用，故在此做薄转发。
-/// 与 [`KafkaLineSink`] 使用相同的 librdkafka / TLS 材料路径。**非稳定对外 API**，故 `#[doc(hidden)]`。
+/// **仅供集成测试** [`tests/kafka_probe`]：按当前 TLS 配置向配置中的 topic **发送一条** UTF-8 文本。
 #[doc(hidden)]
 pub fn produce_one_kafka_ssl_line(
     k: &logen_dsl::KafkaConfig,
     payload: &str,
-) -> Result<(), KafkaLineSinkError> {
+) -> Result<(), SinkError> {
     sink::kafka::produce_one_kafka_ssl_line(k, payload)
 }

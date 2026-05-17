@@ -5,9 +5,10 @@ edition = "2021"
 license = "GPL-3.0"
 
 [dependencies]
+anyhow = "1"
 async-trait = { workspace = true }
+thiserror = { workspace = true }
 base64 = "0.22"
-futures-util = { version = "0.3", default-features = false, features = ["std"] }
 http = { workspace = true }
 hyper-util = { workspace = true }
 java-ssl-pem = { path = "../java-ssl-pem" }
@@ -28,7 +29,6 @@ rdkafka = { version = "0.39", default-features = false, features = [
   "tokio",
 ] }
 serde_yaml = { workspace = true }
-thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "time"] }
 tonic = { workspace = true }
 tower = { workspace = true }

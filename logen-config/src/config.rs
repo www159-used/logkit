@@ -47,10 +47,10 @@ pub struct ProtocolSection {
     pub grpc: GrpcSection,
 }
 
-/// [worker] — 造日志实例；默认在 `logend` **进程内** 直接消费内存中的 producer 配置运行。
+/// [worker] — 造日志实例；默认在 `logend` **进程内** 直接消费内存中的实例配置运行。
 #[derive(Debug, Clone, Deserialize)]
 pub struct WorkerSection {
-    /// 造日志写入路径的根目录（**必填**）；producer YAML 里 `output` 为**相对该目录**的路径。
+    /// 造日志写入路径的根目录（**必填**）；实例 YAML 里 `output` 为**相对该目录**的路径。
     pub worker_output_dir: String,
     pub heartbeat_timeout_secs: u64,
     pub heartbeat_interval_secs: u64,

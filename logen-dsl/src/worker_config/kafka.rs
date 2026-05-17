@@ -106,7 +106,7 @@ pub struct KafkaConfig {
     pub mode: KafkaSinkMode,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<KafkaAgentConfig>,
-    /// **`None`** 仅当键在 YAML 中省略时；**有效配置**下须含至少一个非空 broker（见 [`crate::validate_template_sink`] / worker 校验）。
+    /// **`None`** 仅当键在 YAML 中省略时；**有效配置**下须含至少一个非空 broker（见 [`crate::validate_sink`] / worker 校验）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub brokers: Option<Vec<String>>,
     /// **`None`** 仅当键省略；**`mode: common`** 下须为 **trim 后非空** topic；**`agent`** 下由 worker 固定为 `raw_message`。
