@@ -1,5 +1,3 @@
-//! 供 **`logend`** 使用的嵌入 worker 约定：用 trait 约束「如何 spawn 造日志任务」，便于测试替换或日后其它实现。
-
 use std::path::PathBuf;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
@@ -15,7 +13,6 @@ pub struct SpawnedWorkerTasks {
     pub heartbeat_task: Option<JoinHandle<()>>,
 }
 
-/// Daemon 唯一需要依赖的 worker 能力：在当前 Tokio runtime 上启动任务，并得到可 `abort` / `is_finished` 的句柄。
 pub trait EmbeddedWorker: Send + Sync {
     /// `worker_id` 仅用于任务失败时的日志标识。
     fn spawn_worker_task(
@@ -28,7 +25,6 @@ pub trait EmbeddedWorker: Send + Sync {
     ) -> SpawnedWorkerTasks;
 }
 
-/// 默认实现：直接消费 daemon 传入的内存配置（模板 + sink + 可选心跳）。
 #[derive(Debug, Default, Clone, Copy)]
 pub struct TokioEmbeddedWorker;
 

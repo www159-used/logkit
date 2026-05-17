@@ -1,5 +1,3 @@
-//! 与 `logend` 对接的运行循环：在 **同进程** Tokio 任务中直接消费内存里的实例配置。
-
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -79,7 +77,6 @@ pub fn spawn_heartbeat_task(hb: WorkerHeartbeatEnv, events: Arc<AtomicU64>) -> J
     ))
 }
 
-/// 造日志主循环；返回 `Err` 时结束本 worker 任务（由 spawn 方记日志）。
 pub(crate) async fn run_worker_with_config(
     config_name: String,
     cfg: WorkerConfig,

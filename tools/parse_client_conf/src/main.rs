@@ -1,7 +1,4 @@
-//! 读取 **`client.conf`**，将 **`security.protocol`** 与 **`ssl.*`** 以 **YAML** 形式打到 stdout，
-//! 便于粘贴到 **`sink.kafka:`** 下（**不含** `brokers` / `topic`，由你自行填写）。
-//!
-//! **用法**：`parse_client_conf` 后可选跟 **一个** `client.conf` **文件**路径；**省略**则读默认绝对路径 **`/run/{OEM}_manager_agent/process/kafka/config/client.conf`**，其中 **`{OEM}`** 为 `resolve_oem::oem_name()`（环境变量 **`OEM_NAME`**，缺省 **`yotta`**）。
+///! 内部工具，快速找到kafka的ssl配置，然后转成yaml的kv对
 
 use std::env;
 use std::ffi::OsString;
@@ -61,7 +58,6 @@ fn emit_kafka_yaml_key(key: &str) -> bool {
     key == "security.protocol" || key.starts_with("ssl.")
 }
 
-/// 空串用 `""`；含 YAML 易歧义字符时用双引号并转义。
 fn yaml_scalar(value: &str) -> String {
     if value.is_empty() {
         return "\"\"".to_string();

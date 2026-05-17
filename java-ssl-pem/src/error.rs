@@ -45,9 +45,6 @@ pub enum JavaSslPemError {
         source: io::Error,
     },
 
-    #[error("java-ssl-pem · OpenSSL: {detail}")]
-    OpenSsl { detail: String },
-
     /// 互斥字段同时出现、或 trust / identity 无法唯一解析时的配置错误。
     #[error("java-ssl-pem · config: {detail}")]
     Config { detail: String },

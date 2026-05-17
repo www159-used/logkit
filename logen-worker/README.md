@@ -9,6 +9,6 @@
 
 ## Kafka
 
-**`sink.type: kafka`** 走 **[rdkafka](https://github.com/fede1024/rust-rdkafka)**（**CMake**；TLS 为 **openssl vendored**；依赖里含 **curl-sys**，交叉 **musl** 时注意与仓库 **`scripts/logkit-pack.sh`** 一致）。**`.jks`** 用 **`jks`** crate 转 PEM；**`.p12`/`.pfx`** 仍要本机 **`openssl pkcs12`**。字段与 YAML 约定见 **[`logen-dsl` 规范](../logen-dsl/guide/src/intro.md)**（mdBook：`cd ../logen-dsl/guide && mdbook build`）。
+**`sink.type: kafka`** 走 **[rdkafka](https://github.com/fede1024/rust-rdkafka)**（**CMake**；TLS 为 **openssl vendored**；依赖里含 **curl-sys**，交叉 **musl** 时注意与仓库 **`scripts/logkit-pack.sh`** 一致）。**`.jks` / `.p12` / `.pfx`** 由 **`java-ssl-pem`** 经纯 Rust **`jks`**（PKCS#12）转 PEM，**无需**本机 `openssl pkcs12` 命令。字段与 YAML 约定见 **[`logen-dsl` 规范](../logen-dsl/guide/src/intro.md)**（mdBook：`cd ../logen-dsl/guide && mdbook build`）。
 
 **musl 交叉**：推荐 **`cargo-zigbuild`**；打发行包可直接 **`./scripts/logkit-pack.sh musl`**。

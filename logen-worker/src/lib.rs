@@ -1,5 +1,3 @@
-//! `logen-worker`：造日志库；由 **`logend`** 进程内嵌入（[`daemon_api::EmbeddedWorker`]、`runtime` 内存配置运行入口）。
-
 pub mod daemon_api;
 pub mod runtime;
 pub mod sink;

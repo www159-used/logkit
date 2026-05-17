@@ -1,5 +1,3 @@
-//! Kafka `agent` 模式：紧凑 JSON 外壳与启动期字段解析。
-
 use fake::faker::internet::en::Password;
 use fake::Fake;
 use logen_dsl::{validate_agent_source_id, KafkaConfig, KafkaSinkMode};
@@ -10,9 +8,9 @@ use super::{KafkaConfigError, SinkError};
 
 pub const KAFKA_AGENT_TOPIC: &str = "raw_message";
 
-/// 进程内固定的 agent 元数据（每条仅补时间戳、`context_id`、`raw_message`）。
+// 运行时的agent配置
 #[derive(Debug, Clone)]
-pub struct KafkaAgentRuntimeState {
+pub struct RuntimeAgentConfig {
     pub domain: String,
     pub domain_token: String,
     pub appname: String,
@@ -58,15 +56,15 @@ fn or_random(opt: Option<&str>, rnd_len: usize) -> String {
     }
 }
 
-/// 由已通过校验的 `KafkaConfig`（`mode == Agent`）构造运行时状态。
-pub fn build_runtime_state(k: &KafkaConfig) -> Result<KafkaAgentRuntimeState, SinkError> {
-    build_runtime_state_inner(k)
+/// 由已通过校验的 `KafkaConfig`（`mode == Agent`）构造 [`RuntimeAgentConfig`]。
+pub fn build_runtime_agent_config(k: &KafkaConfig) -> Result<RuntimeAgentConfig, SinkError> {
+    build_runtime_agent_config_inner(k)
 }
 
-fn build_runtime_state_inner(k: &KafkaConfig) -> Result<KafkaAgentRuntimeState, SinkError> {
+fn build_runtime_agent_config_inner(k: &KafkaConfig) -> Result<RuntimeAgentConfig, SinkError> {
     if k.mode != KafkaSinkMode::Agent {
         return Err(SinkError::Internal(
-            "build_runtime_state requires mode agent".into(),
+            "build_runtime_agent_config requires mode agent".into(),
         ));
     }
     let agent = k.agent.as_ref().ok_or_else(|| {
@@ -101,7 +99,7 @@ fn build_runtime_state_inner(k: &KafkaConfig) -> Result<KafkaAgentRuntimeState, 
         None => detect_local_ip(),
     };
 
-    Ok(KafkaAgentRuntimeState {
+    Ok(RuntimeAgentConfig {
         domain,
         domain_token: or_random(agent.domain_token.as_deref(), 16),
         appname: or_random(agent.appname.as_deref(), 12),
@@ -122,54 +120,54 @@ fn build_runtime_state_inner(k: &KafkaConfig) -> Result<KafkaAgentRuntimeState, 
 }
 
 #[derive(serde::Serialize)]
-struct AgentEnvelope<'agent_envelope> {
+struct AgentConfig<'agent_config> {
     #[serde(skip_serializing_if = "str::is_empty")]
-    domain: &'agent_envelope str,
+    domain: &'agent_config str,
     #[serde(skip_serializing_if = "str::is_empty")]
-    domain_token: &'agent_envelope str,
+    domain_token: &'agent_config str,
     #[serde(skip_serializing_if = "str::is_empty")]
-    appname: &'agent_envelope str,
+    appname: &'agent_config str,
     #[serde(skip_serializing_if = "str::is_empty")]
-    tag: &'agent_envelope str,
+    tag: &'agent_config str,
     #[serde(skip_serializing_if = "str::is_empty")]
-    token: &'agent_envelope str,
+    token: &'agent_config str,
     #[serde(skip_serializing_if = "str::is_empty")]
-    hostname: &'agent_envelope str,
+    hostname: &'agent_config str,
     #[serde(skip_serializing_if = "str::is_empty")]
-    log_id: &'agent_envelope str,
+    log_id: &'agent_config str,
     context_id: i64,
     timestamp: i64,
     recv_timestamp: i64,
     log_timestamp: i64,
-    raw_message: &'agent_envelope str,
+    raw_message: &'agent_config str,
     source_update_timestamp: i64,
     #[serde(skip_serializing_if = "str::is_empty")]
-    source: &'agent_envelope str,
+    source: &'agent_config str,
     #[serde(skip_serializing_if = "str::is_empty")]
-    ip: &'agent_envelope str,
+    ip: &'agent_config str,
     flag: i64,
     #[serde(skip_serializing_if = "str::is_empty")]
-    fields: &'agent_envelope str,
+    fields: &'agent_config str,
     #[serde(skip_serializing_if = "str::is_empty")]
-    source_type: &'agent_envelope str,
+    source_type: &'agent_config str,
     #[serde(skip_serializing_if = "str::is_empty")]
-    source_id: &'agent_envelope str,
+    source_id: &'agent_config str,
 }
 
-pub fn build_message(
-    state: &KafkaAgentRuntimeState,
+pub fn build_agent_message(
+    runtime_config: &RuntimeAgentConfig,
     raw_message: &str,
     context_id: i64,
     ts_ms: i64,
 ) -> KafkaAgentMessage {
     let log_id = next_log_id();
-    let env = AgentEnvelope {
-        domain: state.domain.as_str(),
-        domain_token: state.domain_token.as_str(),
-        appname: state.appname.as_str(),
-        tag: state.tag.as_str(),
-        token: state.token.as_str(),
-        hostname: state.hostname.as_str(),
+    let agent_config = AgentConfig {
+        domain: runtime_config.domain.as_str(),
+        domain_token: runtime_config.domain_token.as_str(),
+        appname: runtime_config.appname.as_str(),
+        tag: runtime_config.tag.as_str(),
+        token: runtime_config.token.as_str(),
+        hostname: runtime_config.hostname.as_str(),
         log_id: log_id.as_str(),
         context_id,
         timestamp: ts_ms,
@@ -177,18 +175,18 @@ pub fn build_message(
         log_timestamp: ts_ms,
         raw_message,
         source_update_timestamp: ts_ms,
-        source: state.source.as_str(),
-        ip: state.ip.as_str(),
-        flag: state.flag,
-        fields: state.fields.as_str(),
-        source_type: state.source_type.as_str(),
-        source_id: state.source_id.as_str(),
+        source: runtime_config.source.as_str(),
+        ip: runtime_config.ip.as_str(),
+        flag: runtime_config.flag,
+        fields: runtime_config.fields.as_str(),
+        source_type: runtime_config.source_type.as_str(),
+        source_id: runtime_config.source_id.as_str(),
     };
     KafkaAgentMessage {
-        payload: match serde_json::to_string(&env) {
+        payload: match serde_json::to_string(&agent_config) {
             Ok(s) => s,
             Err(e) => {
-                tracing::error!("agent envelope serialization failed: {e}");
+                tracing::error!("agent config serialization failed: {e}");
                 format!(
                     "{{\"log_id\":\"{}\",\"context_id\":{},\"timestamp\":{},\"recv_timestamp\":{},\"log_timestamp\":{},\"source_update_timestamp\":{},\"raw_message\":\"serialization_error\"}}",
                     log_id, context_id, ts_ms, ts_ms, ts_ms, ts_ms
@@ -231,9 +229,9 @@ mod tests {
             brokers: Some(vec!["127.0.0.1:9092".into()]),
             ..Default::default()
         };
-        let st = build_runtime_state(&k).unwrap();
-        assert!(st.domain.is_empty());
-        let j = build_message(&st, "{}", 1, 1700000000000).payload;
+        let runtime_config = build_runtime_agent_config(&k).unwrap();
+        assert!(runtime_config.domain.is_empty());
+        let j = build_agent_message(&runtime_config, "{}", 1, 1700000000000).payload;
         assert!(!j.contains("\"domain\""));
         assert!(j.contains("\"flag\":0"));
     }
@@ -242,10 +240,10 @@ mod tests {
     /// 输入：带 `domain` 的最小 agent Kafka 配置，以及一条 JSON 原始消息。
     /// 预期：输出包含 `domain`、`raw_message`、`context_id`；解析出的 `log_id` 与 `key` 相同，且默认 `flag` 为 `0`。
     #[test]
-    fn build_message_contains_domain_raw_message_and_key_matches_log_id() {
+    fn build_agent_message_contains_domain_raw_message_and_key_matches_log_id() {
         let k = sample_agent_kafka();
-        let st = build_runtime_state(&k).unwrap();
-        let m = build_message(&st, r#"{"x":1}"#, 123, 1700000000000);
+        let runtime_config = build_runtime_agent_config(&k).unwrap();
+        let m = build_agent_message(&runtime_config, r#"{"x":1}"#, 123, 1700000000000);
         assert!(m.payload.contains("\"domain\":\"dom1\""));
         assert!(m.payload.contains("\"raw_message\":\"{\\\"x\\\":1}\""));
         assert!(m.payload.contains("\"context_id\":123"));

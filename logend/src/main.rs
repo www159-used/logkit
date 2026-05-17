@@ -1,5 +1,3 @@
-//! logend — gRPC 控制面（Unix 套接字）；造日志由进程内嵌入的 worker 任务直接消费内存中的实例配置完成。
-
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};

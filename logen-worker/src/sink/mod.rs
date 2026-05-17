@@ -19,7 +19,6 @@ use std::path::Path;
 use async_trait::async_trait;
 use logen_dsl::SinkConfig;
 
-/// 写入单条渲染后的日志行（UTF-8 文本）。
 #[async_trait]
 pub trait LogLineSink: Send {
     async fn emit_line(&mut self, line: &str) -> Result<(), SinkError>;

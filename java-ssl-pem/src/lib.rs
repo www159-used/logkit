@@ -2,16 +2,15 @@
 //!
 //! 入口类型为 [`JavaSslMaterial`]：其中 **`trust`** 与 **`identity`** 各自为 [`Option`]，且分别用 [`TrustMaterial`] / [`IdentityMaterial`] **枚举**区分 **PEM / JKS / P12**（二者格式可不同，例如 JKS trust + PEM mTLS）。
 //!
-//! - **`.jks`**：纯 Rust [`jks`] 解析。
-//! - **`.p12`/`.pfx`**：调用本机 **`openssl pkcs12`**（`PATH` 须可执行），结果从 **stdout** 读取，不落盘。
-//! - 多私钥 JKS：未指定别名时取**私钥别名升序第一条**（与常见 Java「只配 location+password」接近）。
+//! - **`.jks` / `.p12` / `.pfx`**：纯 Rust [`jks`]（含 PKCS#12 / `p12-keystore`）解析，**不**调用本机 `openssl` 可执行文件。
+//! - 多私钥 keystore：未指定别名时取**私钥别名升序第一条**（与常见 Java「只配 location+password」接近）。
 
 use std::fs;
 use std::io::Read;
 use std::path::Path;
-use std::process::Command;
 
 use jks::{KeyStore, KeyStoreOptions};
+use p12_keystore::{KeyStore as P12KeyStore, KeyStoreEntry as P12Entry, Pkcs12ImportPolicy};
 use pem::Pem;
 
 mod error;
@@ -154,7 +153,11 @@ fn normalize_pem_document(s: &str) -> Result<String, JavaSslPemError> {
     Ok(t)
 }
 
-fn load_jks(path: &Path, password: &str) -> Result<KeyStore, JavaSslPemError> {
+fn is_p12_path(path: &Path) -> bool {
+    matches!(ext_lower(path).as_str(), "p12" | "pfx")
+}
+
+fn load_jks_file(path: &Path, password: &str) -> Result<KeyStore, JavaSslPemError> {
     let bytes = fs::read(path).map_err(|e| JavaSslPemError::io(path, "read", e))?;
     let mut ks = KeyStore::with_options(KeyStoreOptions {
         ordered_aliases: true,
@@ -165,9 +168,126 @@ fn load_jks(path: &Path, password: &str) -> Result<KeyStore, JavaSslPemError> {
     Ok(ks)
 }
 
+fn load_p12_keystore(path: &Path, password: &str) -> Result<P12KeyStore, JavaSslPemError> {
+    let data = fs::read(path).map_err(|e| JavaSslPemError::io(path, "read", e))?;
+    let path_s = path.display().to_string();
+    match P12KeyStore::from_pkcs12(&data, password, Pkcs12ImportPolicy::Strict) {
+        Ok(ks) => Ok(ks),
+        Err(strict_err) => P12KeyStore::from_pkcs12(&data, password, Pkcs12ImportPolicy::Relaxed).map_err(
+            |relaxed_err| JavaSslPemError::Pkcs12 {
+                path: path_s,
+                detail: format!("strict: {strict_err}; relaxed: {relaxed_err}"),
+            },
+        ),
+    }
+}
+
+fn push_cert_der(pem: &mut String, der: &[u8]) {
+    pem.push_str(&der_to_pem("CERTIFICATE", der));
+    if !pem.ends_with('\n') {
+        pem.push('\n');
+    }
+}
+
+fn p12_truststore_to_ca_pem_string(path: &Path, password: &str) -> Result<String, JavaSslPemError> {
+    let ks = load_p12_keystore(path, password)?;
+    let mut pem = String::new();
+    let mut n = 0usize;
+    for (_alias, entry) in ks.entries() {
+        match entry {
+            P12Entry::Certificate(cert) => {
+                push_cert_der(&mut pem, cert.as_der());
+                n += 1;
+            }
+            P12Entry::PrivateKeyChain(chain) => {
+                for cert in chain.certs() {
+                    push_cert_der(&mut pem, cert.as_der());
+                    n += 1;
+                }
+            }
+            P12Entry::Secret(_) => {}
+        }
+    }
+    if n == 0 {
+        return Err(JavaSslPemError::Pkcs12 {
+            path: path.display().to_string(),
+            detail: "no trusted certificates (wrong file or empty truststore)".into(),
+        });
+    }
+    normalize_pem_document(&pem)
+}
+
+fn resolve_p12_client_alias<'a>(
+    ks: &'a P12KeyStore,
+    yaml_alias: Option<&str>,
+) -> Result<(&'a str, &'a p12_keystore::PrivateKeyChain), JavaSslPemError> {
+    let mut chains: Vec<(&str, &p12_keystore::PrivateKeyChain)> = ks
+        .entries()
+        .filter_map(|(alias, entry)| match entry {
+            P12Entry::PrivateKeyChain(chain) => Some((alias.as_str(), chain)),
+            _ => None,
+        })
+        .collect();
+    chains.sort_by_key(|(alias, _)| *alias);
+    match chains.len() {
+        0 => Err(JavaSslPemError::ClientIdentity {
+            detail: "PKCS#12 keystore: no private key entry (need a key entry for mTLS)".into(),
+        }),
+        1 => Ok(chains[0]),
+        _ => {
+            if let Some(want) = yaml_alias.map(str::trim).filter(|s| !s.is_empty()) {
+                let want_l = want.to_lowercase();
+                for (alias, chain) in &chains {
+                    if alias.to_lowercase() == want_l {
+                        return Ok((*alias, *chain));
+                    }
+                }
+                return Err(JavaSslPemError::ClientIdentity {
+                    detail: format!(
+                        "keystore.alias={want:?} does not match any private-key alias; available: {}",
+                        chains
+                            .iter()
+                            .map(|(a, _)| *a)
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                });
+            }
+            Ok(chains[0])
+        }
+    }
+}
+
+fn p12_client_keystore_to_pem_strings(
+    path: &Path,
+    password: &str,
+    entry_alias: Option<&str>,
+) -> Result<(String, String), JavaSslPemError> {
+    let ks = load_p12_keystore(path, password)?;
+    let (_alias, chain) = resolve_p12_client_alias(&ks, entry_alias)?;
+    let mut cert_pem = String::new();
+    for cert in chain.certs() {
+        push_cert_der(&mut cert_pem, cert.as_der());
+    }
+    if cert_pem.trim().is_empty() {
+        return Err(JavaSslPemError::Pkcs12 {
+            path: path.display().to_string(),
+            detail: "private key entry has empty certificate chain".into(),
+        });
+    }
+    let key_pem = der_to_pem("PRIVATE KEY", chain.key().as_der());
+    Ok((
+        normalize_pem_document(&cert_pem)?,
+        normalize_pem_document(&key_pem)?,
+    ))
+}
+
 /// 将 **JKS truststore** 中的受信任证书导出为单个 PEM 文本（多条 `BEGIN CERTIFICATE`）。
 pub fn jks_truststore_to_ca_pem_string(jks: &Path, password: &str) -> Result<String, JavaSslPemError> {
-    let ks = load_jks(jks, password)?;
+    if is_p12_path(jks) {
+        return p12_truststore_to_ca_pem_string(jks, password);
+    }
+    let ks = load_jks_file(jks, password)?;
     let mut pem = String::new();
     let mut n = 0usize;
     for alias in ks.aliases() {
@@ -214,7 +334,7 @@ fn resolve_client_keystore_alias(
     pk_aliases.sort();
     match pk_aliases.len() {
         0 => Err(JavaSslPemError::ClientIdentity {
-            detail: "JKS keystore: no PrivateKeyEntry (need a key entry for mTLS)".into(),
+            detail: "keystore: no PrivateKeyEntry (need a key entry for mTLS)".into(),
         }),
         1 => Ok(pk_aliases.remove(0)),
         _ => {
@@ -243,7 +363,10 @@ pub fn jks_client_keystore_to_pem_strings(
     password: &str,
     entry_alias: Option<&str>,
 ) -> Result<(String, String), JavaSslPemError> {
-    let ks = load_jks(jks, password)?;
+    if is_p12_path(jks) {
+        return p12_client_keystore_to_pem_strings(jks, password, entry_alias);
+    }
+    let ks = load_jks_file(jks, password)?;
     let alias = resolve_client_keystore_alias(&ks, entry_alias)?;
     let pke = ks
         .get_private_key_entry(&alias, password.as_bytes())
@@ -276,65 +399,6 @@ pub fn jks_client_keystore_to_pem_strings(
         normalize_pem_document(&cert_pem)?,
         normalize_pem_document(&key_pem)?,
     ))
-}
-
-#[derive(Clone, Copy)]
-enum Pkcs12Extract {
-    CaChain,
-    ClientCert,
-    ClientKey,
-}
-
-fn openssl_pkcs12_extract_to_string(
-    p12: &Path,
-    pass: &str,
-    mode: Pkcs12Extract,
-) -> Result<String, JavaSslPemError> {
-    let path_s = p12.display().to_string();
-    let mut last_err = String::new();
-    for legacy in [false, true] {
-        let mut cmd = Command::new("openssl");
-        cmd.arg("pkcs12");
-        if legacy {
-            cmd.arg("-legacy");
-        }
-        cmd.arg("-in").arg(p12).arg("-nodes");
-        match mode {
-            Pkcs12Extract::CaChain => {
-                cmd.arg("-nokeys");
-            }
-            Pkcs12Extract::ClientCert => {
-                cmd.args(["-clcerts", "-nokeys"]);
-            }
-            Pkcs12Extract::ClientKey => {
-                cmd.arg("-nocerts");
-            }
-        }
-        cmd.arg("-out")
-            .arg("-")
-            .env("OPENSSL_PKCS12_PASS", pass)
-            .args(["-passin", "env:OPENSSL_PKCS12_PASS"]);
-        let output = cmd.output().map_err(|e| JavaSslPemError::OpenSsl {
-            detail: format!("failed to spawn openssl: {e}"),
-        })?;
-        if output.status.success() {
-            let raw = String::from_utf8(output.stdout).map_err(|e| JavaSslPemError::OpenSsl {
-                detail: format!("openssl PKCS#12 stdout is not UTF-8: {e}"),
-            })?;
-            return normalize_pem_document(&raw);
-        }
-        last_err = String::from_utf8_lossy(&output.stderr).into_owned();
-        if legacy {
-            return Err(JavaSslPemError::Pkcs12 {
-                path: path_s,
-                detail: last_err,
-            });
-        }
-    }
-    Err(JavaSslPemError::Pkcs12 {
-        path: path_s,
-        detail: last_err,
-    })
 }
 
 /// 信任锚：PEM 链或单张 X.509 DER 文件；JKS/P12 须走 `truststore_location`。
@@ -416,10 +480,9 @@ fn materialize_trust(t: &TrustMaterial<'_>) -> Result<Option<String>, JavaSslPem
             Path::new(path),
             password,
         )?)),
-        TrustMaterial::P12 { path, password } => Ok(Some(openssl_pkcs12_extract_to_string(
+        TrustMaterial::P12 { path, password } => Ok(Some(jks_truststore_to_ca_pem_string(
             Path::new(path),
             password,
-            Pkcs12Extract::CaChain,
         )?)),
     }
 }
@@ -499,10 +562,7 @@ fn materialize_identity(id: &IdentityMaterial<'_>) -> Result<Option<(String, Str
             key_alias,
         } => jks_client_keystore_to_pem_strings(Path::new(path), password, *key_alias).map(Some),
         IdentityMaterial::P12 { path, password } => {
-            let p12_path = Path::new(path);
-            let cert = openssl_pkcs12_extract_to_string(p12_path, password, Pkcs12Extract::ClientCert)?;
-            let key = openssl_pkcs12_extract_to_string(p12_path, password, Pkcs12Extract::ClientKey)?;
-            Ok(Some((cert, key)))
+            jks_client_keystore_to_pem_strings(Path::new(path), password, None).map(Some)
         }
     }
 }

@@ -1,7 +1,3 @@
-//! Kafka：`librdkafka` [`ClientConfig`] 与模板 [`KafkaConfig`] 的 TLS 字段适配。
-//!
-//! 将平铺的 `ssl.*` 字段映射为 **`java_ssl_pem`** 的 [`TrustMaterial`] / [`IdentityMaterial`]（**PEM / JKS / P12 可独立组合**），再经 [`materialize_java_ssl_pem`] 得到 PEM 文本，写入 **`ssl.ca.pem` / `ssl.certificate.pem` / `ssl.key.pem`**。
-
 use std::path::Path;
 
 use java_ssl_pem::{

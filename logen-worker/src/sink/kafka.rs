@@ -10,7 +10,7 @@ use rdkafka::producer::{BaseRecord, DefaultProducerContext, FutureProducer, Futu
 use tokio::time::timeout;
 
 use super::context_id::next_context_id;
-use super::kafka_agent::{self, KafkaAgentRuntimeState};
+use super::kafka_agent::{self, RuntimeAgentConfig};
 use super::{KafkaConfigError, LogLineSink, SinkError};
 
 fn cfg_err(msg: impl Into<String>) -> KafkaConfigError {
@@ -45,7 +45,7 @@ pub struct KafkaLineSink {
     sasl_keys_in_yaml: bool,
     /// `send` 入队等待上限；投递另受 `message.timeout.ms` 等约束。
     queue_timeout: Duration,
-    agent_state: Option<KafkaAgentRuntimeState>,
+    runtime_agent_config: Option<RuntimeAgentConfig>,
 }
 
 fn kafka_frame_size_error_hint(err_display: &str) -> Option<&'static str> {
@@ -356,8 +356,8 @@ impl KafkaLineSink {
         })?;
 
         let topic = effective_produce_topic(k);
-        let agent_state = if k.mode == KafkaSinkMode::Agent {
-            Some(kafka_agent::build_runtime_state(k)?)
+        let runtime_agent_config = if k.mode == KafkaSinkMode::Agent {
+            Some(kafka_agent::build_runtime_agent_config(k)?)
         } else {
             None
         };
@@ -371,7 +371,7 @@ impl KafkaLineSink {
             tls_enabled,
             sasl_keys_in_yaml: sasl_keys_present(k),
             queue_timeout,
-            agent_state,
+            runtime_agent_config,
         })
     }
 }
@@ -390,9 +390,10 @@ impl LogLineSink for KafkaLineSink {
         let queue_to = rdkafka::util::Timeout::After(self.queue_timeout);
         let send_cap = self.queue_timeout.saturating_mul(4).max(Duration::from_secs(30));
 
-        let (payload, key) = if let Some(state) = &self.agent_state {
+        let (payload, key) = if let Some(runtime_config) = &self.runtime_agent_config {
             let ts = wall_clock_ms_i64();
-            let msg = kafka_agent::build_message(state, line, next_context_id(), ts);
+            let msg =
+                kafka_agent::build_agent_message(runtime_config, line, next_context_id(), ts);
             (msg.payload, msg.key)
         } else {
             (line.to_string(), None)

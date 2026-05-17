@@ -43,6 +43,7 @@ enum Commands {
         #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
         text: Vec<String>,
     },
+    #[command(aliases = ["ls"])]
     List,
     Start {
         ///实例 YAML（单文件；见 [`logen_dsl`]）。
