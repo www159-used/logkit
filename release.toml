@@ -1,0 +1,13 @@
+# 工作区发版配置（cargo-release）。
+# 版本源：[workspace.package].version（各 crate 用 version.workspace = true 继承）。
+#
+#   cargo install cargo-release --locked
+#   cargo release patch --execute    # 或 minor / major / 1.2.3
+#   git push --follow-tags
+
+publish = false
+tag-name = "v{{version}}"
+consolidate-commits = true
+pre-release-commit-message = "chore: release {{version}}"
+tag-message = "chore: release {{version}}"
+allow-branch = ["main", "master", "nigger"]

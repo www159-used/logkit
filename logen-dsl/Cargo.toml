@@ -1,9 +1,9 @@
 [package]
 name = "logen-dsl"
-version = "0.1.0"
-edition = "2021"
-license = "GPL-3.0"
 description = "Templates + built-in slot facades (fake-backed) for logen worker"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
 
 [dependencies]
 chrono = { version = "0.4", default-features = false, features = ["clock"] }

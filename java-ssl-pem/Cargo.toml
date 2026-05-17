@@ -1,9 +1,9 @@
 [package]
 name = "java-ssl-pem"
-version = "0.1.0"
-edition = "2021"
-license = "GPL-3.0"
 description = "Java-style truststore/keystore (.jks, .p12) and PEM/DER sources → in-memory PEM text for TLS clients (Kafka-unrelated)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
 
 [dependencies]
 jks = { version = "0.3.3", default-features = false, features = ["rand"] }
