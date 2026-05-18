@@ -43,7 +43,7 @@
 ./target/release/logen stop <id>
 ```
 
-实例 YAML 语法见 [`logen-dsl` 规范](../logen-dsl/guide/src/intro.md)；示例文件在 [**`etc/`**](../etc/)。HTML：`cd ../logen-dsl/guide && mdbook build`。
+实例 YAML 语法见 [**logen-dsl** 规范](../logen-dsl/guide/book/index.html)（`cd ../logen-dsl/guide && mdbook build`）。**logen 命令行**见 [**logen/guide**](../logen/guide/book/index.html)（`cd guide && mdbook build`）。示例文件在 [**`etc/`**](../etc/)。
 
 ## 常见问题
 

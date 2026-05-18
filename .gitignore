@@ -1,5 +1,12 @@
 # mdBook（logen-dsl 生成物）
 logen-dsl/guide/book/
+logen/guide/book/
+
+# mdBook Mermaid 运行时（构建前：./scripts/fetch-mdbook-mermaid-assets.sh）
+logen-dsl/guide/mermaid.min.js
+logen-dsl/guide/mermaid-init.js
+logen/guide/mermaid.min.js
+logen/guide/mermaid-init.js
 
 # mdBook（仓库根总览生成物）
 guide/book/
