@@ -1,4 +1,4 @@
-///! 内部工具，快速找到kafka的ssl配置，然后转成yaml的kv对
+//! 内部工具：读取 Kafka `client.conf` 中的 SSL 相关项并输出为 YAML 片段。
 
 use std::env;
 use std::ffi::OsString;

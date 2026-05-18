@@ -50,12 +50,14 @@ jobs:
             cp "$GITHUB_WORKSPACE/target/$target/release/logen" \
                "$GITHUB_WORKSPACE/target/$target/release/logend" \
                "$stage/bin/"
-            if [[ -f "$GITHUB_WORKSPACE/target/$target/release/parse_client_conf" ]]; then
-              cp "$GITHUB_WORKSPACE/target/$target/release/parse_client_conf" "$stage/tools/bin/"
-              chmod +x "$stage/tools/bin/parse_client_conf"
-            else
-              echo "warning: parse_client_conf missing for $target" >&2
-            fi
+            for tool in parse_client_conf mysql_local; do
+              if [[ -f "$GITHUB_WORKSPACE/target/$target/release/$tool" ]]; then
+                cp "$GITHUB_WORKSPACE/target/$target/release/$tool" "$stage/tools/bin/"
+                chmod +x "$stage/tools/bin/$tool"
+              else
+                echo "warning: $tool missing for $target" >&2
+              fi
+            done
             cp "$GITHUB_WORKSPACE/etc/"* "$stage/etc/"
             cp "$GITHUB_WORKSPACE/bin/install.sh" "$stage/install.sh"
             chmod +x "$stage/install.sh" \
@@ -104,12 +106,14 @@ jobs:
           cp "$GITHUB_WORKSPACE/target/$target/release/logen" \
              "$GITHUB_WORKSPACE/target/$target/release/logend" \
              "$stage/bin/"
-          if [[ -f "$GITHUB_WORKSPACE/target/$target/release/parse_client_conf" ]]; then
-            cp "$GITHUB_WORKSPACE/target/$target/release/parse_client_conf" "$stage/tools/bin/"
-            chmod +x "$stage/tools/bin/parse_client_conf"
-          else
-            echo "warning: parse_client_conf missing for $target" >&2
-          fi
+          for tool in parse_client_conf mysql_local; do
+            if [[ -f "$GITHUB_WORKSPACE/target/$target/release/$tool" ]]; then
+              cp "$GITHUB_WORKSPACE/target/$target/release/$tool" "$stage/tools/bin/"
+              chmod +x "$stage/tools/bin/$tool"
+            else
+              echo "warning: $tool missing for $target" >&2
+            fi
+          done
           cp "$GITHUB_WORKSPACE/etc/"* "$stage/etc/"
           cp "$GITHUB_WORKSPACE/bin/install.sh" "$stage/install.sh"
           chmod +x "$stage/install.sh" \

@@ -33,7 +33,7 @@ copy_pack_install() {
 }
 
 # 与仓库 **tools/** 下带可执行文件的 crate 对应（包名一般等于二进制名）。
-TOOL_BINS=(parse_client_conf)
+TOOL_BINS=(parse_client_conf mysql_local)
 
 copy_pack_tools() {
   local dest_root="$1"
@@ -67,6 +67,32 @@ pack_native_dir() {
   echo "packed -> $dist"
 }
 
+# macOS 上链 logend（rdkafka + OpenSSL + curl 静态库）会同时打开大量 .rlib，默认 ulimit -n 过低会：
+#   ProcessFdQuotaExceeded
+raise_open_files_limit() {
+  [[ "$(uname -s)" == "Darwin" ]] || return 0
+  local cur want="${LOGKIT_PACK_NOFILE:-65536}"
+  cur="$(ulimit -n 2>/dev/null || echo 256)"
+  if [[ "$cur" == "unlimited" ]]; then
+    return 0
+  fi
+  if [[ "$cur" -ge "$want" ]]; then
+    return 0
+  fi
+  if ulimit -n "$want" 2>/dev/null; then
+    echo "ulimit -n: $cur -> $(ulimit -n) (musl 链接 logend 需要较高 fd 上限)"
+    return 0
+  fi
+  for fallback in 16384 8192 4096; do
+    if [[ "$cur" -lt "$fallback" ]] && ulimit -n "$fallback" 2>/dev/null; then
+      echo "ulimit -n: $cur -> $(ulimit -n) (未达 $want，已尽量提高)" >&2
+      return 0
+    fi
+  done
+  echo "warning: 无法提高 ulimit -n（当前 $cur）；musl 链 logend 可能失败 ProcessFdQuotaExceeded" >&2
+  echo "  可先执行: ulimit -n 65536 && ./scripts/logkit-pack.sh musl" >&2
+}
+
 need_zigbuild() {
   command -v zig >/dev/null 2>&1 || {
     cat >&2 <<'EOF'
@@ -82,6 +108,7 @@ EOF
 }
 
 preflight_musl_linker() {
+  raise_open_files_limit
   local mode="${LOGKIT_PACK_LINKER:-auto}"
   case "${mode}" in
     cross)
@@ -120,23 +147,27 @@ preflight_musl_linker() {
 run_build() {
   local target="$1"
   local mode="${LOGKIT_PACK_LINKER:-auto}"
+  local -a jobs=()
+  if [[ -n "${LOGKIT_PACK_JOBS:-}" ]]; then
+    jobs=(-j "$LOGKIT_PACK_JOBS")
+  fi
   case "${mode}" in
     cross)
-      cross build --release --target "$target"
+      cross build --release --target "$target" "${jobs[@]}"
       ;;
     zig)
-      cargo zigbuild --release --target "$target"
+      cargo zigbuild --release --target "$target" "${jobs[@]}"
       ;;
     cargo)
-      cargo build --release --target "$target"
+      cargo build --release --target "$target" "${jobs[@]}"
       ;;
     auto)
       case "$(uname -s)" in
         Darwin)
-          cargo zigbuild --release --target "$target"
+          cargo zigbuild --release --target "$target" "${jobs[@]}"
           ;;
         *)
-          cargo build --release --target "$target"
+          cargo build --release --target "$target" "${jobs[@]}"
           ;;
       esac
       ;;

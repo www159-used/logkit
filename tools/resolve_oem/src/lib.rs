@@ -1,4 +1,4 @@
-///! 内部工具，用来找oem
+//! 内部工具，用来找 OEM。
 
 pub const FALLBACK_OEM: &str = "yotta";
 

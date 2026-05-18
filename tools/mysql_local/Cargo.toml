@@ -1,0 +1,15 @@
+[package]
+name = "mysql_local"
+description = "Connect to local MySQL via OEM socket with default {oem}_root user"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+clap = { workspace = true }
+resolve_oem = { path = "../resolve_oem" }
+rpassword = "7"
+
+[[bin]]
+name = "mysql_local"
+path = "src/main.rs"

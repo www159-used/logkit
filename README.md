@@ -52,6 +52,8 @@ cargo build --release
 
 仍需本机有 **CMake**（供 `rdkafka-sys` 编 librdkafka）。详见 [`logen-worker/README.md`](logen-worker/README.md)。
 
+macOS 上 `cargo zigbuild` 链 **logend** 若报 **`ProcessFdQuotaExceeded`**，是打开 `.rlib` 过多、**fd 上限不够**（与代码无关）。先 `ulimit -n 65536` 再编，或直接用 **`./scripts/logkit-pack.sh`**（脚本会自动尽量提高 `ulimit -n`）。
+
 ## 打包
 
 本地 musl / native 目录包见 **`scripts/logkit-pack.sh`**（macOS 下默认 **`auto` 即走 Zig**；环境变量 **`LOGKIT_PACK_LINKER`** 等见脚本注释）。Release 标签推送时的矩阵见 **`.github/workflows/pack.yml`**。
