@@ -7,10 +7,7 @@ use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
 fn default_client_conf_path() -> PathBuf {
-    PathBuf::from(format!(
-        "/run/{}_manager_agent/process/kafka/config/client.conf",
-        resolve_oem::oem_name()
-    ))
+    resolve_oem::kafka_client_conf_path()
 }
 
 fn expect_client_conf_file(path: &Path) -> PathBuf {

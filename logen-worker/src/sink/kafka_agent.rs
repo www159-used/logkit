@@ -43,9 +43,7 @@ fn detect_hostname() -> String {
 }
 
 fn detect_local_ip() -> String {
-    local_ip_address::local_ip()
-        .map(|ip| ip.to_string())
-        .unwrap_or_default()
+    resolve_oem::local_ip_or_empty()
 }
 
 fn or_random(opt: Option<&str>, rnd_len: usize) -> String {

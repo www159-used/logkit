@@ -13,8 +13,8 @@ name = "pullout"
 path = "src/bin/pullout.rs"
 
 [dependencies]
-base64 = "0.22"
-libloading = "0.8"
+base64 = { workspace = true }
+libloading = { workspace = true }
 resolve-oem = { path = "../resolve-oem" }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }

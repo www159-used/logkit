@@ -135,7 +135,7 @@ pub fn linux_lib_arch() -> Result<&'static str, SpineError> {
 }
 
 fn opt_home() -> PathBuf {
-    PathBuf::from(format!("/opt/{}", resolve_oem::oem_name()))
+    resolve_oem::opt_root()
 }
 
 /// `librootkey_crypto.so` 随 spine_keeper 装在 OEM Python site-packages 下（仅作路径，不调用 Python）。

@@ -7,12 +7,12 @@ use std::process::{Command, Stdio};
 
 use clap::Parser;
 
-fn mysql_bin_path(oem: &str) -> PathBuf {
-    PathBuf::from(format!("/opt/{oem}/mysql/bin/mysql"))
+fn mysql_bin_path() -> PathBuf {
+    resolve_oem::mysql_bin_path()
 }
 
-fn mysql_socket_path(oem: &str) -> PathBuf {
-    PathBuf::from(format!("/data/{oem}/mysql/mysql.sock"))
+fn mysql_socket_path() -> PathBuf {
+    resolve_oem::mysql_socket_path()
 }
 
 /// 未指定 `-u` 时按顺序尝试的默认用户（去重）。
@@ -152,8 +152,8 @@ fn main() {
     let cli = parse_cli(std::env::args_os().skip(1));
 
     let password = resolve_password(cli.password);
-    let bin = mysql_bin_path(&oem);
-    let socket = mysql_socket_path(&oem);
+    let bin = mysql_bin_path();
+    let socket = mysql_socket_path();
     let user = resolve_user(&oem, cli.user, &password, &bin, &socket);
 
     let mut cmd = Command::new(&bin);
@@ -183,14 +183,8 @@ mod tests {
     #[test]
     fn paths_and_user_candidates_follow_oem_name() {
         let oem = resolve_oem::oem_name();
-        assert_eq!(
-            mysql_bin_path(&oem),
-            PathBuf::from(format!("/opt/{oem}/mysql/bin/mysql"))
-        );
-        assert_eq!(
-            mysql_socket_path(&oem),
-            PathBuf::from(format!("/data/{oem}/mysql/mysql.sock"))
-        );
+        assert_eq!(mysql_bin_path(), resolve_oem::mysql_bin_path());
+        assert_eq!(mysql_socket_path(), resolve_oem::mysql_socket_path());
         assert_eq!(
             default_user_candidates(&oem),
             vec![format!("{oem}_root"), "root".into()]

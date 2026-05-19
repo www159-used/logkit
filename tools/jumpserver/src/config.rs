@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use resolve_oem::LocalIpError;
 use serde::Deserialize;
 use thiserror::Error;
 
@@ -25,8 +26,8 @@ pub enum ConfigError {
     DuplicateListen { port: u32 },
     #[error("port {port} out of TCP range (max 65535)")]
     PortOutOfRange { port: u32 },
-    #[error("detect local IP: {0}")]
-    LocalIp(String),
+    #[error("{0}")]
+    LocalIp(#[from] LocalIpError),
 }
 
 #[derive(Debug, Clone)]
@@ -37,12 +38,11 @@ pub struct TlsPaths {
 }
 
 impl TlsPaths {
-    pub fn defaults_for_oem(oem: &str) -> Self {
-        let dir = PathBuf::from(format!("/opt/{oem}/cert"));
+    pub fn defaults() -> Self {
         Self {
-            ca: dir.join("ca.cert"),
-            cert: dir.join("agent.pem"),
-            key: dir.join("agent.key"),
+            ca: resolve_oem::ca_cert_path(),
+            cert: resolve_oem::agent_pem_path(),
+            key: resolve_oem::agent_key_path(),
         }
     }
 }
@@ -74,22 +74,8 @@ struct FileConfig {
     mappings: Option<BTreeMap<u32, u32>>,
 }
 
-/// 本机非回环地址，供 HTTPS 上游 Host（与 logen-worker 一致用 `local-ip-address`）。
 pub fn default_upstream_host() -> Result<String, ConfigError> {
-    if let Ok(ifaces) = local_ip_address::list_afinet_netifas() {
-        for (_name, ip) in ifaces {
-            if !ip.is_loopback() {
-                return Ok(ip.to_string());
-            }
-        }
-    }
-    let ip = local_ip_address::local_ip().map_err(|e| ConfigError::LocalIp(e.to_string()))?;
-    if ip.is_loopback() {
-        return Err(ConfigError::LocalIp(format!(
-            "no non-loopback address (got {ip})"
-        )));
-    }
-    Ok(ip.to_string())
+    Ok(resolve_oem::local_ip_non_loopback()?.to_string())
 }
 
 /// 校验并转为 TCP 端口（`u16`）。
@@ -98,9 +84,8 @@ pub fn tcp_port(port: u32) -> Result<u16, ConfigError> {
 }
 
 pub fn load(path: Option<&Path>) -> Result<RuntimeConfig, ConfigError> {
-    let oem = resolve_oem::oem_name();
     let mut upstream_host = default_upstream_host()?;
-    let mut tls = TlsPaths::defaults_for_oem(&oem);
+    let mut tls = TlsPaths::defaults();
     let mut tls_insecure = true;
     let mut listen_to_upstream: BTreeMap<u32, u32> = DEFAULT_PORT_MAP
         .iter()
@@ -175,11 +160,14 @@ pub fn apply_insecure_override(cfg: &mut RuntimeConfig, cli_insecure: bool) {
 
 #[cfg(test)]
 mod tests {
+    use std::net::IpAddr;
+
     use super::*;
 
     #[test]
     fn default_oem_cert_paths() {
-        let t = TlsPaths::defaults_for_oem("yotta");
+        std::env::remove_var("OEM_NAME");
+        let t = TlsPaths::defaults();
         assert_eq!(t.ca, PathBuf::from("/opt/yotta/cert/ca.cert"));
         assert_eq!(t.cert, PathBuf::from("/opt/yotta/cert/agent.pem"));
         assert_eq!(t.key, PathBuf::from("/opt/yotta/cert/agent.key"));

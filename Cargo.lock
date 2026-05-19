@@ -1447,7 +1447,6 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-util",
- "local-ip-address",
  "log",
  "pullout",
  "reqwest",
@@ -1597,10 +1596,10 @@ dependencies = [
  "http",
  "hyper-util",
  "java-ssl-pem",
- "local-ip-address",
  "logen-dsl",
  "logen-proto",
  "rdkafka",
+ "resolve-oem",
  "rust-embed",
  "serde",
  "serde_json",
@@ -2527,6 +2526,10 @@ dependencies = [
 [[package]]
 name = "resolve-oem"
 version = "1.5.1"
+dependencies = [
+ "local-ip-address",
+ "thiserror 2.0.18",
+]
 
 [[package]]
 name = "ring"
