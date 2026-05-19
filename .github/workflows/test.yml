@@ -1,6 +1,6 @@
-# 工作区 Clippy（与 release 的 pack 分离）。
+# 工作区单元 / 集成测试（默认不跑 #[ignore] 网络测）。
 
-name: CI
+name: Test
 
 on:
   push:
@@ -13,14 +13,12 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  clippy:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
 
       - uses: arduino/setup-protoc@v3
         with:
@@ -28,5 +26,5 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: cargo clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: cargo test
+        run: cargo test --workspace --all-targets

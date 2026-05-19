@@ -14,6 +14,7 @@ guide/book/
 # Rust
 /target/
 /dist/
+/lcov.info
 **/*.rs.bk
 *.pdb
 

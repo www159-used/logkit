@@ -20,9 +20,9 @@ alwaysApply: false
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-- **`--workspace`**：检查所有成员 crate（与 CI 一致）。
+- **`--workspace`**：检查所有成员 crate（与 GitHub `clippy.yml` 一致）。
 - **`--all-targets`**：含单测、示例等 target，避免测试代码里漏报。
-- **`-D warnings`**：把 warning 当 error，与严格 CI 对齐。
+- **`-D warnings`**：把 warning 当 error，与 GitHub Clippy workflow 对齐。
 
 ## 失败时
 
