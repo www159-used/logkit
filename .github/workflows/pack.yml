@@ -1,6 +1,6 @@
 name: Release builds
 
-# Linux：x86_64 / aarch64 musl（zigbuild）。macOS：Apple Silicon（aarch64-apple-darwin）。
+# Linux：x86_64 / aarch64 glibc（GCC 动态链，pullout 可 dlopen）。macOS：Apple Silicon。
 # 推送 v* 标签时合并产物并创建 GitHub Release（含源码 git archive）。
 
 on:
@@ -15,34 +15,35 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  linux-musl:
+  linux-gnu:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: x86_64-unknown-linux-musl, aarch64-unknown-linux-musl
+          targets: x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu
 
-      # prost-build：显式安装并注入 PATH / PROTOC（仅 apt 在部分 runner 上仍可能找不到）
       - uses: arduino/setup-protoc@v3
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: mlugg/setup-zig@v2
-        with:
-          version: 0.14.1
+      - name: Install GCC cross toolchain (aarch64)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Install cargo-zigbuild
-        run: cargo install cargo-zigbuild --locked
-
       - name: Build and package
+        env:
+          CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
+          CXX_aarch64_unknown_linux_gnu: aarch64-linux-gnu-g++
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
         run: |
           set -euo pipefail
-          for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl; do
-            cargo zigbuild --release --target "$target"
+          for target in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu; do
+            cargo build --release --target "$target"
             parent="$GITHUB_WORKSPACE/dist/.stage-$target"
             stage="$parent/logkit"
             rm -rf "$parent"
@@ -50,7 +51,7 @@ jobs:
             cp "$GITHUB_WORKSPACE/target/$target/release/logen" \
                "$GITHUB_WORKSPACE/target/$target/release/logend" \
                "$stage/bin/"
-            for tool in parse_client_conf mysql_local; do
+            for tool in parse_client_conf mysql_local pullout; do
               if [[ -f "$GITHUB_WORKSPACE/target/$target/release/$tool" ]]; then
                 cp "$GITHUB_WORKSPACE/target/$target/release/$tool" "$stage/tools/bin/"
                 chmod +x "$stage/tools/bin/$tool"
@@ -76,7 +77,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: logkit-dist-linux
+          name: logkit-dist-linux-gnu
           path: dist/*.tar.gz
 
   macos-arm:
@@ -106,7 +107,7 @@ jobs:
           cp "$GITHUB_WORKSPACE/target/$target/release/logen" \
              "$GITHUB_WORKSPACE/target/$target/release/logend" \
              "$stage/bin/"
-          for tool in parse_client_conf mysql_local; do
+          for tool in parse_client_conf mysql_local pullout; do
             if [[ -f "$GITHUB_WORKSPACE/target/$target/release/$tool" ]]; then
               cp "$GITHUB_WORKSPACE/target/$target/release/$tool" "$stage/tools/bin/"
               chmod +x "$stage/tools/bin/$tool"
@@ -129,12 +130,12 @@ jobs:
 
   release:
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [linux-musl, macos-arm]
+    needs: [linux-gnu, macos-arm]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: logkit-dist-linux
+          name: logkit-dist-linux-gnu
           path: release-assets
 
       - uses: actions/download-artifact@v4

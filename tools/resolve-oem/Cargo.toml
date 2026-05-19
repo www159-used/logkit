@@ -1,5 +1,5 @@
 [package]
-name = "resolve_oem"
+name = "resolve-oem"
 description = "Resolve OEM name from OEM_NAME env with yotta fallback"
 version.workspace = true
 edition.workspace = true

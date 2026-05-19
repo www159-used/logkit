@@ -1,4 +1,4 @@
-//! 内部工具，用来找 OEM。
+//! 内部工具：解析 OEM 名（`OEM_NAME`，默认 `yotta`）。安装根目录请自行拼 `/opt/{oem}`。
 
 pub const FALLBACK_OEM: &str = "yotta";
 

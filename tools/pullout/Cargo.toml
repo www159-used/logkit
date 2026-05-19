@@ -1,0 +1,21 @@
+[package]
+name = "pullout"
+description = "Decrypt spine tokens via dynamically loaded librootkey_crypto"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "pullout"
+path = "src/bin/pullout.rs"
+
+[dependencies]
+base64 = "0.22"
+libloading = "0.8"
+resolve-oem = { path = "../resolve-oem" }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }

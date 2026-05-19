@@ -33,7 +33,7 @@ copy_pack_install() {
 }
 
 # 与仓库 **tools/** 下带可执行文件的 crate 对应（包名一般等于二进制名）。
-TOOL_BINS=(parse_client_conf mysql_local)
+TOOL_BINS=(parse_client_conf mysql_local pullout)
 
 copy_pack_tools() {
   local dest_root="$1"

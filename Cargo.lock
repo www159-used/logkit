@@ -1349,6 +1349,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68ab91017fe16c622486840e4c83c9a37afeff978bd239b5293d61ece587de66"
 
 [[package]]
+name = "libloading"
+version = "0.8.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d7c4b02199fee7c5d21a5ae7d8cfa79a6ef5bb2fc834d6e9058e89c825efdc55"
+dependencies = [
+ "cfg-if",
+ "windows-link",
+]
+
+[[package]]
 name = "libz-sys"
 version = "1.1.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1549,11 +1559,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d87ecb2933e8aeadb3e3a02b828fed80a7528047e68b4f424523a0981a3a084"
 
 [[package]]
-name = "mysql_local"
+name = "mysql-local"
 version = "1.5.0"
 dependencies = [
  "clap",
- "resolve_oem",
+ "resolve-oem",
  "rpassword",
 ]
 
@@ -1766,10 +1776,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "parse_client_conf"
+name = "parse-client-conf"
 version = "1.5.0"
 dependencies = [
- "resolve_oem",
+ "resolve-oem",
 ]
 
 [[package]]
@@ -2081,6 +2091,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "pullout"
+version = "1.5.0"
+dependencies = [
+ "base64",
+ "libloading",
+ "resolve-oem",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "quote"
 version = "1.0.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2223,7 +2245,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc897dd8d9e8bd1ed8cdad82b5966c3e0ecae09fb1907d58efaa013543185d0a"
 
 [[package]]
-name = "resolve_oem"
+name = "resolve-oem"
 version = "1.5.0"
 
 [[package]]

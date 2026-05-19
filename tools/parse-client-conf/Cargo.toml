@@ -1,12 +1,12 @@
 [package]
-name = "parse_client_conf"
+name = "parse-client-conf"
 description = "Read client.conf and print ssl.* lines to stdout"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
-resolve_oem = { path = "../resolve_oem" }
+resolve-oem = { path = "../resolve-oem" }
 
 [[bin]]
 name = "parse_client_conf"

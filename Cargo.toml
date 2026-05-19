@@ -9,9 +9,10 @@ members = [
     "logend",
     "logen-dsl",
     "logen-worker",
-    "tools/resolve_oem",
-    "tools/parse_client_conf",
-    "tools/mysql_local",
+    "tools/resolve-oem",
+    "tools/parse-client-conf",
+    "tools/mysql-local",
+    "tools/pullout",
 ]
 
 [workspace.package]
