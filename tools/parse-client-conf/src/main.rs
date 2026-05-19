@@ -118,6 +118,9 @@ fn main() {
 mod tests {
     use super::*;
 
+    /// 测试内容：默认 Kafka client.conf 路径随 OEM 名变化。
+    /// 输入：当前 [`resolve_oem::oem_name`]。
+    /// 预期：与 `/run/{oem}_manager_agent/process/kafka/config/client.conf` 一致。
     #[test]
     fn default_path_follows_oem_name() {
         let oem = resolve_oem::oem_name();
@@ -125,23 +128,35 @@ mod tests {
         assert_eq!(default_client_conf_path(), PathBuf::from(expected));
     }
 
+    /// 测试内容：空字符串 YAML 标量加引号。
+    /// 输入：`""`。
+    /// 预期：输出 `""`（带引号的空串）。
     #[test]
     fn yaml_scalar_empty_is_quoted_empty() {
         assert_eq!(yaml_scalar(""), "\"\"");
     }
 
+    /// 测试内容：普通路径与 TLS 版本号不加引号。
+    /// 输入：JKS 路径、`TLSv1.3`。
+    /// 预期：原样输出，无额外引号。
     #[test]
     fn yaml_scalar_plain_paths_and_tls() {
         assert_eq!(yaml_scalar("/opt/yotta/cert/x.jks"), "/opt/yotta/cert/x.jks");
         assert_eq!(yaml_scalar("TLSv1.3"), "TLSv1.3");
     }
 
+    /// 测试内容：含冒号或 `@` 的值需 YAML 引号包裹。
+    /// 输入：`a:b`、`x@y`。
+    /// 预期：双引号字符串形式。
     #[test]
     fn yaml_scalar_quotes_special_chars() {
         assert_eq!(yaml_scalar("a:b"), "\"a:b\"");
         assert_eq!(yaml_scalar("x@y"), "\"x@y\"");
     }
 
+    /// 测试内容：键值行去空白且仅按首个 `=` 分割。
+    /// 输入：带首尾空格的 `ssl.keystore.password= ab=cd`。
+    /// 预期：键 `ssl.keystore.password`，值 `ab=cd`。
     #[test]
     fn parse_kv_trims_and_splits_first_equals() {
         assert_eq!(

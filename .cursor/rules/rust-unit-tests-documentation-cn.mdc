@@ -1,9 +1,10 @@
 ---
-description: Rust 单测命名与文档注释（英文用例名 + 中文三段说明），与 JUnit/ScalaTest 规则对齐。
+description: Rust 单测命名与文档注释（英文用例名 + 中文三段说明）；新增/修改 #[test] 时必须带齐三段 ///。
 globs:
   - "**/src/**/*.rs"
   - "**/tests/**/*.rs"
-alwaysApply: false
+  - "tools/**/src/**/*.rs"
+alwaysApply: true
 ---
 
 # Rust：`#[test]` 命名与文档注释
@@ -41,4 +42,9 @@ alwaysApply: false
 
 ## 与生产代码同文件时
 
-- 单测写在 `src/**/*.rs` 的 `#[cfg(test)] mod tests { … }` 中时，同样遵守上述 **`///` 三段**；新增用例必须带齐三段，避免只写断言不写意图。
+- 单测写在 `src/**/*.rs` 或 `tools/*/src/**/*.rs` 的 `#[cfg(test)] mod tests { … }` 中时，同样遵守上述 **`///` 三段**。
+- **新增或修改任何 `#[test]` / `#[tokio::test]` 时，必须同步写好三段 `///`**，不得只提交断言代码；改测试逻辑时一并更新注释。
+
+## Agent 自检
+
+- 写完单测后扫一眼：每个 `#[test]` 正上方是否连续三行 `/// 测试内容：` / `/// 输入：` / `/// 预期：`。

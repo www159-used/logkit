@@ -99,12 +99,18 @@ pub fn local_ip_or_empty() -> String {
 mod tests {
     use super::*;
 
+    /// 测试内容：未设置 `OEM_NAME` 时使用默认 OEM。
+    /// 输入：清除 `OEM_NAME` 环境变量。
+    /// 预期：[`oem_name`] 返回 [`FALLBACK_OEM`]（`yotta`）。
     #[test]
     fn fallback_oem_when_unset() {
         std::env::remove_var("OEM_NAME");
         assert_eq!(oem_name(), "yotta");
     }
 
+    /// 测试内容：默认 OEM 下各安装路径 helper 与 `/opt/yotta` 约定一致。
+    /// 输入：清除 `OEM_NAME`。
+    /// 预期：`opt_root`、`cert_dir`、`ca_cert_path`、`mysql_bin_path`、`kafka_client_conf_path` 含 `yotta` 前缀。
     #[test]
     fn paths_follow_oem() {
         std::env::remove_var("OEM_NAME");

@@ -164,6 +164,9 @@ mod tests {
 
     use super::*;
 
+    /// 测试内容：未配置 TLS 文件时 [`TlsPaths::defaults`] 走 resolve-oem 约定路径。
+    /// 输入：清除 `OEM_NAME`。
+    /// 预期：ca/cert/key 位于 `/opt/yotta/cert/` 下默认文件名。
     #[test]
     fn default_oem_cert_paths() {
         std::env::remove_var("OEM_NAME");
@@ -173,6 +176,9 @@ mod tests {
         assert_eq!(t.key, PathBuf::from("/opt/yotta/cert/agent.key"));
     }
 
+    /// 测试内容：无配置文件时使用内置端口映射与上游 Host。
+    /// 输入：`load(None)`。
+    /// 预期：监听 `15440` → 上游 `54400`；`upstream_host` 可解析为非 loopback IP。
     #[test]
     fn builtin_default_mapping() {
         let cfg = load(None).unwrap();
@@ -181,6 +187,9 @@ mod tests {
         assert!(!ip.is_loopback());
     }
 
+    /// 测试内容：TCP 端口上界校验。
+    /// 输入：`tcp_port(154400)`。
+    /// 预期：返回 [`ConfigError::PortOutOfRange`]。
     #[test]
     fn rejects_port_above_65535() {
         assert!(matches!(
@@ -189,6 +198,9 @@ mod tests {
         ));
     }
 
+    /// 测试内容：YAML 中 `port_maps` 整表替换内置映射。
+    /// 输入：临时文件 `port_maps: 54401: 15441`。
+    /// 预期：无 `15440` 内置项；`15441` 监听对应上游 `54401`。
     #[test]
     fn file_port_maps_replace_builtin() {
         let dir = std::env::temp_dir().join(format!("jumpserver-cfg-{}", std::process::id()));

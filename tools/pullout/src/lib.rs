@@ -34,6 +34,9 @@ pub fn decrypt_key_file(path: &Path) -> Result<String, SpineError> {
 mod key_tests {
     use super::*;
 
+    /// 测试内容：非 `config:` 前缀的 key 材料原样返回。
+    /// 输入：标准 PEM 私钥片段字符串。
+    /// 预期：[`decrypt_key_material`] 成功且输出与输入相同。
     #[test]
     fn decrypt_plain_pem_passthrough() {
         let pem = "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----";

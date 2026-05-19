@@ -177,9 +177,9 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    /// 测试内容：OEM 为 yotta 时，默认路径与用户候选符合约定。
+    /// 测试内容：本地 wrapper 路径 helper 与 resolve-oem 一致，用户候选随 OEM 变化。
     /// 输入：resolve_oem 默认 OEM（未设 OEM_NAME 时为 yotta）。
-    /// 预期：二进制、套接字路径含 oem；用户候选为 `{oem}_root` 后 `root`。
+    /// 预期：`mysql_bin_path`/`mysql_socket_path` 等于 `resolve_oem::mysql_*`；用户候选为 `{oem}_root` 后 `root`。
     #[test]
     fn paths_and_user_candidates_follow_oem_name() {
         let oem = resolve_oem::oem_name();

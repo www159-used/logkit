@@ -356,6 +356,9 @@ pub fn pull_out_spine(ciphertext: &str) -> Result<String, SpineError> {
 mod tests {
     use super::*;
 
+    /// 测试内容：spine token `config:a:b:c` 按冒号拆成四段。
+    /// 输入：`config:aa:bb:cc` 与无足够段的 `nocolon`。
+    /// 预期：前者 `splitn(4, ':')` 长度为 4 且首段为 `config`；后者段数不足 4。
     #[test]
     fn parse_token_format() {
         let parts: Vec<_> = "config:aa:bb:cc".splitn(4, ':').collect();
@@ -365,6 +368,9 @@ mod tests {
         assert_ne!(bad.len(), 4);
     }
 
+    /// 测试内容：默认 `librootkey_crypto.so` 路径形态。
+    /// 输入：清除 `PULLOUT_LIB`、`OEM_NAME`，取本机 `linux_lib_arch()`。
+    /// 预期：路径以 `/opt/yotta/python/lib/` 开头，含 `spine_keeper/lib/linux/`，以 `librootkey_crypto.so` 结尾。
     #[test]
     fn default_library_path_shape() {
         std::env::remove_var("PULLOUT_LIB");
