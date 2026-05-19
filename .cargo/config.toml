@@ -1,3 +1,2 @@
-# aarch64 glibc 交叉链（CI / apt install gcc-aarch64-linux-gnu）
-[target.aarch64-unknown-linux-gnu]
-linker = "aarch64-linux-gnu-gcc"
+# CI / 本地老系统发行：cargo zigbuild --target <triple>.2.17（glibc 2.17，兼容 CentOS 7）
+# 例: cargo zigbuild --release --target x86_64-unknown-linux-gnu.2.17

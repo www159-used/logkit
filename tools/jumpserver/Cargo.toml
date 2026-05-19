@@ -1,0 +1,28 @@
+[package]
+name = "jumpserver"
+description = "HTTP reverse proxy to HTTPS upstream with OEM mTLS (default HTTP :15440 → HTTPS :54400)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "jumpserver"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { workspace = true }
+env_logger = "0.11"
+http = { workspace = true }
+http-body-util = "0.1"
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { workspace = true, features = ["server", "tokio"] }
+local-ip-address = "0.6"
+log = "0.4"
+pullout = { path = "../pullout" }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
+resolve-oem = { path = "../resolve-oem" }
+serde = { workspace = true, features = ["derive"] }
+serde_yaml = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal", "net"] }

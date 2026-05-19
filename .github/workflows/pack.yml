@@ -1,6 +1,6 @@
 name: Release builds
 
-# Linux：x86_64 / aarch64 glibc（GCC 动态链，pullout 可 dlopen）。macOS：Apple Silicon。
+# Linux：x86_64 / aarch64 glibc 2.17（Zig 链老 glibc，pullout 可 dlopen）。macOS：Apple Silicon。
 # 推送 v* 标签时合并产物并创建 GitHub Release（含源码 git archive）。
 
 on:
@@ -28,32 +28,33 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install GCC cross toolchain (aarch64)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.14.1
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Build and package
-        env:
-          CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
-          CXX_aarch64_unknown_linux_gnu: aarch64-linux-gnu-g++
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+      - name: Install cargo-zigbuild
+        run: cargo install cargo-zigbuild --locked
+
+      - name: Build and package (glibc 2.17)
         run: |
           set -euo pipefail
-          for target in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu; do
-            cargo build --release --target "$target"
+          for target in x86_64-unknown-linux-gnu.2.17 aarch64-unknown-linux-gnu.2.17; do
+            cargo zigbuild --release --target "$target"
+            release_dir="$GITHUB_WORKSPACE/target/$target/release"
+            if [[ ! -f "$release_dir/logen" ]]; then
+              base="${target%.2.*}"
+              release_dir="$GITHUB_WORKSPACE/target/$base/release"
+            fi
             parent="$GITHUB_WORKSPACE/dist/.stage-$target"
             stage="$parent/logkit"
             rm -rf "$parent"
             mkdir -p "$stage/bin" "$stage/etc" "$stage/tools/bin"
-            cp "$GITHUB_WORKSPACE/target/$target/release/logen" \
-               "$GITHUB_WORKSPACE/target/$target/release/logend" \
-               "$stage/bin/"
-            for tool in parse_client_conf mysql_local pullout; do
-              if [[ -f "$GITHUB_WORKSPACE/target/$target/release/$tool" ]]; then
-                cp "$GITHUB_WORKSPACE/target/$target/release/$tool" "$stage/tools/bin/"
+            cp "$release_dir/logen" "$release_dir/logend" "$stage/bin/"
+            for tool in parse_client_conf mysql_local pullout jumpserver; do
+              if [[ -f "$release_dir/$tool" ]]; then
+                cp "$release_dir/$tool" "$stage/tools/bin/"
                 chmod +x "$stage/tools/bin/$tool"
               else
                 echo "warning: $tool missing for $target" >&2

@@ -13,6 +13,7 @@ members = [
     "tools/parse-client-conf",
     "tools/mysql-local",
     "tools/pullout",
+    "tools/jumpserver",
 ]
 
 [workspace.package]

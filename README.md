@@ -41,14 +41,14 @@ cargo build --release
 
 产物：`target/release/logen`、`logend`。
 
-### Linux musl（交叉编译，推荐 Zig）
+### Linux 发行包（glibc 2.17，Zig 交叉）
 
-含 **Kafka（rdkafka：vendored OpenSSL + static libcurl，供 bundled librdkafka 编译）** 时，目标三需要可用的 **C 工具链**；在 **macOS** 或未安装 **`x86_64-linux-musl-gcc`** 一类 musl 交叉 GCC 的环境下，请用 **Zig + cargo-zigbuild**（与 Release CI、打包脚本一致）：
+含 **Kafka（rdkafka：vendored OpenSSL + static libcurl）** 时，在 **macOS** 或需兼容 **CentOS 7** 等老 glibc 的环境，用 **Zig + cargo-zigbuild** 链 **glibc 2.17**（与 Release CI、`logkit-pack.sh` 一致）：
 
 1. 安装 [Zig](https://ziglang.org/download/) 并加入 `PATH`。
 2. `cargo install cargo-zigbuild`
-3. `rustup target add x86_64-unknown-linux-musl`（若还要 aarch64：`rustup target add aarch64-unknown-linux-musl`）
-4. 全工作区 release：`cargo zigbuild --release --target x86_64-unknown-linux-musl`
+3. `rustup target add x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu`
+4. 全工作区 release：`cargo zigbuild --release --target x86_64-unknown-linux-gnu.2.17`
 
 仍需本机有 **CMake**（供 `rdkafka-sys` 编 librdkafka）。详见 [`logen-worker/README.md`](logen-worker/README.md)。
 
@@ -56,7 +56,7 @@ macOS 上 `cargo zigbuild` 链 **logend** 若报 **`ProcessFdQuotaExceeded`**，
 
 ## 打包
 
-本地 musl / native 目录包见 **`scripts/logkit-pack.sh`**（macOS 下默认 **`auto` 即走 Zig**；环境变量 **`LOGKIT_PACK_LINKER`** 等见脚本注释）。Release 标签推送时的矩阵见 **`.github/workflows/pack.yml`**。
+本地打包：**`./scripts/logkit-pack.sh`**（默认 **gnu / glibc 2.17**）；**`./scripts/logkit-pack.sh native`** 为本机调试。Release 见 **`.github/workflows/pack.yml`**。
 
 ## 建议阅读顺序
 
