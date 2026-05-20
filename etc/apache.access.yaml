@@ -1,0 +1,78 @@
+# Apache Combined + 末尾 X-Forwarded-For（Nginx 常见扩展 log_format）。
+# 示例行：
+#   246.73.227.154 - - [20/May/2026:16:02:30 +0800] "GET /fig?type=black HTTP/1.1" 200 7 "-" "Mozilla/5.0 ..." "203.0.113.1"
+# 直连无代理时多为 "-"：
+#   192.168.1.5 - - [16/May/2026:10:12:40 +0800] "GET /api/ping HTTP/1.1" 200 42 "-" "curl/8.0.1" "-"
+min-interval: 100
+template: >-
+  {{src_ip}} - {{user}} [{{timestamp}}] "{{method}} {{dst}} HTTP/1.1" {{status}} {{bytes}}
+  "{{referer}}" "{{ua}}" "{{xff}}"
+fields:
+  src_ip:
+    type: ipv4
+  user:
+    type: one-of
+    branches:
+      - "-"
+      - "-"
+      - template: "{{u}}"
+        fields:
+          u:
+            type: username
+  timestamp:
+    type: timestamp
+    format: "%d/%b/%Y:%H:%M:%S %z"
+  method:
+    type: pick
+    values: [GET, GET, GET, POST, HEAD]
+  dst:
+    type: one-of
+    branches:
+      - template: "/fig?type={{t}}"
+        fields:
+          t:
+            type: pick
+            values: [black, white, gray]
+      - template: "{{path}}"
+        fields:
+          path:
+            type: url-path
+  status:
+    type: pick
+    values: ["200", "200", "200", "404", "301", "500"]
+  bytes:
+    type: counter
+  referer:
+    type: one-of
+    branches:
+      - "-"
+      - "-"
+      - "-"
+      - template: "https://{{host}}{{path}}"
+        fields:
+          host:
+            type: pick
+            values: ["www.example.com", "partner.example.net", "cdn.example.org"]
+          path:
+            type: url-path
+  ua:
+    type: user-agent
+  xff:
+    type: one-of
+    branches:
+      - "-"
+      - "-"
+      - template: "{{client}}"
+        fields:
+          client:
+            type: ipv4
+      - template: "{{hop1}}, {{hop2}}"
+        fields:
+          hop1:
+            type: ipv4
+          hop2:
+            type: ipv4
+sink:
+  type: file
+  output: apache.access.log
+  max-size: 10mb

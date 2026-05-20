@@ -1,0 +1,9 @@
+include:
+  - _base/body.yaml
+  - _base/sink-kafka.yaml
+
+min-interval: 200
+
+sink:
+  kafka:
+    topic: app-logs

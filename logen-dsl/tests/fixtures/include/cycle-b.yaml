@@ -1,0 +1,6 @@
+include:
+  - cycle-a.yaml
+
+body:
+  template: "y"
+  fields: {}

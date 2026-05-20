@@ -88,6 +88,19 @@ mod tests {
         SinkConfig::Stdout
     }
 
+    fn test_worker_config(
+        template: impl Into<String>,
+        fields: BTreeMap<String, crate::FieldSpec>,
+    ) -> WorkerConfig {
+        WorkerConfig {
+            template: template.into(),
+            fields,
+            min_interval_ms: 1000,
+            threads: 1,
+            sink: sink_stdout(),
+        }
+    }
+
     fn try_runner(cfg: WorkerConfig) -> TemplateRunner {
         TemplateRunner::try_new(cfg.template, cfg.fields).unwrap()
     }
@@ -97,9 +110,9 @@ mod tests {
     /// 预期：首行含分隔符 ` | `（各段非空拼接）。
     #[test]
     fn render_with_facades() {
-        let cfg = WorkerConfig {
-            template: "{{ts}} | {{name}} | {{ip}} | {{n}}".to_string(),
-            fields: [
+        let cfg = test_worker_config(
+            "{{ts}} | {{name}} | {{ip}} | {{n}}",
+            [
                 (
                     "ts".to_string(),
                     crate::FieldSpec::Timestamp {
@@ -115,9 +128,7 @@ mod tests {
             ]
             .into_iter()
             .collect(),
-            min_interval_ms: 1000,
-            sink: sink_stdout(),
-        };
+        );
         let mut r = try_runner(cfg);
         let line = r.next_line().unwrap();
         assert!(line.contains(" | "));
@@ -128,14 +139,12 @@ mod tests {
     /// 预期：连续三行为 `n=0`、`n=1`、`n=2`。
     #[test]
     fn counter_starts_at_zero_and_increments() {
-        let cfg = WorkerConfig {
-            template: "n={{n}}".to_string(),
-            fields: [("n".to_string(), crate::FieldSpec::Counter)]
+        let cfg = test_worker_config(
+            "n={{n}}",
+            [("n".to_string(), crate::FieldSpec::Counter)]
                 .into_iter()
                 .collect(),
-            min_interval_ms: 1000,
-            sink: sink_stdout(),
-        };
+        );
         let mut r = try_runner(cfg);
         assert_eq!(r.next_line().unwrap(), "n=0");
         assert_eq!(r.next_line().unwrap(), "n=1");
@@ -248,14 +257,12 @@ fields: {}
     /// 预期：渲染行同时包含 `.` 与 `-`。
     #[test]
     fn hostname_slot_contains_two_labels_and_suffix() {
-        let cfg = WorkerConfig {
-            template: "{{h}}".to_string(),
-            fields: [("h".to_string(), crate::FieldSpec::Hostname)]
+        let cfg = test_worker_config(
+            "{{h}}",
+            [("h".to_string(), crate::FieldSpec::Hostname)]
                 .into_iter()
                 .collect(),
-            min_interval_ms: 1000,
-            sink: sink_stdout(),
-        };
+        );
         let mut r = try_runner(cfg);
         let line = r.next_line().unwrap();
         assert!(line.contains('.'), "{line:?}");
@@ -305,9 +312,9 @@ fields:
     /// 预期：`TemplateRunner::try_new` 成功；首行为 `fixed`。
     #[test]
     fn field_type_template_empty_subfields_ok() {
-        let c = WorkerConfig {
-            template: "{{x}}".to_string(),
-            fields: [(
+        let mut c = test_worker_config(
+            "{{x}}",
+            [(
                 "x".to_string(),
                 crate::FieldSpec::Template {
                     template: "fixed".to_string(),
@@ -316,9 +323,8 @@ fields:
             )]
             .into_iter()
             .collect(),
-            min_interval_ms: 1,
-            sink: sink_stdout(),
-        };
+        );
+        c.min_interval_ms = 1;
         let mut r = try_runner(c);
         assert_eq!(r.next_line().unwrap(), "fixed");
     }
@@ -369,17 +375,16 @@ fields:
     /// 预期：`TemplateRunner::try_new` 返回 `Err`。
     #[test]
     fn field_type_one_of_empty_branches_rejected() {
-        let c = WorkerConfig {
-            template: "{{x}}".to_string(),
-            fields: [(
+        let mut c = test_worker_config(
+            "{{x}}",
+            [(
                 "x".to_string(),
                 crate::FieldSpec::OneOf { branches: vec![] },
             )]
             .into_iter()
             .collect(),
-            min_interval_ms: 1,
-            sink: sink_stdout(),
-        };
+        );
+        c.min_interval_ms = 1;
         assert!(TemplateRunner::try_new(c.template, c.fields).is_err());
     }
 
@@ -388,17 +393,15 @@ fields:
     /// 预期：每行按空白分词后词数在 2～4 之间。
     #[test]
     fn sentence_word_count_in_range() {
-        let cfg = WorkerConfig {
-            template: "{{s}}".to_string(),
-            fields: [(
+        let cfg = test_worker_config(
+            "{{s}}",
+            [(
                 "s".to_string(),
                 crate::FieldSpec::Sentence { min: 2, max: 4 },
             )]
             .into_iter()
             .collect(),
-            min_interval_ms: 1000,
-            sink: sink_stdout(),
-        };
+        );
         let mut r = try_runner(cfg);
         for _ in 0..20 {
             let line = r.next_line().unwrap();

@@ -14,7 +14,7 @@ use tonic::transport::Endpoint;
 use tower::service_fn;
 
 use logen_config::{load_merged, LogenError};
-use logen_dsl::{parse_worker_config, worker_config_to_yaml};
+use logen_dsl::{load_worker_config, worker_config_to_yaml};
 
 #[derive(Parser)]
 #[command(
@@ -176,10 +176,7 @@ async fn run() -> Result<(), LogenError> {
         }
         Commands::Start { config } => {
             let path = PathBuf::from(&config);
-            let raw = std::fs::read_to_string(&path).map_err(|e| {
-                LogenError::Cli(format!("read {}: {e}", path.display()))
-            })?;
-            let merged = parse_worker_config(path.as_path(), &raw)
+            let merged = load_worker_config(path.as_path())
                 .map_err(|e| LogenError::Cli(e.to_string()))?;
             let instance_yaml = worker_config_to_yaml(&merged)
                 .map_err(|e| LogenError::Cli(format!("serialize instance YAML: {e}")))?;

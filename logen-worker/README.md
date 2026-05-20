@@ -5,7 +5,7 @@
 ## 与 daemon 的关系
 
 - 控制面：**`logen`** → **`logend`**（gRPC over Unix socket）。
-- 造数执行：daemon 内 **`TokioEmbeddedWorker`** 启动 Tokio 任务，直接消费内存中的配置并运行（可选 **`WorkerHeartbeatEnv`** 向 daemon 上报心跳）。
+- 日志生成执行：daemon 内 **`TokioEmbeddedWorker`** 启动 Tokio 任务，直接消费内存中的配置并运行（可选 **`WorkerHeartbeatEnv`** 向 daemon 上报心跳）。
 
 ## Kafka
 

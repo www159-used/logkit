@@ -1,13 +1,18 @@
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
 use logen_dsl::{KafkaConfig, KafkaSinkMode};
+use rdkafka::client::ClientContext;
 use rdkafka::config::ClientConfig;
 use rdkafka::error::KafkaError;
-use rdkafka::message::{Header, OwnedHeaders};
-use rdkafka::producer::{BaseRecord, DefaultProducerContext, FutureProducer, FutureRecord, Producer};
-use tokio::time::timeout;
+use rdkafka::message::{DeliveryResult, Header, OwnedHeaders};
+use rdkafka::producer::{
+    BaseRecord, DefaultProducerContext, FutureProducer, Producer, ProducerContext,
+    ThreadedProducer,
+};
 
 use super::context_id::next_context_id;
 use super::kafka_agent::{self, RuntimeAgentConfig};
@@ -32,8 +37,57 @@ fn wall_clock_ms_i64() -> i64 {
         .unwrap_or(0)
 }
 
+/// librdkafka 投递线程回调：失败时置位，由 worker 主循环在下一次 `emit_line` 发现。
+#[derive(Clone)]
+struct LogenKafkaProducerContext {
+    failed: Arc<AtomicBool>,
+    last_error: Arc<Mutex<Option<String>>>,
+}
+
+impl LogenKafkaProducerContext {
+    fn new() -> Self {
+        Self {
+            failed: Arc::new(AtomicBool::new(false)),
+            last_error: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    fn sticky_error(&self) -> Result<(), SinkError> {
+        if !self.failed.load(Ordering::Relaxed) {
+            return Ok(());
+        }
+        let detail = self
+            .last_error
+            .lock()
+            .ok()
+            .and_then(|g| g.clone())
+            .unwrap_or_else(|| "prior kafka delivery failed".into());
+        Err(SinkError::Kafka(detail))
+    }
+
+    fn record_delivery_failure(&self, e: &KafkaError) {
+        tracing::error!("kafka delivery failed: {e}");
+        self.failed.store(true, Ordering::Relaxed);
+        if let Ok(mut g) = self.last_error.lock() {
+            *g = Some(e.to_string());
+        }
+    }
+}
+
+impl ClientContext for LogenKafkaProducerContext {}
+
+impl ProducerContext for LogenKafkaProducerContext {
+    type DeliveryOpaque = ();
+
+    fn delivery(&self, delivery_result: &DeliveryResult<'_>, _opaque: Self::DeliveryOpaque) {
+        if let Err((e, _)) = delivery_result {
+            self.record_delivery_failure(e);
+        }
+    }
+}
+
 pub struct KafkaLineSink {
-    producer: FutureProducer,
+    producer: ThreadedProducer<LogenKafkaProducerContext>,
     brokers_display: String,
     topic: String,
     /// 每条消息附带的 record headers（与配置一致，逐条 clone）。`agent` 模式为 `None`。
@@ -43,8 +97,6 @@ pub struct KafkaLineSink {
     pub kafka_config: KafkaConfig,
     tls_enabled: bool,
     sasl_keys_in_yaml: bool,
-    /// `send` 入队等待上限；投递另受 `message.timeout.ms` 等约束。
-    queue_timeout: Duration,
     runtime_agent_config: Option<RuntimeAgentConfig>,
 }
 
@@ -349,11 +401,12 @@ impl KafkaLineSink {
         let transport = kafka_transport_mode(k)?;
         let tls_enabled = transport == KafkaTransportMode::Tls;
 
-        let (cfg, queue_timeout) = build_rdkafka_client_config(k, transport)?;
+        let (cfg, _) = build_rdkafka_client_config(k, transport)?;
 
-        let producer: FutureProducer = cfg.create().map_err(|e| {
-            SinkError::Kafka(format!("failed to create Kafka producer: {e}"))
-        })?;
+        let producer: ThreadedProducer<LogenKafkaProducerContext> =
+            cfg.create_with_context(LogenKafkaProducerContext::new()).map_err(|e| {
+                SinkError::Kafka(format!("failed to create Kafka producer: {e}"))
+            })?;
 
         let topic = effective_produce_topic(k);
         let runtime_agent_config = if k.mode == KafkaSinkMode::Agent {
@@ -370,62 +423,51 @@ impl KafkaLineSink {
             kafka_config: k.clone(),
             tls_enabled,
             sasl_keys_in_yaml: sasl_keys_present(k),
-            queue_timeout,
             runtime_agent_config,
         })
+    }
+}
+
+impl Drop for KafkaLineSink {
+    fn drop(&mut self) {
+        if let Err(e) = self.producer.flush(Duration::from_secs(15)) {
+            tracing::warn!("kafka flush on drop: {e}");
+        }
     }
 }
 
 #[async_trait]
 impl LogLineSink for KafkaLineSink {
     async fn emit_line(&mut self, line: &str) -> Result<(), SinkError> {
-        let producer = self.producer.clone();
-        let topic = self.topic.clone();
-        let topic_for_send = topic.clone();
-        let headers = self.headers.clone();
-        let brokers_display = self.brokers_display.clone();
-        let tls_enabled = self.tls_enabled;
-        let sasl_keys = self.sasl_keys_in_yaml;
-        let kafka_config = self.kafka_config.clone();
-        let queue_to = rdkafka::util::Timeout::After(self.queue_timeout);
-        let send_cap = self.queue_timeout.saturating_mul(4).max(Duration::from_secs(30));
+        self.producer.context().sticky_error()?;
 
-        let (payload, key) = if let Some(runtime_config) = &self.runtime_agent_config {
-            let ts = wall_clock_ms_i64();
-            let msg =
-                kafka_agent::build_agent_message(runtime_config, line, next_context_id(), ts);
-            (msg.payload, msg.key)
+        let agent_msg = self.runtime_agent_config.as_ref().map(|c| {
+            kafka_agent::build_agent_message(c, line, next_context_id(), wall_clock_ms_i64())
+        });
+
+        let mut rec = if let Some(msg) = &agent_msg {
+            let mut r = BaseRecord::to(self.topic.as_str()).payload(msg.payload.as_str());
+            if let Some(ref k) = msg.key {
+                r = r.key(k.as_str());
+            }
+            r
         } else {
-            (line.to_string(), None)
+            BaseRecord::to(self.topic.as_str()).payload(line)
         };
-
-        let fut = async move {
-            let mut rec =
-                FutureRecord::<'_, str, str>::to(topic_for_send.as_str()).payload(payload.as_str());
-            if let Some(ref k) = key {
-                rec = rec.key(k.as_str());
-            }
-            if let Some(h) = headers {
-                rec = rec.headers(h);
-            }
-            producer.send(rec, queue_to).await
-        };
-
-        match timeout(send_cap, fut).await {
-            Err(_) => Err(SinkError::Kafka(format!(
-                "kafka produce timed out after {:?} (brokers=[{}], topic={:?})",
-                send_cap, brokers_display, topic
-            ))),
-            Ok(Ok(_)) => Ok(()),
-            Ok(Err((e, _))) => Err(SinkError::Kafka(format_produce_err(
-                &e,
-                &brokers_display,
-                &topic,
-                tls_enabled,
-                sasl_keys,
-                &kafka_config,
-            ))),
+        if let Some(ref h) = self.headers {
+            rec = rec.headers(h.clone());
         }
+
+        self.producer.send(rec).map_err(|(e, _)| {
+            SinkError::Kafka(format_produce_err(
+                &e,
+                &self.brokers_display,
+                &self.topic,
+                self.tls_enabled,
+                self.sasl_keys_in_yaml,
+                &self.kafka_config,
+            ))
+        })
     }
 }
 

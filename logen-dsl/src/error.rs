@@ -29,4 +29,17 @@ pub enum ConfigParseError {
     Io(String, #[source] std::io::Error),
     #[error("merging worker config: {0}")]
     Merge(String),
+    #[error("include not found (from {from}): {path}: {source}")]
+    IncludeNotFound {
+        from: String,
+        path: String,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("include cycle: {}", chain.join(" -> "))]
+    IncludeCycle { chain: Vec<String> },
+    #[error("include depth exceeded (max {max})")]
+    IncludeDepthExceeded { max: usize },
+    #[error("invalid include path {path}: {reason}")]
+    IncludePathInvalid { path: String, reason: String },
 }

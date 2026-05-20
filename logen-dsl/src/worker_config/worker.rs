@@ -1,4 +1,4 @@
-//! 根级 [`WorkerConfig`]（`template` / `fields` / `min-interval` / `sink`）。
+//! 根级 [`WorkerConfig`]（`template` / `fields` / `min-interval` / `threads` / `sink`）。
 
 use std::collections::BTreeMap;
 
@@ -18,6 +18,9 @@ pub struct WorkerConfig {
     /// 每条日志间隔（毫秒），默认 1000。
     #[serde(rename = "min-interval", default = "super::default_min_interval_ms")]
     pub min_interval_ms: u64,
+    /// 并发写日志循环数（每个循环独立 `TemplateRunner` 与 sink），默认 1。
+    #[serde(default = "super::default_threads")]
+    pub threads: u32,
     /// 行日志写出：**`sink.type`** 及关联项（不可再扁平写在根上）。
     pub sink: SinkConfig,
 }
@@ -46,6 +49,20 @@ fields:
         assert_eq!(c.min_interval_ms, 1);
         assert_eq!(c.sink.max_size_bytes(), 0);
         assert_eq!(c.template, "x={{c}}");
+    }
+
+    /// 测试内容：`threads` 显式配置反序列化。
+    #[test]
+    fn worker_config_yaml_threads_deserializes() {
+        let y = r#"
+sink:
+  type: stdout
+template: "x"
+fields: {}
+threads: 4
+"#;
+        let c: WorkerConfig = serde_yaml::from_str(y).unwrap();
+        assert_eq!(c.threads, 4);
     }
 
     /// 测试内容：整份 YAML 中 `sink.kafka` 最小段反序列化。

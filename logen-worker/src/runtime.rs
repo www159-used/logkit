@@ -9,7 +9,7 @@ use hyper_util::rt::TokioIo;
 use logen_dsl::{TemplateRunner, WorkerConfig};
 use logen_proto::logen_client::LogenClient;
 use logen_proto::HeartbeatRequest;
-use tokio::task::JoinHandle;
+use tokio::task::{JoinHandle, JoinSet};
 use tonic::transport::Endpoint;
 use tower::service_fn;
 
@@ -83,11 +83,38 @@ pub(crate) async fn run_worker_with_config(
     output_base: PathBuf,
     events: Arc<AtomicU64>,
 ) -> Result<()> {
+    let thread_count = cfg.threads.max(1) as usize;
+    let mut set = JoinSet::new();
+    for t in 0..thread_count {
+        let loop_name = if thread_count == 1 {
+            config_name.clone()
+        } else {
+            format!("{config_name}#{t}")
+        };
+        let cfg = cfg.clone();
+        let output_base = output_base.clone();
+        let events = events.clone();
+        set.spawn(async move { run_worker_loop(loop_name, cfg, output_base, events).await });
+    }
+
+    while let Some(join_res) = set.join_next().await {
+        join_res.map_err(|e| anyhow::anyhow!("{config_name}: loop join: {e}"))??;
+    }
+    Ok(())
+}
+
+async fn run_worker_loop(
+    config_name: String,
+    cfg: WorkerConfig,
+    output_base: PathBuf,
+    events: Arc<AtomicU64>,
+) -> Result<()> {
     let WorkerConfig {
         template,
         fields,
         min_interval_ms,
         sink,
+        ..
     } = cfg;
 
     let mut line_sink = build_line_sink(&sink, output_base.as_path())
