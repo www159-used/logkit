@@ -1,0 +1,3 @@
+include:
+min-interval: 10
+threads: 2

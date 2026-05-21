@@ -1,4 +1,4 @@
-//! [`BodyConfig`]：`template` 与 `fields` 绑定为整体；include 合并时 **整包替换**，不与其他 body 深合并。
+//! [`BodyConfig`]：YAML 中日志体须写在 `body:` 下；include 合并时 **整包替换**，不与其他 body 深合并。
 
 use std::collections::BTreeMap;
 

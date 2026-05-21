@@ -14,25 +14,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use url::Url;
 
+use crate::branch::{OneOfBranch, OneOfSlot};
 use crate::facade::TemplateSlot;
 use crate::Error;
-
-/// [`FieldSpec::OneOf`] 的单个分支：YAML 中可写 **字符串字面量**，或 **`template` + `fields`** 子树（与 `type: template` 同形）。
-/// 每轮 **均匀** 随机选一翼；**仅被选翼会求值**（未选中的 `template` 子树及其 `counter` 等不会跑）。
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum OneOfBranch {
-    Literal(String),
-    Template(OneOfTemplateBranch),
-}
-
-/// `one-of` 中带 `template` / `fields` 的分支（映射 YAML 里含 `template` 键的映射表）。
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OneOfTemplateBranch {
-    pub template: String,
-    #[serde(default)]
-    pub fields: BTreeMap<String, FieldSpec>,
-}
 
 /// 配置里 `fields.<name>` 的描述：内置 `type` 门面，由 [`into_slot`] 转成 [`TemplateSlot`]。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,8 +33,6 @@ pub enum FieldSpec {
         #[serde(default = "default_ts_format")]
         format: String,
     },
-    /// 从给定列表均匀随机（仅用 [`fake`] 抽下标）
-    Pick { values: Vec<String> },
     /// 闭区间 `[min, max]` 内随机整数（`fake`）
     Integer { min: i64, max: i64 },
     /// [`fake`] lorem：空格分隔的随机英文词，词数在 `[min, max]`（含）之间均匀随机
@@ -80,7 +62,7 @@ pub enum FieldSpec {
         #[serde(default)]
         fields: BTreeMap<String, FieldSpec>,
     },
-    /// 多选一：分支为 **字面量字符串** 或 **内联 template 子树**；仅选中分支参与本行生成（lazy）。
+    /// 多选一：字面量、`{ w, v }` 或预编译 `template` 子树；权重在 `into_slot` 时编入 [`logen_branch::BranchPicker`]。
     OneOf { branches: Vec<OneOfBranch> },
 }
 
@@ -95,12 +77,6 @@ impl FieldSpec {
             FieldSpec::NameEn => Ok(Box::new(NameEnSlot)),
             FieldSpec::Ipv4 => Ok(Box::new(Ipv4Slot)),
             FieldSpec::Timestamp { format } => Ok(Box::new(TimestampSlot { format })),
-            FieldSpec::Pick { values } => {
-                if values.is_empty() {
-                    return Err(Error::EmptyPickList);
-                }
-                Ok(Box::new(PickSlot { values }))
-            }
             FieldSpec::Integer { min, max } => {
                 if min > max {
                     return Err(Error::InvalidIntegerRange { min, max });
@@ -125,28 +101,12 @@ impl FieldSpec {
             FieldSpec::Template { template, fields } => {
                 Ok(Box::new(make_composite_template_slot(template, fields)?))
             }
-            FieldSpec::OneOf { branches } => {
-                if branches.is_empty() {
-                    return Err(Error::EmptyOneOfBranches);
-                }
-                let mut arms = Vec::with_capacity(branches.len());
-                for b in branches {
-                    arms.push(match b {
-                        OneOfBranch::Literal(s) => OneOfArm::Literal(s),
-                        OneOfBranch::Template(OneOfTemplateBranch { template, fields }) => {
-                            OneOfArm::Nested(Box::new(make_composite_template_slot(
-                                template, fields,
-                            )?))
-                        }
-                    });
-                }
-                Ok(Box::new(OneOfSlot { arms }))
-            }
+            FieldSpec::OneOf { branches } => Ok(Box::new(OneOfSlot::from_branches(branches)?)),
         }
     }
 }
 
-fn make_composite_template_slot(
+pub(crate) fn make_composite_template_slot(
     template: String,
     fields: BTreeMap<String, FieldSpec>,
 ) -> Result<CompositeTemplateSlot, Error> {
@@ -161,23 +121,9 @@ fn make_composite_template_slot(
     Ok(CompositeTemplateSlot { hb, slots })
 }
 
-enum OneOfArm {
-    Literal(String),
-    Nested(Box<CompositeTemplateSlot>),
-}
-
-struct OneOfSlot {
-    arms: Vec<OneOfArm>,
-}
-
-impl TemplateSlot for OneOfSlot {
-    fn next_value(&mut self) -> String {
-        let i = fake_index(self.arms.len());
-        match &mut self.arms[i] {
-            OneOfArm::Literal(s) => s.clone(),
-            OneOfArm::Nested(c) => c.next_value(),
-        }
-    }
+pub(crate) struct CompositeTemplateSlot {
+    hb: Handlebars<'static>,
+    slots: BTreeMap<String, Box<dyn TemplateSlot>>,
 }
 
 struct UuidV4Slot;
@@ -211,17 +157,6 @@ struct TimestampSlot {
 impl TemplateSlot for TimestampSlot {
     fn next_value(&mut self) -> String {
         Local::now().format(&self.format).to_string()
-    }
-}
-
-struct PickSlot {
-    values: Vec<String>,
-}
-
-impl TemplateSlot for PickSlot {
-    fn next_value(&mut self) -> String {
-        let i = fake_index(self.values.len());
-        self.values[i].clone()
     }
 }
 
@@ -349,12 +284,6 @@ impl TemplateSlot for CounterSlot {
     }
 }
 
-/// 嵌套模板槽：每轮先递归取子字段字符串，再渲染为本字段的一条字符串。
-struct CompositeTemplateSlot {
-    hb: Handlebars<'static>,
-    slots: BTreeMap<String, Box<dyn TemplateSlot>>,
-}
-
 impl TemplateSlot for CompositeTemplateSlot {
     fn next_value(&mut self) -> String {
         let mut map = Map::new();
@@ -365,11 +294,6 @@ impl TemplateSlot for CompositeTemplateSlot {
             .render("slot", &Value::Object(map))
             .unwrap_or_else(|e| format!("{{{{nested render: {e}}}}}"))
     }
-}
-
-fn fake_index(len: usize) -> usize {
-    debug_assert!(len > 0);
-    (0..len).fake::<usize>()
 }
 
 /// 将配置中的 `fields` 转成有序插槽（[`BTreeMap`] 保证键稳定顺序，便于测试）。

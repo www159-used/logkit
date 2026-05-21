@@ -1,0 +1,156 @@
+# ParserRule id=383 Firewall_Winicssec：syslog + usm_type + ^ 管道字段（主分支 usm_type=1）。
+body:
+  template: >-
+    <{{pri}}>{{times}} {{device_name}} {{usm_type}}|^{{uuid}}|^{{alert_type}}|^{{level}}|^{{alert_status}}|^{{result}}|^{{opinion}}|^{{handle_time}}|^{{sarttime}}|^{{endtime}}|^{{gateway}}|^{{gateway_ip}}|^{{src_ip}}|^{{src_dev}}|^{{src_port}}|^{{dst_ip}}|^{{dst_dev}}|^{{dst_port}}|^{{proto}}|^{{message}}|^{{isblock}}|^{{handler}}|^{{src_mac}}|^{{dst_mac}}|^{{gateway_id}}|^
+  fields:
+    pri:
+      type: integer
+      min: 1
+      max: 191
+    times:
+      type: timestamp
+      format: "%Y-%m-%d %H:%M:%S"
+    device_name:
+      type: hostname
+    usm_type:
+      type: one-of
+      branches:
+        - v: "1"
+        - v: "2"
+        - v: "3"
+    uuid:
+      type: uuid-v4
+    alert_type:
+      type: lorem-word
+    level:
+      type: one-of
+      branches:
+        - v: "1"
+        - v: "2"
+        - v: "3"
+        - v: "4"
+        - v: "5"
+    alert_status:
+      type: one-of
+      branches:
+        - v: "0"
+        - v: "1"
+    result:
+      type: one-of
+      branches:
+        - { w: 3, v: success }
+        - { w: 1, v: failure }
+    opinion:
+      type: one-of
+      branches:
+        - v: "-"
+        - template: "{{txt}}"
+          fields:
+            txt:
+              type: sentence
+              min: 2
+              max: 6
+    handle_time:
+      type: timestamp
+      format: "%Y-%m-%d %H:%M:%S"
+    sarttime:
+      type: timestamp
+      format: "%Y-%m-%d %H:%M:%S"
+    endtime:
+      type: timestamp
+      format: "%Y-%m-%d %H:%M:%S"
+    gateway:
+      type: hostname
+    gateway_ip:
+      type: ipv4
+    src_ip:
+      type: ipv4
+    src_dev:
+      type: hostname
+    src_port:
+      type: integer
+      min: 1
+      max: 65535
+    dst_ip:
+      type: ipv4
+    dst_dev:
+      type: hostname
+    dst_port:
+      type: integer
+      min: 1
+      max: 65535
+    proto:
+      type: one-of
+      branches:
+        - { w: 3, v: TCP }
+        - { w: 1, v: UDP }
+        - { w: 1, v: ICMP }
+    message:
+      type: sentence
+      min: 3
+      max: 10
+    isblock:
+      type: one-of
+      branches:
+        - v: "0"
+        - v: "1"
+    handler:
+      type: username
+    src_mac:
+      type: template
+      template: "{{a}}:{{b}}:{{c}}:{{d}}:{{e}}:{{f}}"
+      fields:
+        a:
+          type: integer
+          min: 0
+          max: 255
+        b:
+          type: integer
+          min: 0
+          max: 255
+        c:
+          type: integer
+          min: 0
+          max: 255
+        d:
+          type: integer
+          min: 0
+          max: 255
+        e:
+          type: integer
+          min: 0
+          max: 255
+        f:
+          type: integer
+          min: 0
+          max: 255
+    dst_mac:
+      type: template
+      template: "{{a}}:{{b}}:{{c}}:{{d}}:{{e}}:{{f}}"
+      fields:
+        a:
+          type: integer
+          min: 0
+          max: 255
+        b:
+          type: integer
+          min: 0
+          max: 255
+        c:
+          type: integer
+          min: 0
+          max: 255
+        d:
+          type: integer
+          min: 0
+          max: 255
+        e:
+          type: integer
+          min: 0
+          max: 255
+        f:
+          type: integer
+          min: 0
+          max: 255
+    gateway_id:
+      type: uuid-v4

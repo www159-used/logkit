@@ -1,0 +1,11 @@
+[package]
+name = "logen-branch"
+description = "Weighted discrete branch selection (built once at config compile time)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+rand = "0.8"
+rand_distr = "0.4"
+thiserror = { workspace = true }

@@ -1,6 +1,6 @@
 [package]
-name = "parse-client-conf"
-description = "Read client.conf and print ssl.* lines to stdout"
+name = "kafka-ssl-gen"
+description = "Read Kafka client.conf and write kafka.ssl.yaml sink config in cwd"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,5 +9,5 @@ license.workspace = true
 resolve-oem = { path = "../resolve-oem" }
 
 [[bin]]
-name = "parse_client_conf"
+name = "kafka-ssl-gen"
 path = "src/main.rs"

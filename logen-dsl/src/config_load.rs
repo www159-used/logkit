@@ -1,4 +1,4 @@
-//! 解析 worker YAML：`include` 展开、`body` 整包合并、`sink` 深合并。
+//! 解析 worker YAML：`include` 展开、`body` 整包合并、`sink` 深合并；日志体须写在 `body:` 下。
 
 use std::path::{Component, Path, PathBuf};
 
@@ -168,9 +168,13 @@ pub fn load_worker_config(config_path: &Path) -> Result<WorkerConfig, ConfigPars
     let mut stack = Vec::new();
     let mut doc = load_document(&entry, &anchor, &mut stack, 0)?;
 
-    flatten_body_to_root(&mut doc).map_err(ConfigParseError::Merge)?;
+    worker_config_from_document(&mut doc)
+}
 
-    let cfg: WorkerConfig = serde_yaml::from_value(doc)?;
+/// 将已合并的 YAML 文档（须含 `body:`）转为 [`WorkerConfig`]。
+pub fn worker_config_from_document(doc: &mut Value) -> Result<WorkerConfig, ConfigParseError> {
+    flatten_body_to_root(doc).map_err(ConfigParseError::Merge)?;
+    let cfg: WorkerConfig = serde_yaml::from_value(doc.clone())?;
     validate_sink(&cfg.sink)?;
     Ok(cfg)
 }

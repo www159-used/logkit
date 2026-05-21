@@ -4,7 +4,10 @@
 # 若只需验证 TLS 与 metadata、不写 topic，请用集成测试（本文件即其 Kafka 配置来源）：
 #   cargo test -p logen-worker --test kafka_probe kafka_probe_metadata_and_optional_produce -- --ignored --nocapture
 
-template: "logen tls smoke line"
+body:
+  template: "logen tls smoke line"
+  fields: {}
+
 min-interval: 60000
 
 sink:

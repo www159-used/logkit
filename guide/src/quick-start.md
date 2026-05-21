@@ -5,18 +5,22 @@
 请编辑一个yaml，简单起见我们使用stdout模式
 
 ```yaml
-template: "{{ts}} {{ip}} {{status}} {{path}}"
-fields:
-  ts:
-    type: timestamp
-    format: "%Y-%m-%dT%H:%M:%S%z"
-  ip:
-    type: ipv4
-  status:
-    type: pick
-    values: [200, 200, 404, 500]
-  path:
-    type: url-path
+body:
+  template: "{{ts}} {{ip}} {{status}} {{path}}"
+  fields:
+    ts:
+      type: timestamp
+      format: "%Y-%m-%dT%H:%M:%S%z"
+    ip:
+      type: ipv4
+    status:
+      type: one-of
+      branches:
+        - { w: 2, v: "200" }
+        - { w: 1, v: "404" }
+        - { w: 1, v: "500" }
+    path:
+      type: url-path
 sink:
   type: stdout
 ```

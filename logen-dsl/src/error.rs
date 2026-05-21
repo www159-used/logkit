@@ -4,10 +4,10 @@ use thiserror::Error;
 pub enum Error {
     #[error("template string must be non-empty")]
     EmptyTemplate,
-    #[error("pick: values list must be non-empty")]
-    EmptyPickList,
     #[error("one-of: branches list must be non-empty")]
     EmptyOneOfBranches,
+    #[error("one-of: {0}")]
+    Branch(#[from] logen_branch::BranchError),
     #[error("integer: min ({min}) > max ({max})")]
     InvalidIntegerRange { min: i64, max: i64 },
     #[error("sentence: min ({min}) > max ({max})")]

@@ -1,0 +1,75 @@
+# Combined + XFF（Middleware_Apache / ApcXForward，字段 x_forward）
+body:
+  template: >-
+    {{src_ip}} - {{user}} [{{timestamp}}] "{{method}} {{dst}} HTTP/1.1" {{status}} {{bytes}}
+    "{{referer}}" "{{ua}}" "{{x_forward}}"
+  fields:
+    src_ip:
+      type: ipv4
+    user:
+      type: one-of
+      branches:
+        - { w: 2, v: "-" }
+        - template: "{{u}}"
+          fields:
+            u:
+              type: username
+    timestamp:
+      type: timestamp
+      format: "%d/%b/%Y:%H:%M:%S %z"
+    method:
+      type: one-of
+      branches:
+        - { w: 3, v: GET }
+        - { w: 1, v: POST }
+        - { w: 1, v: HEAD }
+    dst:
+      type: one-of
+      branches:
+        - template: "/fig?type={{t}}"
+          fields:
+            t:
+              type: one-of
+              branches:
+                - v: black
+                - v: white
+                - v: gray
+        - template: "{{path}}"
+          fields:
+            path:
+              type: url-path
+    status:
+      type: one-of
+      branches:
+        - { w: 3, v: "200" }
+        - { w: 1, v: "404" }
+        - { w: 1, v: "301" }
+        - { w: 1, v: "500" }
+    bytes:
+      type: counter
+    referer:
+      type: one-of
+      branches:
+        - { w: 3, v: "-" }
+        - template: "https://{{host}}{{path}}"
+          fields:
+            host:
+              type: hostname
+            path:
+              type: url-path
+    ua:
+      type: user-agent
+    x_forward:
+      type: one-of
+      branches:
+        - { w: 2, v: "-" }
+        - template: "{{client}}"
+          fields:
+            client:
+              type: ipv4
+        - template: "{{hop1}}, {{hop2}}"
+          fields:
+            hop1:
+              type: ipv4
+            hop2:
+              type: ipv4

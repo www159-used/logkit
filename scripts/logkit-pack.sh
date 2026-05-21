@@ -31,7 +31,7 @@ copy_pack_install() {
   chmod +x "$dest_root/install.sh"
 }
 
-TOOL_BINS=(parse_client_conf mysql_local pullout jumpserver)
+TOOL_BINS=(kafka-ssl-gen mysql_local pullout jumpserver)
 
 copy_pack_tools() {
   local dest_root="$1"
@@ -59,7 +59,7 @@ pack_native_dir() {
   fi
   cp "$ROOT/target/release/logen" "$ROOT/target/release/logend" "$dist/bin/"
   copy_pack_tools "$dist" "$ROOT/target/release"
-  cp "$ROOT/etc/"* "$dist/etc/"
+  cp -R "$ROOT/etc/." "$dist/etc/"
   copy_pack_install "$dist"
   chmod +x "$dist/bin/logen" "$dist/bin/logend"
   echo "packed -> $dist"
@@ -196,7 +196,7 @@ pack_linux_tarball() {
   fi
   cp "$release_dir/logen" "$release_dir/logend" "$stage/bin/"
   copy_pack_tools "$stage" "$release_dir"
-  cp "$ROOT/etc/"* "$stage/etc/"
+  cp -R "$ROOT/etc/." "$stage/etc/"
   copy_pack_install "$stage"
   chmod +x "$stage/bin/logen" "$stage/bin/logend"
   find "$parent" -name '._*' -delete 2>/dev/null || true

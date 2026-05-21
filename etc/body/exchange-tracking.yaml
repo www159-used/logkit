@@ -1,0 +1,133 @@
+# ParserRule id=521 Exchange_Tracking（CSV，与 527 exchange邮件追踪 同族）。
+body:
+  template: >-
+    {{date_time}},{{client_ip}},{{client_hostname}},{{server_ip}},{{server_hostname}},{{source_context}},{{connector_id}},{{source}},{{event_id}},{{internal_message_id}},{{message_id}},{{recipient_address}},{{recipient_status}},{{total_bytes}},{{recipient_count}},{{related_recipient_address}},{{reference}},{{message_subject}},{{sender_address}},{{return_path}},{{message_info}},{{directionality}},{{tenant_id}},{{original_client_ip}},{{original_server_ip}},{{custom_data}}
+  fields:
+    date_time:
+      type: timestamp
+      format: "%Y-%m-%d %H:%M:%S"
+    client_ip:
+      type: ipv4
+    client_hostname:
+      type: hostname
+    server_ip:
+      type: ipv4
+    server_hostname:
+      type: hostname
+    source_context:
+      type: one-of
+      branches:
+        - v: "SMTP"
+        - v: "MAPI"
+        - v: "Agent"
+    connector_id:
+      type: uuid-v4
+    source:
+      type: one-of
+      branches:
+        - v: SMTP
+        - v: StoreDriver
+        - v: Agent
+    event_id:
+      type: uuid-v4
+    internal_message_id:
+      type: uuid-v4
+    message_id:
+      type: uuid-v4
+    recipient_address:
+      type: template
+      template: "{{user}}@{{domain}}"
+      fields:
+        user:
+          type: username
+        domain:
+          type: hostname
+    recipient_status:
+      type: one-of
+      branches:
+        - { w: 3, v: Delivered }
+        - { w: 1, v: Failed }
+        - { w: 1, v: Pending }
+    total_bytes:
+      type: integer
+      min: 100
+      max: 5000000
+    recipient_count:
+      type: integer
+      min: 1
+      max: 50
+    related_recipient_address:
+      type: one-of
+      branches:
+        - v: ""
+        - template: "{{user}}@{{domain}}"
+          fields:
+            user:
+              type: username
+            domain:
+              type: hostname
+    reference:
+      type: one-of
+      branches:
+        - v: ""
+        - template: "<{{msg_id}}@{{host}}>"
+          fields:
+            msg_id:
+              type: uuid-v4
+            host:
+              type: hostname
+    message_subject:
+      type: sentence
+      min: 2
+      max: 12
+    sender_address:
+      type: template
+      template: "{{user}}@{{domain}}"
+      fields:
+        user:
+          type: username
+        domain:
+          type: hostname
+    return_path:
+      type: one-of
+      branches:
+        - v: ""
+        - template: "{{user}}@{{domain}}"
+          fields:
+            user:
+              type: username
+            domain:
+              type: hostname
+    message_info:
+      type: one-of
+      branches:
+        - v: ""
+        - template: "{{code}};{{detail}}"
+          fields:
+            code:
+              type: integer
+              min: 200
+              max: 599
+            detail:
+              type: lorem-word
+    directionality:
+      type: one-of
+      branches:
+        - v: Incoming
+        - v: Originating
+    tenant_id:
+      type: uuid-v4
+    original_client_ip:
+      type: ipv4
+    original_server_ip:
+      type: ipv4
+    custom_data:
+      type: one-of
+      branches:
+        - v: ""
+        - template: "ClientHostname={{host}};ServerHostname={{srv}}"
+          fields:
+            host:
+              type: hostname
+            srv:
+              type: hostname

@@ -1,0 +1,69 @@
+# ParserRule id=671 IPS_Nsfocus：长 key=value / 分号分隔（主 grok 攻击事件形态）。
+body:
+  template: >-
+    nsfocus:2 {{local}} ips:{{timestamp}};danger_degree:{{level}};breaking_sighn:{{breaking}};event:[{{event_id}}]{{event_name}};src_addr:{{src_ip}};src_port:{{src_port}};dst_addr:{{dst_ip}};dst_port: {{dst_port}};user:admin;proto:{{proto}}
+  fields:
+    local:
+      type: hostname
+    timestamp:
+      type: timestamp
+      format: "%Y/%m/%d %H:%M:%S"
+    level:
+      type: integer
+      min: 1
+      max: 5
+    breaking:
+      type: one-of
+      branches:
+        - v: "0"
+        - v: "1"
+    event_id:
+      type: template
+      template: "{{a}}_{{b}}"
+      fields:
+        a:
+          type: integer
+          min: 10000
+          max: 99999
+        b:
+          type: integer
+          min: 1
+          max: 999
+    event_name:
+      type: template
+      template: "{{name}}({{cve}})"
+      fields:
+        name:
+          type: lorem-word
+        cve:
+          type: template
+          template: "CVE-{{y}}-{{n}}"
+          fields:
+            y:
+              type: integer
+              min: 2018
+              max: 2026
+            n:
+              type: integer
+              min: 1000
+              max: 99999
+    src_ip:
+      type: ipv4
+    src_port:
+      type: integer
+      min: 1024
+      max: 65535
+    dst_ip:
+      type: ipv4
+    dst_port:
+      type: one-of
+      branches:
+        - v: "80"
+        - v: "443"
+        - v: "8080"
+        - v: "8443"
+    proto:
+      type: one-of
+      branches:
+        - { w: 3, v: tcp }
+        - { w: 1, v: udp }

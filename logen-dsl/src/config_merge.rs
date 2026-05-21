@@ -32,23 +32,7 @@ pub fn merge_worker_documents(base: &mut Value, over: Value) {
 }
 
 fn extract_body_fragment(map: &serde_yaml::Mapping) -> Option<Value> {
-    if let Some(body) = map.get(KEY_BODY) {
-        return Some(body.clone());
-    }
-    if map.contains_key(KEY_TEMPLATE) || map.contains_key(KEY_FIELDS) {
-        let mut body = serde_yaml::Mapping::new();
-        if let Some(t) = map.get(KEY_TEMPLATE) {
-            body.insert(
-                Value::String(KEY_TEMPLATE.into()),
-                t.clone(),
-            );
-        }
-        if let Some(f) = map.get(KEY_FIELDS) {
-            body.insert(Value::String(KEY_FIELDS.into()), f.clone());
-        }
-        return Some(Value::Mapping(body));
-    }
-    None
+    map.get(KEY_BODY).cloned()
 }
 
 fn set_body_on_document(doc: &mut Value, body: Value) {
@@ -122,14 +106,24 @@ fn set_mapping_entry(doc: &mut Value, key: &str, value: Value) {
     map.insert(Value::String(key.into()), value);
 }
 
-/// 将文档中的 `body` 提升为顶层 `template` / `fields`，供 `WorkerConfig` 反序列化。
+/// 将 `body` 提升为顶层 `template` / `fields`，供 `WorkerConfig` 反序列化。
 pub fn flatten_body_to_root(doc: &mut Value) -> Result<(), String> {
-    let body = match doc {
-        Value::Mapping(m) => m.remove(Value::String(KEY_BODY.into())),
-        _ => None,
+    let Value::Mapping(root) = doc else {
+        return Err("worker config root must be a mapping".into());
     };
-    let Some(Value::Mapping(body_map)) = body else {
-        return Ok(());
+
+    if root.contains_key(Value::String(KEY_TEMPLATE.into()))
+        || root.contains_key(Value::String(KEY_FIELDS.into()))
+    {
+        return Err(
+            "top-level `template` / `fields` are not supported; wrap them under `body:`".into(),
+        );
+    }
+
+    let Some(Value::Mapping(body_map)) = root.remove(Value::String(KEY_BODY.into())) else {
+        return Err(
+            "`body` is required (include a fragment with `body.template` and `body.fields`)".into(),
+        );
     };
 
     let template = body_map
@@ -140,9 +134,6 @@ pub fn flatten_body_to_root(doc: &mut Value) -> Result<(), String> {
         .cloned()
         .unwrap_or(Value::Mapping(serde_yaml::Mapping::new()));
 
-    let Value::Mapping(root) = doc else {
-        return Err("worker config root must be a mapping".into());
-    };
     root.insert(Value::String(KEY_TEMPLATE.into()), template.clone());
     root.insert(Value::String(KEY_FIELDS.into()), fields);
     Ok(())
@@ -241,40 +232,34 @@ sink:
 
     #[test]
     fn threads_overrides_base() {
-        let mut acc = parse(
-            r#"
-threads: 1
-template: "x"
-fields: {}
-"#,
-        );
+        let mut acc = parse("threads: 1");
         merge_worker_documents(&mut acc, parse("threads: 8"));
         assert_eq!(acc.get(KEY_THREADS).unwrap().as_u64().unwrap(), 8);
     }
 
     #[test]
-    fn implicit_template_fields_treated_as_body() {
-        let mut acc = parse(
+    fn flatten_rejects_top_level_template_fields() {
+        let mut doc = parse(
             r#"
-template: "x={{c}}"
-fields:
-  c: { type: counter }
+template: "x"
+fields: {}
+sink:
+  type: stdout
 "#,
         );
-        merge_worker_documents(
-            &mut acc,
-            parse(
-                r#"
-template: "y={{d}}"
-fields:
-  d: { type: counter }
+        let err = flatten_body_to_root(&mut doc).unwrap_err();
+        assert!(err.contains("top-level"));
+    }
+
+    #[test]
+    fn flatten_requires_body() {
+        let mut doc = parse(
+            r#"
+sink:
+  type: stdout
 "#,
-            ),
         );
-        flatten_body_to_root(&mut acc).unwrap();
-        assert_eq!(
-            acc.get(KEY_TEMPLATE).unwrap().as_str().unwrap(),
-            "y={{d}}"
-        );
+        let err = flatten_body_to_root(&mut doc).unwrap_err();
+        assert!(err.contains("`body` is required"));
     }
 }

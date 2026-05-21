@@ -1,0 +1,82 @@
+# ParserRule id=443 CyberArk日志解析：syslog + CEF 扩展（act/suser/cs* 等）。
+body:
+  template: >-
+    <{{pri}}>0 {{time}} {{device_name}} CEF:{{cef_ver}}|{{device}}|{{device_action}}|{{device_version}}|{{log_typenum}}|{{action_name}}|{{severity}}|act={{act}} suser={{suser}} fname={{fname}} dvc={{dvc}} shost={{shost}} dhost={{dhost}} duser={{duser}} externalId={{external_id}} app={{app}} reason={{reason}} cs1Label={{cs1_label}} cs1={{cs1}} cs2Label={{cs2_label}} cs2={{cs2}} msg={{msg}}
+  fields:
+    pri:
+      type: integer
+      min: 1
+      max: 191
+    time:
+      type: timestamp
+      format: "%Y-%m-%dT%H:%M:%SZ"
+    device_name:
+      type: hostname
+    cef_ver:
+      type: one-of
+      branches:
+        - v: "0"
+        - v: "1"
+    device:
+      type: company-name
+    device_action:
+      type: lorem-word
+    device_version:
+      type: one-of
+      branches:
+        - v: "1.0"
+        - v: "2.0"
+    log_typenum:
+      type: integer
+      min: 1
+      max: 99
+    action_name:
+      type: lorem-word
+    severity:
+      type: integer
+      min: 0
+      max: 10
+    act:
+      type: lorem-word
+    suser:
+      type: username
+    fname:
+      type: url-path
+    dvc:
+      type: ipv4
+    shost:
+      type: hostname
+    dhost:
+      type: hostname
+    duser:
+      type: username
+    external_id:
+      type: uuid-v4
+    app:
+      type: one-of
+      branches:
+        - v: CyberArk
+        - v: PVWA
+        - v: CPM
+    reason:
+      type: sentence
+      min: 2
+      max: 8
+    cs1_label:
+      type: one-of
+      branches:
+        - v: SessionID
+        - v: Safe
+    cs1:
+      type: uuid-v4
+    cs2_label:
+      type: one-of
+      branches:
+        - v: Target
+        - v: Policy
+    cs2:
+      type: lorem-word
+    msg:
+      type: sentence
+      min: 3
+      max: 12
