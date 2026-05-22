@@ -54,4 +54,4 @@
 ## 相关文档
 
 - 客户端与 daemon：**[`logen`](../logen/README.md)**、**[`logend`](../logend/README.md)**  
--实例 YAML 语法：**[`logen-dsl` 规范](../logen-dsl/guide/src/intro.md)**（`mdbook build` 见该目录）  
+-实例 YAML 语法：**[`logen-dsl` 规范](../guide/src/logen-dsl/intro.md)**（`cd guide && mdbook build`）  

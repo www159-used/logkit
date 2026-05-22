@@ -10,7 +10,7 @@ logen start CONFIG.yaml
 
 | 参数 | 说明 |
 |------|------|
-| **CONFIG.yaml** | 实例配置文件路径；须含 `template`、`fields`、`sink` 等（见 [logen-dsl](../../logen-dsl/guide/book/index.html)） |
+| **CONFIG.yaml** | 实例配置文件路径；须含 `template`、`fields`、`sink` 等（见 [logen-dsl](../../../guide/book/logen-dsl/)） |
 
 ## 行为
 
@@ -32,7 +32,7 @@ f47ac10b-58cc-4372-a567-0e02b2c3d479    started
 
 - **TOML** 中 **`[worker].worker_output_dir`** 必须已配置（`logend` 启动时会校验）。
 - **`sink.type: file`** 时，`output` 为相对 **`worker_output_dir`** 的路径。
-- **`sink.type: kafka`** 时，需 broker、TLS 等满足 [logen-dsl · Kafka](../../logen-dsl/guide/src/manual/kafka.md)。
+- **`sink.type: kafka`** 时，需 broker、TLS 等满足 [logen-dsl · Kafka](../../../guide/book/logen-dsl/sink/kafka.html)。
 
 ## 消息大小
 
@@ -40,6 +40,6 @@ f47ac10b-58cc-4372-a567-0e02b2c3d479    started
 
 ## 相关
 
-- YAML 语法：[logen-dsl · 实例配置](../../logen-dsl/guide/src/reference/instance.md)
+- YAML 语法：[logen-dsl · 实例配置](../../../guide/book/logen-dsl/reference/instance.html)
 - 查看运行中配置：[cat](cat.md)
 - 停止：[stop](stop.md)

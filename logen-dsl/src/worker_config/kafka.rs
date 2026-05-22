@@ -6,7 +6,6 @@ use serde::de::Error;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_yaml::Value;
 
-/// `acks` / `timeout-ms` 等：YAML 里可写字符串或未加引号的数字，统一落成 `Option<String>`。
 fn deserialize_optional_scalar_string<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
 where
     D: Deserializer<'de>,
@@ -99,7 +98,7 @@ pub struct KafkaAgentConfig {
     pub extras: BTreeMap<String, Value>,
 }
 
-/// `sink.kafka:`：已知字段映射到结构体；**未建模的键**落入 **`extras`**（便于整段粘贴 Java client / 其它扩展键）。
+/// `sink.kafka:`：logen 语义字段 + librdkafka 键名；其余落入 **`extras`**。
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct KafkaConfig {
     #[serde(default)]
@@ -121,18 +120,31 @@ pub struct KafkaConfig {
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
+        rename = "request.required.acks",
         deserialize_with = "deserialize_optional_scalar_string"
     )]
-    pub acks: Option<String>,
+    pub request_required_acks: Option<String>,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
-        rename = "timeout-ms",
+        rename = "message.timeout.ms",
         deserialize_with = "deserialize_optional_scalar_string"
     )]
-    pub timeout_ms: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub compression: Option<String>,
+    pub message_timeout_ms: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "delivery.timeout.ms",
+        deserialize_with = "deserialize_optional_scalar_string"
+    )]
+    pub delivery_timeout_ms: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "compression.type",
+        deserialize_with = "deserialize_optional_scalar_string"
+    )]
+    pub compression_type: Option<String>,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -313,7 +325,7 @@ kafka:
         assert_eq!(k.mode, KafkaSinkMode::Common);
         assert_eq!(k.topic.as_deref(), Some("t1"));
         assert_eq!(k.brokers, Some(vec!["127.0.0.1:9092".to_string()]));
-        assert!(k.acks.is_none());
+        assert!(k.request_required_acks.is_none());
     }
 
     #[test]
@@ -390,17 +402,17 @@ kafka:
   topic: t1
   security-protocol: SSL
   ssl-ca-location: /tmp/ca.pem
-  acks: all
-  timeout-ms: 12000
-  compression: gzip
+  request.required.acks: all
+  message.timeout.ms: 12000
+  compression.type: gzip
   client.id: logen-test
   metadata.max.age.ms: 300000
 "#;
         let w: Wrap = serde_yaml::from_str(y).unwrap();
         let k = &w.kafka;
-        assert_eq!(k.acks.as_deref(), Some("all"));
-        assert_eq!(k.timeout_ms.as_deref(), Some("12000"));
-        assert_eq!(k.compression.as_deref(), Some("gzip"));
+        assert_eq!(k.request_required_acks.as_deref(), Some("all"));
+        assert_eq!(k.message_timeout_ms.as_deref(), Some("12000"));
+        assert_eq!(k.compression_type.as_deref(), Some("gzip"));
         assert_eq!(k.security_protocol.as_deref(), Some("SSL"));
         assert_eq!(k.ssl_ca_location.as_deref(), Some("/tmp/ca.pem"));
     }
@@ -411,10 +423,10 @@ kafka:
 kafka:
   brokers: ["b:9092"]
   topic: t
-  acks: -1
+  request.required.acks: -1
 "#;
         let w: Wrap = serde_yaml::from_str(y).unwrap();
-        assert_eq!(w.kafka.acks.as_deref(), Some("-1"));
+        assert_eq!(w.kafka.request_required_acks.as_deref(), Some("-1"));
     }
 
     #[test]

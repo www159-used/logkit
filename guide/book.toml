@@ -2,7 +2,17 @@
 title = "logkit"
 description = "日志调试工具包"
 authors = ["ww"]
-language = "zh-CN"
+language = "zh-Hans"
 
 [build]
 build-dir = "book"
+
+[output.html]
+default-theme = "light"
+preferred-dark-theme = "navy"
+additional-js = ["mermaid.min.js", "mermaid-init.js"]
+
+[preprocessor]
+
+[preprocessor.mermaid]
+command = "mdbook-mermaid"

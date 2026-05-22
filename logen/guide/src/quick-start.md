@@ -27,7 +27,7 @@ sink:
   type: stdout
 ```
 
-字段与 sink 的完整说明见 **[logen-dsl](../../logen-dsl/guide/book/index.html)**。
+字段与 sink 的完整说明见 **[logen-dsl](../../guide/book/logen-dsl/)**。
 
 ## 2. 启动 logend
 
@@ -73,4 +73,4 @@ sink:
 ./target/release/logen start etc/json.kafka.yaml
 ```
 
-Kafka 类示例需可达的 broker 与 TLS 材料；见 [logen-dsl · Kafka 模式](../../logen-dsl/guide/src/manual/kafka.md)。
+Kafka 类示例需可达的 broker 与 TLS 材料；见 [logen-dsl · Kafka 输出](../../guide/book/logen-dsl/sink/kafka.html)。

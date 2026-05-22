@@ -33,7 +33,7 @@ CLI 在本地报错（read / parse / validate），未得到 id。
 
 **处理**
 
-- 对照 [logen-dsl](../../logen-dsl/guide/book/index.html) 检查 `template`、`fields`、`sink`。
+- 对照 [logen-dsl](../../guide/book/logen-dsl/) 检查 `template`、`fields`、`sink`。
 - `sink.type: file` 须非空 **`output`**；`kafka` 须 brokers、topic（或 agent 模式）等。
 
 ## start 失败：gRPC / message size
@@ -76,4 +76,4 @@ daemon 侧拒绝或客户端报 message too large。
 
 - [logend README](../../../logend/README.md)
 - [logen-config README](../../../logen-config/README.md)
-- [logen-dsl 规范](../../logen-dsl/guide/book/index.html)
+- [logen-dsl 规范](../../guide/book/logen-dsl/)

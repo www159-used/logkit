@@ -117,7 +117,7 @@ async fn run_worker_loop(
     let WorkerConfig {
         template,
         fields,
-        min_interval_ms,
+        min_interval,
         sink,
         ..
     } = cfg;
@@ -127,8 +127,20 @@ async fn run_worker_loop(
     let mut runner = TemplateRunner::try_new(template, fields)
         .map_err(|e| anyhow::anyhow!("{config_name}: template runner: {e}"))?;
 
-    let sleep = Duration::from_millis(min_interval_ms.max(1));
-    let mut tick = tokio::time::interval(sleep);
+    if min_interval.is_zero() {
+        loop {
+            let line = runner
+                .next_line()
+                .map_err(|e| anyhow::anyhow!("{config_name}: render: {e}"))?;
+            events.fetch_add(1, Ordering::Relaxed);
+            line_sink
+                .emit_line(&line)
+                .await
+                .with_context(|| format!("{config_name}: emit"))?;
+        }
+    }
+
+    let mut tick = tokio::time::interval(min_interval);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
         tick.tick().await;

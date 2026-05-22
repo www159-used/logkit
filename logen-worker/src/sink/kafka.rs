@@ -23,7 +23,6 @@ fn cfg_err(msg: impl Into<String>) -> KafkaConfigError {
     KafkaConfigError::new(msg)
 }
 
-// 内置 producer 调优（Java 对照见 logen-dsl guide sink.md#kafka-builtin-producer）。
 const PRODUCER_QUEUE_MAX_KBYTES: &str = "65536";
 const PRODUCER_BATCH_SIZE: &str = "65536";
 const PRODUCER_LINGER_MS: &str = "10";
@@ -52,7 +51,6 @@ fn yaml_value_to_config_string(v: &Value) -> Option<String> {
     }
 }
 
-/// `sink.kafka` 未建模键（`extras`）透传到 librdkafka，可覆盖内置调优。
 fn apply_kafka_extras(cfg: &mut ClientConfig, extras: &BTreeMap<String, Value>) {
     for (k, v) in extras {
         let key = k.trim();
@@ -275,7 +273,7 @@ fn required_acks_rdkafka(v: Option<&str>) -> Result<&'static str, KafkaConfigErr
             0 => Ok("0"),
             1 => Ok("1"),
             _ => Err(cfg_err(format!(
-                "kafka.acks: unsupported integer {n} (expected -1, 0, or 1)"
+                "kafka.request.required.acks: unsupported integer {n} (expected -1, 0, or 1)"
             ))),
         };
     }
@@ -283,7 +281,9 @@ fn required_acks_rdkafka(v: Option<&str>) -> Result<&'static str, KafkaConfigErr
         "1" | "leader" | "one" => Ok("1"),
         "all" => Ok("all"),
         "none" | "0" => Ok("0"),
-        _ => Err(cfg_err(format!("kafka.acks: unknown string {s:?}"))),
+        _ => Err(cfg_err(format!(
+            "kafka.request.required.acks: unknown string {s:?}"
+        ))),
     }
 }
 
@@ -297,7 +297,6 @@ fn normalize_brokers(k: &KafkaConfig) -> Vec<String> {
         .collect()
 }
 
-/// librdkafka `compression.type`：none、gzip、snappy、lz4、zstd。
 fn compression_rdkafka(cs: Option<&str>) -> Result<Option<&'static str>, KafkaConfigError> {
     let Some(raw) = cs else {
         return Ok(None);
@@ -314,7 +313,7 @@ fn compression_rdkafka(cs: Option<&str>) -> Result<Option<&'static str>, KafkaCo
         "zstd" => "zstd",
         other => {
             return Err(cfg_err(format!(
-                "kafka.compression: unknown or unsupported {other:?} (try none, gzip, snappy, lz4, zstd)"
+                "kafka.compression.type: unknown or unsupported {other:?} (try none, gzip, snappy, lz4, zstd)"
             )));
         }
     }))
@@ -325,12 +324,12 @@ fn parse_timeout_ms(s: Option<&str>) -> Result<u64, KafkaConfigError> {
         return Ok(30_000);
     };
     s.parse::<u64>().map_err(|_| {
-        cfg_err("kafka.timeout-ms: invalid string (expected positive integer ms)")
+        cfg_err("kafka.message.timeout.ms: invalid string (expected positive integer ms)")
     })
 }
 
-fn timeout_ms_from_kafka(k: &KafkaConfig) -> Result<u64, KafkaConfigError> {
-    parse_timeout_ms(k.timeout_ms.as_deref())
+fn delivery_timeout_ms_default(message_ms: u64) -> u64 {
+    message_ms.saturating_add(5000).max(10_000)
 }
 
 fn kafka_transport_mode(k: &KafkaConfig) -> Result<KafkaTransportMode, KafkaConfigError> {
@@ -385,21 +384,37 @@ fn build_rdkafka_client_config(
         .into());
     }
 
-    let timeout_ms = timeout_ms_from_kafka(k)?;
-
     let mut cfg = ClientConfig::new();
     apply_builtin_producer_profile(&mut cfg);
     cfg.set("bootstrap.servers", brokers.join(","));
     cfg.set("client.id", "logen-worker");
     cfg.set("log.connection.close", "false");
-    cfg.set("message.timeout.ms", timeout_ms.to_string());
-    cfg.set(
-        "delivery.timeout.ms",
-        timeout_ms.saturating_add(5000).max(10_000).to_string(),
-    );
-    cfg.set("request.required.acks", required_acks_rdkafka(k.acks.as_deref())?);
-    if let Some(ct) = compression_rdkafka(k.compression.as_deref())? {
-        cfg.set("compression.type", ct);
+
+    if !k.extras.contains_key("message.timeout.ms") {
+        let message_ms = parse_timeout_ms(k.message_timeout_ms.as_deref())?;
+        cfg.set("message.timeout.ms", message_ms.to_string());
+        if !k.extras.contains_key("delivery.timeout.ms") {
+            let delivery_ms = match k.delivery_timeout_ms.as_deref() {
+                Some(s) => parse_timeout_ms(Some(s))?,
+                None => delivery_timeout_ms_default(message_ms),
+            };
+            cfg.set("delivery.timeout.ms", delivery_ms.to_string());
+        }
+    } else if !k.extras.contains_key("delivery.timeout.ms") {
+        let delivery_ms = parse_timeout_ms(k.delivery_timeout_ms.as_deref())?;
+        cfg.set("delivery.timeout.ms", delivery_ms.to_string());
+    }
+
+    if !k.extras.contains_key("request.required.acks") {
+        cfg.set(
+            "request.required.acks",
+            required_acks_rdkafka(k.request_required_acks.as_deref())?,
+        );
+    }
+    if !k.extras.contains_key("compression.type") {
+        if let Some(ct) = compression_rdkafka(k.compression_type.as_deref())? {
+            cfg.set("compression.type", ct);
+        }
     }
 
     match transport {
@@ -585,15 +600,41 @@ mod producer_profile_tests {
         );
     }
 
+    /// 测试内容：YAML `compression.type` 覆盖内置 lz4。
+    /// 输入：`compression.type: gzip`。
+    /// 预期：librdkafka 配置为 `gzip`。
     #[test]
-    fn yaml_compression_overrides_builtin_lz4() {
+    fn yaml_compression_type_overrides_builtin_lz4() {
         let k = KafkaConfig {
-            compression: Some("gzip".into()),
+            compression_type: Some("gzip".into()),
             ..minimal_plaintext_kafka()
         };
         let (cfg, _) =
             build_rdkafka_client_config(&k, KafkaTransportMode::Plaintext).unwrap();
         assert_eq!(cfg.get("compression.type").map(String::from), Some("gzip".to_string()));
+    }
+
+    /// 测试内容：extras 中 `compression.type` 覆盖一等字段。
+    /// 输入：字段 `gzip`，extras `zstd`。
+    /// 预期：最终为 `zstd`。
+    #[test]
+    fn extras_compression_type_overrides_field() {
+        let mut extras = BTreeMap::new();
+        extras.insert(
+            "compression.type".into(),
+            Value::String("zstd".into()),
+        );
+        let k = KafkaConfig {
+            compression_type: Some("gzip".into()),
+            extras,
+            ..minimal_plaintext_kafka()
+        };
+        let (cfg, _) =
+            build_rdkafka_client_config(&k, KafkaTransportMode::Plaintext).unwrap();
+        assert_eq!(
+            cfg.get("compression.type").map(String::from),
+            Some("zstd".to_string())
+        );
     }
 
     #[test]

@@ -95,7 +95,7 @@ mod tests {
         WorkerConfig {
             template: template.into(),
             fields,
-            min_interval_ms: 1000,
+            min_interval: std::time::Duration::from_secs(1),
             threads: 1,
             sink: sink_stdout(),
         }
@@ -152,7 +152,7 @@ mod tests {
     }
 
     /// 测试内容：`parse_worker_config` 后 `TemplateRunner` 对最小 counter 模板渲染首行。
-    /// 输入：`min-interval: 1`、`stdout` sink、模板 `x={{c}}`、字段 `counter`。
+    /// 输入：`min-interval: 1ms`、`stdout` sink、模板 `x={{c}}`、字段 `counter`。
     /// 预期：首行为 `x=0`。
     #[test]
     fn parse_worker_config_minimal_counter_template_renders() {
@@ -160,7 +160,7 @@ mod tests {
 sink:
   type: stdout
 template: "x={{c}}"
-min-interval: 1
+min-interval: 1ms
 fields:
   c:
     type: counter
@@ -226,18 +226,18 @@ fields: {}
 
     /// 测试内容：扩展名为 `.yaml` 时走完整解析路径（含 `min-interval` 等）。
     /// 输入：`example.yaml` 与合法 worker 配置片段。
-    /// 预期：`min_interval_ms == 2`。
+    /// 预期：`min_interval == 2ms`。
     #[test]
     fn parse_worker_config_yaml_by_extension() {
         let raw = r#"sink:
   type: stdout
 template: "a={{c}}"
-min-interval: 2
+min-interval: 2ms
 fields:
   c: { type: counter }
 "#;
         let c = parse_worker_config(Path::new("example.yaml"), raw).unwrap();
-        assert_eq!(c.min_interval_ms, 2);
+        assert_eq!(c.min_interval, std::time::Duration::from_millis(2));
     }
 
     /// 测试内容：非 `.yaml` 扩展名被拒绝。
@@ -278,7 +278,7 @@ fields: {}
 sink:
   type: stdout
 template: "{{sd}}"
-min-interval: 1
+min-interval: 1ms
 fields:
   sd:
     type: template
@@ -324,7 +324,7 @@ fields:
             .into_iter()
             .collect(),
         );
-        c.min_interval_ms = 1;
+        c.min_interval = std::time::Duration::from_millis(1);
         let mut r = try_runner(c);
         assert_eq!(r.next_line().unwrap(), "fixed");
     }
@@ -338,7 +338,7 @@ fields:
 sink:
   type: stdout
 template: "{{x}}"
-min-interval: 1
+min-interval: 1ms
 fields:
   x:
     type: one-of
@@ -384,7 +384,7 @@ fields:
             .into_iter()
             .collect(),
         );
-        c.min_interval_ms = 1;
+        c.min_interval = std::time::Duration::from_millis(1);
         assert!(TemplateRunner::try_new(c.template, c.fields).is_err());
     }
 

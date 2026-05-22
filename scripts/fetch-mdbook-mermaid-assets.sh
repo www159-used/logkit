@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 在 mdbook build 之前拉取 Mermaid 运行时（不提交进 Git）：
 #   ./scripts/fetch-mdbook-mermaid-assets.sh
-#   cd logen-dsl/guide && mdbook build
+#   cd guide && mdbook build
 #
 # 写入各子书 guide/ 目录：
 #   mermaid.min.js、mermaid-init.js（与 mdbook-mermaid 发布包内 assets 一致）
@@ -15,7 +15,7 @@ cd "$ROOT"
 
 TAG="${MDBOOK_MERMAID_TAG:-v0.17.0}"
 ASSETS_BASE="https://raw.githubusercontent.com/badboy/mdbook-mermaid/${TAG}/src/bin/assets"
-GUIDES=(logen-dsl/guide logen/guide)
+GUIDES=(guide logen/guide)
 
 need_cmd() {
   command -v "$1" >/dev/null 2>&1 || {

@@ -1,0 +1,5 @@
+body:
+  template: "shared={{n}}"
+  fields:
+    n:
+      type: counter

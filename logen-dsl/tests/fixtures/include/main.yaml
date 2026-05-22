@@ -2,7 +2,7 @@ include:
   - _base/body.yaml
   - _base/sink-kafka.yaml
 
-min-interval: 200
+min-interval: 200ms
 
 sink:
   kafka:

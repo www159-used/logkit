@@ -1,6 +1,6 @@
 //! 解析 worker YAML：`include` 展开、`body` 整包合并、`sink` 深合并；日志体须写在 `body:` 下。
 
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 use serde_yaml::Value;
 
@@ -29,30 +29,18 @@ fn read_yaml_file(path: &Path) -> Result<Value, ConfigParseError> {
     serde_yaml::from_str(&raw).map_err(ConfigParseError::from)
 }
 
-/// 将 `include` 路径解析为绝对路径，且须落在入口配置所在目录树下。
+/// 将 `include` 路径解析为规范绝对路径（相对路径相对当前 YAML 所在目录）。
 fn resolve_include_path(
-    anchor: &Path,
     current_file: &Path,
     include_path: &str,
 ) -> Result<PathBuf, ConfigParseError> {
     let inc = Path::new(include_path);
-    if inc.is_absolute() {
-        return Err(ConfigParseError::IncludePathInvalid {
-            path: include_path.into(),
-            reason: "absolute paths are not allowed in include".into(),
-        });
-    }
-    for component in inc.components() {
-        if matches!(component, Component::ParentDir) {
-            return Err(ConfigParseError::IncludePathInvalid {
-                path: include_path.into(),
-                reason: "`..` is not allowed in include paths".into(),
-            });
-        }
-    }
-
-    let base = current_file.parent().unwrap_or_else(|| Path::new("."));
-    let candidate = base.join(inc);
+    let candidate = if inc.is_absolute() {
+        inc.to_path_buf()
+    } else {
+        let base = current_file.parent().unwrap_or_else(|| Path::new("."));
+        base.join(inc)
+    };
     let canonical = std::fs::canonicalize(&candidate).map_err(|e| {
         ConfigParseError::IncludeNotFound {
             from: current_file.display().to_string(),
@@ -60,27 +48,12 @@ fn resolve_include_path(
             source: e,
         }
     })?;
-
-    let anchor_canon = std::fs::canonicalize(anchor).map_err(|e| {
-        ConfigParseError::Io(anchor.display().to_string(), e)
-    })?;
-    if !canonical.starts_with(&anchor_canon) {
-        return Err(ConfigParseError::IncludePathInvalid {
-            path: include_path.into(),
-            reason: format!(
-                "resolved path {} escapes config anchor {}",
-                canonical.display(),
-                anchor_canon.display()
-            ),
-        });
-    }
     yaml_extension_ok(&canonical)?;
     Ok(canonical)
 }
 
 fn load_document(
     path: &Path,
-    anchor: &Path,
     stack: &mut Vec<PathBuf>,
     depth: usize,
 ) -> Result<Value, ConfigParseError> {
@@ -104,8 +77,8 @@ fn load_document(
     if let Some(includes) = take_include_list(&mut doc)? {
         let mut acc = Value::Mapping(serde_yaml::Mapping::new());
         for inc in includes {
-            let inc_path = resolve_include_path(anchor, &canonical, &inc)?;
-            let sub = load_document(&inc_path, anchor, stack, depth + 1)?;
+            let inc_path = resolve_include_path(&canonical, &inc)?;
+            let sub = load_document(&inc_path, stack, depth + 1)?;
             merge_worker_documents(&mut acc, sub);
         }
         merge_worker_documents(&mut acc, doc);
@@ -166,7 +139,7 @@ pub fn load_worker_config(config_path: &Path) -> Result<WorkerConfig, ConfigPars
         .map_err(|e| ConfigParseError::Io(entry.display().to_string(), e))?;
 
     let mut stack = Vec::new();
-    let mut doc = load_document(&entry, &anchor, &mut stack, 0)?;
+    let mut doc = load_document(&entry, &mut stack, 0)?;
 
     worker_config_from_document(&mut doc)
 }
@@ -208,5 +181,36 @@ mod tests {
             e.to_string().to_lowercase().contains("cycle"),
             "{e}"
         );
+    }
+
+    /// 测试内容：`include` 可用 `..` 引用入口目录外的 YAML。
+    /// 输入：`include/../include-shared/body.yaml` + 入口 `sink`。
+    /// 预期：合并成功，`template` 来自共享片段。
+    #[test]
+    fn load_include_parent_relative_path() {
+        let path = fixture_root().join("parent-dir.yaml");
+        let cfg = load_worker_config(&path).unwrap();
+        assert!(cfg.template.contains("shared={{n}}"));
+        assert!(matches!(cfg.sink, crate::worker_config::SinkConfig::Stdout));
+    }
+
+    /// 测试内容：`include` 可用绝对路径。
+    /// 输入：临时入口 YAML，`include` 为 `_base/body.yaml` 的 canonical 路径。
+    /// 预期：合并成功并读到 body 模板。
+    #[test]
+    fn load_include_absolute_path() {
+        let root = fixture_root();
+        let body = root.join("_base/body.yaml");
+        let body_abs = body.canonicalize().expect("body fixture");
+        let main = root.join("_abs-main.yaml");
+        let yaml = format!(
+            "include:\n  - {}\n\nsink:\n  type: stdout\n",
+            body_abs.display()
+        );
+        std::fs::write(&main, yaml).expect("write temp main");
+        let result = load_worker_config(&main);
+        let _ = std::fs::remove_file(&main);
+        let cfg = result.expect("absolute include");
+        assert!(cfg.template.contains("{{msg}}"));
     }
 }

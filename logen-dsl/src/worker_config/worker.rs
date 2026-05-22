@@ -1,6 +1,7 @@
 //! 根级 [`WorkerConfig`]（`template` / `fields` / `min-interval` / `threads` / `sink`）。
 
 use std::collections::BTreeMap;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
@@ -15,13 +16,14 @@ pub struct WorkerConfig {
     pub template: String,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub fields: BTreeMap<String, FieldSpec>,
-    /// 每条日志最小间隔（毫秒）。YAML 可写整数毫秒或带单位字符串（如 `100ms`、`1s`）；无单位时按毫秒。
+    /// 每条日志最小间隔。`Duration::ZERO` 表示不限速；省略时亦为 0。YAML 须写带单位字符串（如 `100ms`、`1s`），由 [`humantime`] 解析。
     #[serde(
         rename = "min-interval",
-        default = "super::default_min_interval_ms",
-        deserialize_with = "crate::human_duration::deserialize_min_interval"
+        default = "super::default_min_interval",
+        deserialize_with = "crate::human_duration::deserialize_min_interval",
+        serialize_with = "crate::human_duration::serialize_min_interval"
     )]
-    pub min_interval_ms: u64,
+    pub min_interval: Duration,
     /// 并发写日志循环数（每个循环独立 `TemplateRunner` 与 sink），默认 1。
     #[serde(default = "super::default_threads")]
     pub threads: u32,
@@ -32,6 +34,7 @@ pub struct WorkerConfig {
 #[cfg(test)]
 mod tests {
     use std::path::Path;
+    use std::time::Duration;
 
     use super::super::kafka::KafkaSinkMode;
     use super::WorkerConfig;
@@ -44,13 +47,13 @@ mod tests {
 sink:
   type: stdout
 template: "x={{c}}"
-min-interval: 1
+min-interval: 1ms
 fields:
   c:
     type: counter
 "#;
         let c: WorkerConfig = serde_yaml::from_str(y).unwrap();
-        assert_eq!(c.min_interval_ms, 1);
+        assert_eq!(c.min_interval, Duration::from_millis(1));
         assert_eq!(c.sink.max_size_bytes(), 0);
         assert_eq!(c.template, "x={{c}}");
     }
@@ -142,12 +145,41 @@ fields: {}
 min-interval: 1s
 "#;
         let c: WorkerConfig = serde_yaml::from_str(y).unwrap();
-        assert_eq!(c.min_interval_ms, 1000);
+        assert_eq!(c.min_interval, Duration::from_secs(1));
     }
 
-    /// 测试内容：`min-interval` 无单位整数仍按毫秒。
+    /// 测试内容：省略 `min-interval` 时默认 `0`（不限速）。
     #[test]
-    fn deserialize_min_interval_plain_ms() {
+    fn deserialize_min_interval_defaults_to_zero() {
+        let y = r#"
+sink:
+  type: stdout
+template: "x"
+fields: {}
+"#;
+        let c: WorkerConfig = serde_yaml::from_str(y).unwrap();
+        assert_eq!(c.min_interval, Duration::ZERO);
+    }
+
+    /// 测试内容：`min-interval: 0ms` 表示不限速。
+    #[test]
+    fn deserialize_min_interval_zero_unlimited() {
+        let y = r#"
+sink:
+  type: stdout
+template: "x"
+fields: {}
+min-interval: 0ms
+"#;
+        let c: WorkerConfig = serde_yaml::from_str(y).unwrap();
+        assert_eq!(c.min_interval, Duration::ZERO);
+    }
+
+    /// 测试内容：YAML 无单位整数应拒绝。
+    /// 输入：`min-interval: 200`。
+    /// 预期：反序列化失败。
+    #[test]
+    fn deserialize_min_interval_bare_integer_rejected() {
         let y = r#"
 sink:
   type: stdout
@@ -155,8 +187,7 @@ template: "x"
 fields: {}
 min-interval: 200
 "#;
-        let c: WorkerConfig = serde_yaml::from_str(y).unwrap();
-        assert_eq!(c.min_interval_ms, 200);
+        assert!(serde_yaml::from_str::<WorkerConfig>(y).is_err());
     }
 
     /// 测试内容：`max-size` 为带引号的人类可读小数单位时按 MiB 换算并四舍五入。

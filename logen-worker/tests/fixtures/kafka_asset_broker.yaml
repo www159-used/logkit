@@ -8,7 +8,7 @@ body:
   template: "logen tls smoke line"
   fields: {}
 
-min-interval: 60000
+min-interval: 60s
 
 sink:
   type: kafka

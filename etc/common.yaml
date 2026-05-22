@@ -1,3 +1,3 @@
 include:
-min-interval: 10
+min-interval: 10ms
 threads: 2

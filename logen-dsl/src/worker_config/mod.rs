@@ -12,8 +12,10 @@ pub use kafka::{
 pub use sink::{format_sink_summary, validate_sink, SinkConfig};
 pub use worker::WorkerConfig;
 
-pub(crate) fn default_min_interval_ms() -> u64 {
-    1000
+use std::time::Duration;
+
+pub(crate) fn default_min_interval() -> Duration {
+    Duration::ZERO
 }
 
 pub(crate) fn default_threads() -> u32 {
