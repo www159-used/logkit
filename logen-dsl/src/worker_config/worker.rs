@@ -15,8 +15,12 @@ pub struct WorkerConfig {
     pub template: String,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub fields: BTreeMap<String, FieldSpec>,
-    /// 每条日志间隔（毫秒），默认 1000。
-    #[serde(rename = "min-interval", default = "super::default_min_interval_ms")]
+    /// 每条日志最小间隔（毫秒）。YAML 可写整数毫秒或带单位字符串（如 `100ms`、`1s`）；无单位时按毫秒。
+    #[serde(
+        rename = "min-interval",
+        default = "super::default_min_interval_ms",
+        deserialize_with = "crate::human_duration::deserialize_min_interval"
+    )]
     pub min_interval_ms: u64,
     /// 并发写日志循环数（每个循环独立 `TemplateRunner` 与 sink），默认 1。
     #[serde(default = "super::default_threads")]
@@ -125,6 +129,34 @@ fields: {}
 "#;
         let c: WorkerConfig = serde_yaml::from_str(y).unwrap();
         assert_eq!(c.sink.max_size_bytes(), 65536);
+    }
+
+    /// 测试内容：`min-interval` 支持 duration 字符串。
+    #[test]
+    fn deserialize_min_interval_duration_string() {
+        let y = r#"
+sink:
+  type: stdout
+template: "x"
+fields: {}
+min-interval: 1s
+"#;
+        let c: WorkerConfig = serde_yaml::from_str(y).unwrap();
+        assert_eq!(c.min_interval_ms, 1000);
+    }
+
+    /// 测试内容：`min-interval` 无单位整数仍按毫秒。
+    #[test]
+    fn deserialize_min_interval_plain_ms() {
+        let y = r#"
+sink:
+  type: stdout
+template: "x"
+fields: {}
+min-interval: 200
+"#;
+        let c: WorkerConfig = serde_yaml::from_str(y).unwrap();
+        assert_eq!(c.min_interval_ms, 200);
     }
 
     /// 测试内容：`max-size` 为带引号的人类可读小数单位时按 MiB 换算并四舍五入。

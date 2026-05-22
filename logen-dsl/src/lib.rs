@@ -4,6 +4,7 @@ mod config_merge;
 mod error;
 mod facade;
 mod field_spec;
+mod human_duration;
 mod human_size;
 mod template;
 mod worker_config;
