@@ -20,8 +20,10 @@ use tokio::sync::Mutex;
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::Server;
 
-use flexi_logger::{Duplicate, FileSpec, Logger, WriteMode};
-use log::{debug, info, trace, warn};
+use tracing::{debug, info, trace, warn};
+use tracing_subscriber::{
+    fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Registry,
+};
 use logen_config::{load_merged, LogenConfig, LogenError, WorkerSection};
 use logen_dsl::{format_sink_summary, parse_worker_config};
 
@@ -120,40 +122,42 @@ fn reap_exited(guard: &mut HashMap<String, RunningWorker>) {
     }
 }
 
-/// 追加写入 `{tmp_dir}/logend.log`。未设置 **`RUST_LOG`** 时使用 **`default_spec`**（来自 `[daemon].log_level`）。
+/// `{tmp_dir}/logend.log`（非阻塞写入）。`RUST_LOG` 优先于 `default_spec`。
 fn init_daemon_logging(
     log_path: &Path,
     default_spec: &str,
-) -> Result<flexi_logger::LoggerHandle, LogenError> {
-    let parent = log_path.parent().unwrap_or_else(|| Path::new("."));
-    let stem = log_path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("logend");
-    let suffix = log_path
-        .extension()
-        .and_then(|s| s.to_str())
-        .unwrap_or("log");
+) -> Result<tracing_appender::non_blocking::WorkerGuard, LogenError> {
     let default_spec = default_spec.trim();
     let default_spec = if default_spec.is_empty() {
         "info"
     } else {
         default_spec
     };
-    Logger::try_with_env_or_str(default_spec)
-        .map_err(|e| LogenError::Cli(format!("flexi_logger: {e}")))?
-        .log_to_file(
-            FileSpec::default()
-                .directory(parent)
-                .basename(stem)
-                .suffix(suffix)
-                .suppress_timestamp(),
-        )
-        .append()
-        .write_mode(WriteMode::BufferAndFlush)
-        .duplicate_to_stderr(Duplicate::Warn)
-        .start()
-        .map_err(|e| LogenError::Cli(format!("flexi_logger: {e}")))
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+        EnvFilter::new(default_spec)
+    });
+
+    let parent = log_path.parent().unwrap_or_else(|| Path::new("."));
+    let file_name = log_path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("logend.log");
+    let file_appender = tracing_appender::rolling::never(parent, file_name);
+    let (file_writer, file_guard) = tracing_appender::non_blocking(file_appender);
+
+    let file_layer = fmt::layer()
+        .with_writer(file_writer)
+        .with_ansi(false)
+        .with_target(true)
+        .compact();
+
+    Registry::default()
+        .with(env_filter)
+        .with(file_layer)
+        .try_init()
+        .map_err(|e| LogenError::Cli(format!("tracing-subscriber init: {e}")))?;
+
+    Ok(file_guard)
 }
 
 #[tonic::async_trait]
@@ -495,13 +499,7 @@ async fn run(cfg: LogenConfig) -> Result<(), LogenError> {
     let control_socket_path = socket_path_buf.to_string_lossy().into_owned();
     let log_path_buf = cfg.daemon_log_path();
 
-    let log_spec = cfg.daemon.log_level.trim();
-    let log_spec = if log_spec.is_empty() {
-        "info"
-    } else {
-        log_spec
-    };
-    let _log_handle = init_daemon_logging(log_path_buf.as_path(), log_spec)?;
+    let _log_handle = init_daemon_logging(log_path_buf.as_path(), &cfg.daemon.log_level)?;
 
     let sock = socket_path_buf.as_path();
     info!(
@@ -511,7 +509,7 @@ async fn run(cfg: LogenConfig) -> Result<(), LogenError> {
         sock.display(),
         worker_output_dir,
         log_path_buf.display(),
-        log_spec,
+        cfg.daemon.log_level.trim(),
     );
 
     if sock.exists() {

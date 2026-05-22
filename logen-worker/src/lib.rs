@@ -25,7 +25,7 @@ pub struct SpawnedWorkerTasks {
 }
 
 pub trait EmbeddedWorker: Send + Sync {
-    /// `worker_id` 仅用于任务失败时的日志标识。
+    /// `worker_id` 用于 tracing span、Kafka 投递日志与心跳。
     fn spawn_worker_task(
         &self,
         worker_id: String,
@@ -50,10 +50,11 @@ impl EmbeddedWorker for TokioEmbeddedWorker {
     ) -> SpawnedWorkerTasks {
         let events = Arc::new(AtomicU64::new(0));
         let heartbeat_task = heartbeat.map(|hb| spawn_heartbeat_task(hb, events.clone()));
-        let span = info_span!("worker", id = %worker_id);
+        let span = info_span!("worker", worker_id = %worker_id);
         let worker_task = tokio::spawn(
             async move {
                 if let Err(e) = run_worker_with_config(
+                    worker_id.clone(),
                     config_label,
                     worker_config,
                     output_base,
@@ -61,7 +62,7 @@ impl EmbeddedWorker for TokioEmbeddedWorker {
                 )
                 .await
                 {
-                    tracing::error!("logen worker task failed: {e:#}");
+                    tracing::error!(worker_id = %worker_id, "logen worker task failed: {e:#}");
                 }
             }
             .instrument(span),

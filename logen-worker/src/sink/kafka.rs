@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use logen_dsl::{KafkaConfig, KafkaSinkMode};
+use serde_yaml::Value;
 use rdkafka::client::ClientContext;
 use rdkafka::config::ClientConfig;
 use rdkafka::error::KafkaError;
@@ -22,6 +23,53 @@ fn cfg_err(msg: impl Into<String>) -> KafkaConfigError {
     KafkaConfigError::new(msg)
 }
 
+// 内置 producer 调优（Java 对照见 logen-dsl guide sink.md#kafka-builtin-producer）。
+const PRODUCER_QUEUE_MAX_KBYTES: &str = "65536";
+const PRODUCER_BATCH_SIZE: &str = "65536";
+const PRODUCER_LINGER_MS: &str = "10";
+const PRODUCER_MESSAGE_MAX_BYTES: &str = "10485760";
+const PRODUCER_COMPRESSION: &str = "lz4";
+const PRODUCER_SOCKET_TIMEOUT_MS: &str = "60000";
+
+fn apply_builtin_producer_profile(cfg: &mut ClientConfig) {
+    cfg.set("queue.buffering.max.kbytes", PRODUCER_QUEUE_MAX_KBYTES);
+    cfg.set("batch.size", PRODUCER_BATCH_SIZE);
+    cfg.set("queue.buffering.max.ms", PRODUCER_LINGER_MS);
+    cfg.set("message.max.bytes", PRODUCER_MESSAGE_MAX_BYTES);
+    cfg.set("compression.type", PRODUCER_COMPRESSION);
+    cfg.set("socket.timeout.ms", PRODUCER_SOCKET_TIMEOUT_MS);
+}
+
+fn yaml_value_to_config_string(v: &Value) -> Option<String> {
+    match v {
+        Value::Null => None,
+        Value::Bool(b) => Some(b.to_string()),
+        Value::Number(n) => Some(n.to_string()),
+        Value::String(s) => Some(s.clone()),
+        Value::Mapping(_) | Value::Sequence(_) | Value::Tagged(_) => {
+            serde_json::to_string(v).ok()
+        }
+    }
+}
+
+/// `sink.kafka` 未建模键（`extras`）透传到 librdkafka，可覆盖内置调优。
+fn apply_kafka_extras(cfg: &mut ClientConfig, extras: &BTreeMap<String, Value>) {
+    for (k, v) in extras {
+        let key = k.trim();
+        if key.is_empty() {
+            continue;
+        }
+        match yaml_value_to_config_string(v) {
+            Some(val) => {
+                cfg.set(key, val);
+            }
+            None => tracing::warn!(
+                "kafka.extras: skip key {key:?} (null or unsupported YAML value)"
+            ),
+        }
+    }
+}
+
 fn effective_produce_topic(k: &KafkaConfig) -> String {
     match k.mode {
         KafkaSinkMode::Agent => kafka_agent::KAFKA_AGENT_TOPIC.to_string(),
@@ -30,23 +78,25 @@ fn effective_produce_topic(k: &KafkaConfig) -> String {
 }
 
 fn wall_clock_ms_i64() -> i64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis().min(i64::MAX as u128) as i64)
-        .unwrap_or(0)
+    super::log_id::wall_clock_ms_u64().min(i64::MAX as u64) as i64
 }
 
 /// librdkafka 投递线程回调：失败时置位，由 worker 主循环在下一次 `emit_line` 发现。
+///
+/// 回调在 librdkafka 内部线程执行，拿不到 tokio `info_span`；`worker_id` / `topic` 须显式携带。
 #[derive(Clone)]
 struct LogenKafkaProducerContext {
+    worker_id: Arc<str>,
+    topic: Arc<str>,
     failed: Arc<AtomicBool>,
     last_error: Arc<Mutex<Option<String>>>,
 }
 
 impl LogenKafkaProducerContext {
-    fn new() -> Self {
+    fn new(worker_id: &str, topic: &str) -> Self {
         Self {
+            worker_id: Arc::from(worker_id),
+            topic: Arc::from(topic),
             failed: Arc::new(AtomicBool::new(false)),
             last_error: Arc::new(Mutex::new(None)),
         }
@@ -66,7 +116,11 @@ impl LogenKafkaProducerContext {
     }
 
     fn record_delivery_failure(&self, e: &KafkaError) {
-        tracing::error!("kafka delivery failed: {e}");
+        tracing::error!(
+            worker_id = %self.worker_id.as_ref(),
+            topic = %self.topic.as_ref(),
+            "kafka delivery failed: {e}"
+        );
         self.failed.store(true, Ordering::Relaxed);
         if let Ok(mut g) = self.last_error.lock() {
             *g = Some(e.to_string());
@@ -89,11 +143,9 @@ impl ProducerContext for LogenKafkaProducerContext {
 pub struct KafkaLineSink {
     producer: ThreadedProducer<LogenKafkaProducerContext>,
     brokers_display: String,
-    topic: String,
     /// 每条消息附带的 record headers（与配置一致，逐条 clone）。`agent` 模式为 `None`。
     headers: Option<OwnedHeaders>,
     /// 克隆的 Kafka 段配置（用于错误上下文与 TLS/SASL 提示）。
-    #[allow(dead_code)]
     pub kafka_config: KafkaConfig,
     tls_enabled: bool,
     sasl_keys_in_yaml: bool,
@@ -216,40 +268,33 @@ fn owned_headers_from_kafka_cfg(
 }
 
 fn required_acks_rdkafka(v: Option<&str>) -> Result<&'static str, KafkaConfigError> {
-    let Some(s) = v.map(str::trim).filter(|s| !s.is_empty()) else {
-        return Ok("1");
-    };
-    if let Ok(i) = s.parse::<i64>() {
-        return match i {
-            -1 => Ok("all"),
-            0 => Ok("0"),
-            1 => Ok("1"),
-            _ => Err(cfg_err(format!(
-                "kafka.acks: unsupported integer {i} (expected -1, 0, or 1)"
-            ))),
-        };
-    }
-    required_acks_rdkafka_str(s)
-}
-
-fn required_acks_rdkafka_str(s: &str) -> Result<&'static str, KafkaConfigError> {
-    if s.is_empty() {
-        return Ok("1");
-    }
+    let s = v.map(str::trim).filter(|s| !s.is_empty()).unwrap_or("1");
     if let Ok(n) = s.parse::<i64>() {
         return match n {
             -1 => Ok("all"),
             0 => Ok("0"),
             1 => Ok("1"),
-            _ => Err(cfg_err(format!("kafka.acks: unsupported integer {n}"))),
+            _ => Err(cfg_err(format!(
+                "kafka.acks: unsupported integer {n} (expected -1, 0, or 1)"
+            ))),
         };
     }
     match s.to_ascii_lowercase().as_str() {
+        "1" | "leader" | "one" => Ok("1"),
         "all" => Ok("all"),
-        "none" => Ok("0"),
-        "leader" | "one" => Ok("1"),
+        "none" | "0" => Ok("0"),
         _ => Err(cfg_err(format!("kafka.acks: unknown string {s:?}"))),
     }
+}
+
+fn normalize_brokers(k: &KafkaConfig) -> Vec<String> {
+    k.brokers
+        .as_ref()
+        .into_iter()
+        .flat_map(|v| v.iter())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
 }
 
 /// librdkafka `compression.type`：none、gzip、snappy、lz4、zstd。
@@ -318,15 +363,8 @@ enum KafkaTransportMode {
 fn build_rdkafka_client_config(
     k: &KafkaConfig,
     transport: KafkaTransportMode,
-) -> Result<(ClientConfig, Duration), SinkError> {
-    let brokers: Vec<String> = k
-        .brokers
-        .as_ref()
-        .into_iter()
-        .flat_map(|v| v.iter())
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect();
+) -> Result<(ClientConfig, String), SinkError> {
+    let brokers = normalize_brokers(k);
     if brokers.is_empty() {
         return Err(cfg_err("kafka.brokers must list at least one broker").into());
     }
@@ -348,9 +386,9 @@ fn build_rdkafka_client_config(
     }
 
     let timeout_ms = timeout_ms_from_kafka(k)?;
-    let queue_timeout = Duration::from_millis(timeout_ms.clamp(1000, 300_000));
 
     let mut cfg = ClientConfig::new();
+    apply_builtin_producer_profile(&mut cfg);
     cfg.set("bootstrap.servers", brokers.join(","));
     cfg.set("client.id", "logen-worker");
     cfg.set("log.connection.close", "false");
@@ -374,25 +412,14 @@ fn build_rdkafka_client_config(
         }
     }
 
-    Ok((cfg, queue_timeout))
+    apply_kafka_extras(&mut cfg, &k.extras);
+
+    Ok((cfg, topic_trimmed))
 }
 
 impl KafkaLineSink {
-    pub fn new(k: &KafkaConfig) -> Result<Self, SinkError> {
-        Self::build(k)
-    }
-
-    fn build(k: &KafkaConfig) -> Result<Self, SinkError> {
-        let brokers_display = k
-            .brokers
-            .as_ref()
-            .into_iter()
-            .flat_map(|v| v.iter())
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect::<Vec<_>>()
-            .join(", ");
-
+    pub fn new(k: &KafkaConfig, worker_id: &str) -> Result<Self, SinkError> {
+        let brokers_display = normalize_brokers(k).join(", ");
         let headers = if k.mode == KafkaSinkMode::Agent {
             None
         } else {
@@ -401,14 +428,10 @@ impl KafkaLineSink {
         let transport = kafka_transport_mode(k)?;
         let tls_enabled = transport == KafkaTransportMode::Tls;
 
-        let (cfg, _) = build_rdkafka_client_config(k, transport)?;
-
-        let producer: ThreadedProducer<LogenKafkaProducerContext> =
-            cfg.create_with_context(LogenKafkaProducerContext::new()).map_err(|e| {
-                SinkError::Kafka(format!("failed to create Kafka producer: {e}"))
-            })?;
-
-        let topic = effective_produce_topic(k);
+        let (cfg, topic) = build_rdkafka_client_config(k, transport)?;
+        let producer: ThreadedProducer<LogenKafkaProducerContext> = cfg
+            .create_with_context(LogenKafkaProducerContext::new(worker_id, topic.as_str()))
+            .map_err(|e| SinkError::Kafka(format!("failed to create Kafka producer: {e}")))?;
         let runtime_agent_config = if k.mode == KafkaSinkMode::Agent {
             Some(kafka_agent::build_runtime_agent_config(k)?)
         } else {
@@ -418,7 +441,6 @@ impl KafkaLineSink {
         Ok(Self {
             producer,
             brokers_display,
-            topic,
             headers,
             kafka_config: k.clone(),
             tls_enabled,
@@ -430,8 +452,13 @@ impl KafkaLineSink {
 
 impl Drop for KafkaLineSink {
     fn drop(&mut self) {
+        let ctx = self.producer.context();
         if let Err(e) = self.producer.flush(Duration::from_secs(15)) {
-            tracing::warn!("kafka flush on drop: {e}");
+            tracing::warn!(
+                worker_id = %ctx.worker_id.as_ref(),
+                topic = %ctx.topic.as_ref(),
+                "kafka flush on drop: {e}"
+            );
         }
     }
 }
@@ -440,19 +467,20 @@ impl Drop for KafkaLineSink {
 impl LogLineSink for KafkaLineSink {
     async fn emit_line(&mut self, line: &str) -> Result<(), SinkError> {
         self.producer.context().sticky_error()?;
+        let topic = self.producer.context().topic.as_ref();
 
         let agent_msg = self.runtime_agent_config.as_ref().map(|c| {
             kafka_agent::build_agent_message(c, line, next_context_id(), wall_clock_ms_i64())
         });
 
         let mut rec = if let Some(msg) = &agent_msg {
-            let mut r = BaseRecord::to(self.topic.as_str()).payload(msg.payload.as_str());
+            let mut r = BaseRecord::to(topic).payload(msg.payload.as_str());
             if let Some(ref k) = msg.key {
                 r = r.key(k.as_str());
             }
             r
         } else {
-            BaseRecord::to(self.topic.as_str()).payload(line)
+            BaseRecord::to(topic).payload(line)
         };
         if let Some(ref h) = self.headers {
             rec = rec.headers(h.clone());
@@ -462,7 +490,7 @@ impl LogLineSink for KafkaLineSink {
             SinkError::Kafka(format_produce_err(
                 &e,
                 &self.brokers_display,
-                &self.topic,
+                topic,
                 self.tls_enabled,
                 self.sasl_keys_in_yaml,
                 &self.kafka_config,
@@ -499,17 +527,10 @@ pub(crate) fn produce_one_kafka_ssl_line(
 
 fn produce_one_kafka_ssl_line_inner(k: &KafkaConfig, payload: &str) -> Result<(), SinkError> {
     let transport = kafka_transport_mode(k)?;
-    let (cfg, _) = build_rdkafka_client_config(k, transport)?;
+    let (cfg, topic) = build_rdkafka_client_config(k, transport)?;
     let producer: rdkafka::producer::ThreadedProducer<DefaultProducerContext> = cfg
         .create()
         .map_err(|e| SinkError::Kafka(format!("failed to create Kafka producer: {e}")))?;
-    let topic = effective_produce_topic(k);
-    if topic.is_empty() {
-        return Err(cfg_err(
-            "kafka.topic must be non-empty (or use sink.kafka.mode: agent for fixed topic raw_message)",
-        )
-        .into());
-    }
     producer
         .send(BaseRecord::<(), str>::to(topic.as_str()).payload(payload))
         .map_err(|(e, _)| SinkError::Kafka(format!("kafka send: {e}")))?;
@@ -518,4 +539,73 @@ fn produce_one_kafka_ssl_line_inner(k: &KafkaConfig, payload: &str) -> Result<()
         .map_err(|e| SinkError::Kafka(format!("kafka flush: {e}")))?;
     drop(producer);
     Ok(())
+}
+
+#[cfg(test)]
+mod producer_profile_tests {
+    use super::*;
+    use logen_dsl::KafkaConfig;
+
+    fn minimal_plaintext_kafka() -> KafkaConfig {
+        KafkaConfig {
+            brokers: Some(vec!["127.0.0.1:9092".to_string()]),
+            topic: Some("t1".to_string()),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn builtin_producer_profile_maps_java_defaults() {
+        let k = minimal_plaintext_kafka();
+        let (cfg, _) =
+            build_rdkafka_client_config(&k, KafkaTransportMode::Plaintext).unwrap();
+        assert_eq!(
+            cfg.get("queue.buffering.max.kbytes").map(String::from),
+            Some(PRODUCER_QUEUE_MAX_KBYTES.to_string())
+        );
+        assert_eq!(
+            cfg.get("batch.size").map(String::from),
+            Some(PRODUCER_BATCH_SIZE.to_string())
+        );
+        assert_eq!(
+            cfg.get("queue.buffering.max.ms").map(String::from),
+            Some(PRODUCER_LINGER_MS.to_string())
+        );
+        assert_eq!(
+            cfg.get("message.max.bytes").map(String::from),
+            Some(PRODUCER_MESSAGE_MAX_BYTES.to_string())
+        );
+        assert_eq!(
+            cfg.get("compression.type").map(String::from),
+            Some(PRODUCER_COMPRESSION.to_string())
+        );
+        assert_eq!(
+            cfg.get("socket.timeout.ms").map(String::from),
+            Some(PRODUCER_SOCKET_TIMEOUT_MS.to_string())
+        );
+    }
+
+    #[test]
+    fn yaml_compression_overrides_builtin_lz4() {
+        let k = KafkaConfig {
+            compression: Some("gzip".into()),
+            ..minimal_plaintext_kafka()
+        };
+        let (cfg, _) =
+            build_rdkafka_client_config(&k, KafkaTransportMode::Plaintext).unwrap();
+        assert_eq!(cfg.get("compression.type").map(String::from), Some("gzip".to_string()));
+    }
+
+    #[test]
+    fn kafka_extras_override_builtin_profile() {
+        let mut extras = BTreeMap::new();
+        extras.insert("batch.size".into(), Value::Number(131072.into()));
+        let k = KafkaConfig {
+            extras,
+            ..minimal_plaintext_kafka()
+        };
+        let (cfg, _) =
+            build_rdkafka_client_config(&k, KafkaTransportMode::Plaintext).unwrap();
+        assert_eq!(cfg.get("batch.size").map(String::from), Some("131072".to_string()));
+    }
 }

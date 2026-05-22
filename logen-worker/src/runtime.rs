@@ -78,6 +78,7 @@ pub fn spawn_heartbeat_task(hb: WorkerHeartbeatEnv, events: Arc<AtomicU64>) -> J
 }
 
 pub(crate) async fn run_worker_with_config(
+    worker_id: String,
     config_name: String,
     cfg: WorkerConfig,
     output_base: PathBuf,
@@ -94,7 +95,10 @@ pub(crate) async fn run_worker_with_config(
         let cfg = cfg.clone();
         let output_base = output_base.clone();
         let events = events.clone();
-        set.spawn(async move { run_worker_loop(loop_name, cfg, output_base, events).await });
+        let wid = worker_id.clone();
+        set.spawn(async move {
+            run_worker_loop(wid, loop_name, cfg, output_base, events).await
+        });
     }
 
     while let Some(join_res) = set.join_next().await {
@@ -104,6 +108,7 @@ pub(crate) async fn run_worker_with_config(
 }
 
 async fn run_worker_loop(
+    worker_id: String,
     config_name: String,
     cfg: WorkerConfig,
     output_base: PathBuf,
@@ -117,7 +122,7 @@ async fn run_worker_loop(
         ..
     } = cfg;
 
-    let mut line_sink = build_line_sink(&sink, output_base.as_path())
+    let mut line_sink = build_line_sink(&sink, output_base.as_path(), worker_id.as_str())
         .with_context(|| format!("{config_name}: sink"))?;
     let mut runner = TemplateRunner::try_new(template, fields)
         .map_err(|e| anyhow::anyhow!("{config_name}: template runner: {e}"))?;

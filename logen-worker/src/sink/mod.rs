@@ -28,10 +28,11 @@ pub trait LogLineSink: Send {
 pub fn build_line_sink(
     sink: &SinkConfig,
     output_base: &Path,
+    worker_id: &str,
 ) -> Result<Box<dyn LogLineSink>, SinkError> {
     match sink {
         SinkConfig::Kafka { kafka: Some(k), .. } => {
-            let s = KafkaLineSink::new(k)?;
+            let s = KafkaLineSink::new(k, worker_id)?;
             Ok(Box::new(s))
         }
         SinkConfig::Kafka { kafka: None, .. } => Err(SinkError::Internal(

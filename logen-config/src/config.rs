@@ -23,7 +23,7 @@ fn default_daemon_log_level() -> String {
 #[derive(Debug, Clone, Deserialize)]
 pub struct DaemonSection {
     pub pid_record_suffix: String,
-    /// `flexi_logger` 默认规格（仅当未设置环境变量 **`RUST_LOG`** 时生效）；如 **`info`**、**`debug`**，可与模块组合（见 flexi_logger 文档）。
+    /// logend **`tracing_subscriber::EnvFilter`** 默认规格（仅当未设置 **`RUST_LOG`** 时生效）；如 **`info`**、**`debug`**。
     #[serde(default = "default_daemon_log_level")]
     pub log_level: String,
 }

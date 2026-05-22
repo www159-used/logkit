@@ -68,7 +68,7 @@ fn print_workspace_tls_assets_dir() {
 #[test]
 fn kafka_line_sink_try_new_with_jks_fixture() {
     let k = kafka_config_from_kafka_asset_broker_yaml();
-    KafkaLineSink::new(&k).expect("create Kafka sink with JKS fixture");
+    KafkaLineSink::new(&k, "kafka-probe-fixture").expect("create Kafka sink with JKS fixture");
 }
 
 const PRODUCE_PAYLOAD: &str = "produce one record";

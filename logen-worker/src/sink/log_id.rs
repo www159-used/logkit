@@ -14,7 +14,7 @@ struct TimeBasedLogIdGenerator {
     munged_node: [u8; 6],
 }
 
-fn wall_clock_ms_u64() -> u64 {
+pub(crate) fn wall_clock_ms_u64() -> u64 {
     match SystemTime::now().duration_since(UNIX_EPOCH) {
         Ok(d) => d.as_millis() as u64,
         Err(e) => {

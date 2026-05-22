@@ -28,7 +28,7 @@
 | 键 | 含义 |
 |----|------|
 | `pid_record_suffix` | 写入 pid 文件末尾的额外字节（如换行）。 |
-| `log_level` | 默认 **`info`**。传给 **`flexi_logger`**：仅当未设置环境变量 **`RUST_LOG`** 时作为默认规格（可与模块组合，语法见 flexi_logger）。 |
+| `log_level` | 默认 **`info`**。传给 **logend** 的 **`tracing_subscriber::EnvFilter`**：仅当未设置 **`RUST_LOG`** 时作为默认规格。 |
 
 ### `[protocol.grpc]`
 

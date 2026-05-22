@@ -32,7 +32,7 @@ serde_yaml = { workspace = true }
 tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "time"] }
 tonic = { workspace = true }
 tower = { workspace = true }
-tracing = { version = "0.1", features = ["log"] }
+tracing = { workspace = true }
 
 [dev-dependencies]
 logen-dsl = { path = "../logen-dsl" }

@@ -20,16 +20,16 @@ logend [--defaults-file PATH]
 |------|------|
 | `{tmp_dir}/logend.sock` | gRPC 监听 |
 | `{tmp_dir}/logend.pid` | 进程 pid |
-| `{tmp_dir}/logend.log` | 运行日志（`log` + **flexi_logger**，**追加**写入） |
+| `{tmp_dir}/logend.log` | 运行日志（**tracing-subscriber**，**追加**写入，compact 格式含时间戳与 span 字段） |
 
 **多实例并行**：必须为每个 daemon 配置**不同的 `tmp_dir`**，否则套接字冲突。
 
 ## 诊断日志
 
-- TOML **`[daemon].log_level`**（默认 **`info`**）：在未设置环境变量 **`RUST_LOG`** 时作为 flexi_logger 的默认规格。
-- 若设置了 **`RUST_LOG`**，则**优先环境变量**（flexi_logger `try_with_env_or_str` 语义）。
+- TOML **`[daemon].log_level`**（默认 **`info`**）：在未设置环境变量 **`RUST_LOG`** 时作为 **`EnvFilter`** 默认规格。
+- 若设置了 **`RUST_LOG`**，则**优先环境变量**（`tracing_subscriber::EnvFilter` 语义，与常见 `RUST_LOG=debug` 用法一致）。
 - 示例：`RUST_LOG=debug`、`RUST_LOG=logend=trace`（**Ping**、**Heartbeat** 等为 `trace`，避免默认级别刷盘过快）。
-- **`warn`** 及以上会**同时复制到 stderr**（`duplicate_to_stderr(Duplicate::Warn)`），便于前台或 systemd 收集。
+- 日志**仅写入** `{tmp_dir}/logend.log`，不复制到 stderr/stdout；前台排查请 `tail -f` 该文件。
 
 ## 与 worker 的关系
 
