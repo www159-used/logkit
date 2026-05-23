@@ -11,13 +11,12 @@ pub fn pull_out(ciphertext: &str) -> Result<String, SpineError> {
     pull_out_spine(ciphertext)
 }
 
-/// 解密 key 材料：`config:...` spine 密文走 [`pull_out`]，否则视为明文 PEM。
+/// 解密 key 材料：先整段交给 [`pull_out`] / so（不区分 key_id）；失败则原样返回。
 pub fn decrypt_key_material(raw: &str) -> Result<String, SpineError> {
     let trimmed = raw.trim();
-    if trimmed.starts_with("config:") {
-        pull_out(trimmed)
-    } else {
-        Ok(trimmed.to_string())
+    match pull_out(trimmed) {
+        Ok(plain) => Ok(plain),
+        Err(_) => Ok(trimmed.to_string()),
     }
 }
 
@@ -34,12 +33,13 @@ pub fn decrypt_key_file(path: &Path) -> Result<String, SpineError> {
 mod key_tests {
     use super::*;
 
-    /// 测试内容：非 `config:` 前缀的 key 材料原样返回。
-    /// 输入：标准 PEM 私钥片段字符串。
-    /// 预期：[`decrypt_key_material`] 成功且输出与输入相同。
+    /// 测试内容：so 解不开时（含明文 PEM）回退原文。
     #[test]
-    fn decrypt_plain_pem_passthrough() {
+    fn decrypt_falls_back_to_raw_when_pull_out_fails() {
         let pem = "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----";
         assert_eq!(decrypt_key_material(pem).unwrap(), pem);
+
+        let token = "certpk:yb:v1:abc";
+        assert_eq!(decrypt_key_material(token).unwrap(), token);
     }
 }
