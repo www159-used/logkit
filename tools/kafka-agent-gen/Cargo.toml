@@ -1,0 +1,13 @@
+[package]
+name = "kafka-agent-gen"
+description = "Interactive CLI to generate kafka.agent.yaml sink config"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+uuid = { workspace = true }
+
+[[bin]]
+name = "kafka-agent-gen"
+path = "src/main.rs"

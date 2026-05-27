@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::field_spec::FieldSpec;
+use super::field_spec::FieldSpec;
 
 /// 日志体：`template` + `fields` 成对出现，合并时作为原子单元。
 #[derive(Debug, Clone, Serialize, Deserialize)]

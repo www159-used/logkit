@@ -1,13 +1,14 @@
-//! `one-of` 分支解析与 [`logen_branch::BranchPicker`] 构建。
+//! `one-of` 分支：声明（[`OneOfBranch`]）+ 运行态 [`OneOfSlot`]。
 
 use std::collections::BTreeMap;
 
 use logen_branch::BranchPicker;
 use serde::{Deserialize, Serialize};
 
-use crate::field_spec::{make_composite_template_slot, CompositeTemplateSlot};
-use crate::facade::TemplateSlot;
 use crate::Error;
+
+use super::field_spec::FieldSpec;
+use super::slot::{make_composite_template_slot, CompositeTemplateSlot, TemplateSlot};
 
 fn default_weight() -> u32 {
     1
@@ -26,14 +27,14 @@ pub enum OneOfBranch {
     Template(OneOfTemplateBranch),
 }
 
-/// 含 `template` 的分支；[`into_one_of_slot`] 时预编译 Handlebars + 子字段槽。
+/// 含 `template` 的分支；`into_slot` 时预编译 Handlebars + 子字段槽。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OneOfTemplateBranch {
     #[serde(default = "default_weight")]
     pub w: u32,
     pub template: String,
     #[serde(default)]
-    pub fields: BTreeMap<String, crate::field_spec::FieldSpec>,
+    pub fields: BTreeMap<String, FieldSpec>,
 }
 
 enum OneOfArm {
@@ -41,13 +42,13 @@ enum OneOfArm {
     Nested(Box<CompositeTemplateSlot>),
 }
 
-pub struct OneOfSlot {
+pub(crate) struct OneOfSlot {
     picker: BranchPicker,
     arms: Vec<OneOfArm>,
 }
 
 impl OneOfSlot {
-    pub fn from_branches(branches: Vec<OneOfBranch>) -> Result<Self, Error> {
+    pub(crate) fn from_branches(branches: Vec<OneOfBranch>) -> Result<Self, Error> {
         if branches.is_empty() {
             return Err(Error::EmptyOneOfBranches);
         }

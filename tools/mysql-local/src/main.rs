@@ -108,6 +108,7 @@ fn mysql_connect_ok(bin: &Path, socket: &Path, user: &str, password: &str) -> bo
         .arg(format!("-p{password}"))
         .arg("-e")
         .arg("SELECT 1")
+        .arg("--ssl-mode=REQUIRED")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -159,7 +160,8 @@ fn main() {
     let mut cmd = Command::new(&bin);
     cmd.arg(format!("-u{user}"))
         .arg(format!("-S{}", socket.display()))
-        .arg(format!("-p{password}"));
+        .arg(format!("-p{password}"))
+        .arg("--ssl-mode=REQUIRED");
     for arg in cli.mysql_args {
         cmd.arg(arg);
     }

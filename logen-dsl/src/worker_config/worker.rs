@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use crate::field_spec::FieldSpec;
+use super::field_spec::FieldSpec;
 
 use super::sink::SinkConfig;
 

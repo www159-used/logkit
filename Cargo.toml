@@ -15,6 +15,7 @@ members = [
     "tools/mysql-local",
     "tools/pullout",
     "tools/jumpserver",
+    "tools/kafka-agent-gen",
 ]
 
 [workspace.package]

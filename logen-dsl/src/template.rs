@@ -6,8 +6,8 @@ use std::path::Path;
 use handlebars::Handlebars;
 use serde_json::{Map, Value};
 
-use crate::field_spec::{slots_from_fields, FieldSpec};
-use crate::facade::TemplateSlot;
+use crate::worker_config::field_spec::FieldSpec;
+use crate::worker_config::slot::{slots_from_fields, TemplateSlot};
 use crate::worker_config::{validate_sink, WorkerConfig};
 use crate::{ConfigParseError, Error};
 
