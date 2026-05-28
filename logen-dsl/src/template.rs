@@ -4,10 +4,12 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use handlebars::Handlebars;
-use serde_json::{Map, Value};
 
-use crate::worker_config::field_spec::FieldSpec;
-use crate::worker_config::slot::{slots_from_fields, TemplateSlot};
+use crate::worker_config::{
+    new_logen_handlebars, register_logen_template, render_with_slots, slots_from_fields,
+    TemplateSlot,
+};
+use crate::FieldSpec;
 use crate::worker_config::{validate_sink, WorkerConfig};
 use crate::{ConfigParseError, Error};
 
@@ -36,10 +38,11 @@ pub fn parse_worker_config(
     Ok(cfg)
 }
 
-/// 每轮用门面生成上下文字段，再渲染 `template`。
+const INLINE_TMPL: &str = "inline";
+
+/// 每轮用字段插槽生成上下文字段，再渲染 `template`。
 pub struct TemplateRunner {
     hb: Handlebars<'static>,
-    template: String,
     slots: BTreeMap<String, Box<dyn TemplateSlot>>,
 }
 
@@ -49,30 +52,15 @@ impl TemplateRunner {
         template: impl AsRef<str>,
         fields: BTreeMap<String, FieldSpec>,
     ) -> Result<Self, Error> {
-        let template = template.as_ref();
-        if template.trim().is_empty() {
-            return Err(Error::EmptyTemplate);
-        }
-        let mut hb = Handlebars::new();
-        hb.set_strict_mode(false);
-        hb.register_escape_fn(handlebars::no_escape);
-        hb.register_template_string("inline", template)?;
+        let mut hb = new_logen_handlebars();
+        register_logen_template(&mut hb, INLINE_TMPL, template.as_ref())?;
         let slots = slots_from_fields(fields)?;
-        Ok(Self {
-            hb,
-            template: "inline".to_string(),
-            slots,
-        })
+        Ok(Self { hb, slots })
     }
 
     /// 生成一行（一条日志）。
     pub fn next_line(&mut self) -> Result<String, Error> {
-        let mut map = Map::new();
-        for (key, slot) in &mut self.slots {
-            map.insert(key.clone(), Value::String(slot.next_value()));
-        }
-        let s = self.hb.render(&self.template, &Value::Object(map))?;
-        Ok(s)
+        render_with_slots(&self.hb, INLINE_TMPL, &mut self.slots)
     }
 }
 
@@ -109,7 +97,7 @@ mod tests {
     /// 输入：`TemplateRunner` 含 `Timestamp`/`NameEn`/`Ipv4`/区间整数等字段与对应模板。
     /// 预期：首行含分隔符 ` | `（各段非空拼接）。
     #[test]
-    fn render_with_facades() {
+    fn render_with_slots_smoke() {
         let cfg = test_worker_config(
             "{{ts}} | {{name}} | {{ip}} | {{n}}",
             [

@@ -12,21 +12,60 @@ use fake::locales::EN;
 use fake::uuid::UUIDv4;
 use fake::{Fake, Faker};
 use handlebars::Handlebars;
+use logen_branch::BranchPicker;
 use serde_json::{Map, Value};
 use url::Url;
 
 use crate::Error;
 
+use super::branch::{OneOfBranch, OneOfTemplateBranch};
 use super::field_spec::FieldSpec;
-use super::branch::OneOfSlot;
+
+const COMPOSITE_TMPL: &str = "slot";
 
 /// 模板字段插槽：每轮渲染前调用 [`TemplateSlot::next_value`]。
 pub trait TemplateSlot: Send {
     fn next_value(&mut self) -> String;
 }
 
+pub(crate) fn new_logen_handlebars() -> Handlebars<'static> {
+    let mut hb = Handlebars::new();
+    hb.set_strict_mode(false);
+    hb.register_escape_fn(handlebars::no_escape);
+    hb
+}
+
+pub(crate) fn register_logen_template(
+    hb: &mut Handlebars,
+    name: &str,
+    source: &str,
+) -> Result<(), Error> {
+    if source.trim().is_empty() {
+        return Err(Error::EmptyTemplate);
+    }
+    hb.register_template_string(name, source)?;
+    Ok(())
+}
+
+fn build_slot_map(slots: &mut BTreeMap<String, Box<dyn TemplateSlot>>) -> Map<String, Value> {
+    let mut map = Map::new();
+    for (key, slot) in slots {
+        map.insert(key.clone(), Value::String(slot.next_value()));
+    }
+    map
+}
+
+pub(crate) fn render_with_slots(
+    hb: &Handlebars,
+    template_name: &str,
+    slots: &mut BTreeMap<String, Box<dyn TemplateSlot>>,
+) -> Result<String, Error> {
+    let map = build_slot_map(slots);
+    Ok(hb.render(template_name, &Value::Object(map))?)
+}
+
 impl FieldSpec {
-    pub fn into_slot(self) -> Result<Box<dyn TemplateSlot>, Error> {
+    pub(crate) fn into_slot(self) -> Result<Box<dyn TemplateSlot>, Error> {
         match self {
             FieldSpec::UuidV4 => Ok(Box::new(UuidV4Slot)),
             FieldSpec::NameEn => Ok(Box::new(NameEnSlot)),
@@ -65,15 +104,61 @@ pub(crate) fn make_composite_template_slot(
     template: String,
     fields: BTreeMap<String, FieldSpec>,
 ) -> Result<CompositeTemplateSlot, Error> {
-    if template.trim().is_empty() {
-        return Err(Error::EmptyTemplate);
-    }
-    let mut hb = Handlebars::new();
-    hb.set_strict_mode(false);
-    hb.register_escape_fn(handlebars::no_escape);
-    hb.register_template_string("slot", template.as_str())?;
+    let mut hb = new_logen_handlebars();
+    register_logen_template(&mut hb, COMPOSITE_TMPL, template.as_str())?;
     let slots = slots_from_fields(fields)?;
     Ok(CompositeTemplateSlot { hb, slots })
+}
+
+enum OneOfArm {
+    Literal(String),
+    Nested(Box<CompositeTemplateSlot>),
+}
+
+struct OneOfSlot {
+    picker: BranchPicker,
+    arms: Vec<OneOfArm>,
+}
+
+impl OneOfSlot {
+    fn from_branches(branches: Vec<OneOfBranch>) -> Result<Self, Error> {
+        if branches.is_empty() {
+            return Err(Error::EmptyOneOfBranches);
+        }
+        let default_w = super::default_one_of_weight();
+        let mut weights = Vec::with_capacity(branches.len());
+        let mut arms = Vec::with_capacity(branches.len());
+        for b in branches {
+            let (w, arm) = match b {
+                OneOfBranch::Literal(s) => (default_w, OneOfArm::Literal(s)),
+                OneOfBranch::WeightedLiteral { w, v } => (w, OneOfArm::Literal(v)),
+                OneOfBranch::Template(OneOfTemplateBranch {
+                    w,
+                    template,
+                    fields,
+                }) => (
+                    w,
+                    OneOfArm::Nested(Box::new(make_composite_template_slot(
+                        template, fields,
+                    )?)),
+                ),
+            };
+            weights.push(w);
+            arms.push(arm);
+        }
+        let picker = BranchPicker::new(&weights)?;
+        Ok(Self { picker, arms })
+    }
+}
+
+impl TemplateSlot for OneOfSlot {
+    fn next_value(&mut self) -> String {
+        let i = self.picker.choose();
+        match &mut self.arms[i] {
+            OneOfArm::Literal(s) => s.clone(),
+            OneOfArm::Nested(c) => c.next_value(),
+        }
+    }
 }
 
 pub(crate) struct CompositeTemplateSlot {
@@ -241,12 +326,7 @@ impl TemplateSlot for CounterSlot {
 
 impl TemplateSlot for CompositeTemplateSlot {
     fn next_value(&mut self) -> String {
-        let mut map = Map::new();
-        for (key, slot) in &mut self.slots {
-            map.insert(key.clone(), Value::String(slot.next_value()));
-        }
-        self.hb
-            .render("slot", &Value::Object(map))
+        render_with_slots(&self.hb, COMPOSITE_TMPL, &mut self.slots)
             .unwrap_or_else(|e| format!("{{{{nested render: {e}}}}}"))
     }
 }

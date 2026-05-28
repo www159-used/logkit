@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use super::branch::OneOfBranch;
 
-/// 配置里 `fields.<name>` 的描述；运行态见 [`super::slot::TemplateSlot`] 与 [`FieldSpec::into_slot`].
+/// 配置里 `fields.<name>` 的描述；运行态见 [`super::slot::TemplateSlot`] 与 [`into_slot`](super::slot::FieldSpec::into_slot)。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum FieldSpec {
@@ -18,7 +18,7 @@ pub enum FieldSpec {
     Ipv4,
     /// 当前时间按 [`chrono`] 格式化（`format` 为 `strftime`，如 `%Y-%m-%d %H:%M:%S`）
     Timestamp {
-        #[serde(default = "default_ts_format")]
+        #[serde(default = "super::default_timestamp_format")]
         format: String,
     },
     /// 闭区间 `[min, max]` 内随机整数（`fake`）
@@ -52,8 +52,4 @@ pub enum FieldSpec {
     },
     /// 多选一：字面量、`{ w, v }` 或预编译 `template` 子树；权重在 `into_slot` 时编入 [`logen_branch::BranchPicker`]。
     OneOf { branches: Vec<OneOfBranch> },
-}
-
-fn default_ts_format() -> String {
-    "%Y-%m-%d %H:%M:%S".to_string()
 }
