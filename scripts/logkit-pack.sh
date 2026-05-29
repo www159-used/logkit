@@ -48,6 +48,19 @@ copy_pack_tools() {
     fi
   done
 }
+copy_pack_skills() {
+  local dest_root="$1"
+  local sd="$dest_root/skills"
+  mkdir -p "$sd"
+  if [[ -d "$HOME/Documents/skills/logkit" ]]; then
+    cp -R "$HOME/Documents/skills/logkit/." "$sd/"
+  elif [[ -d "$ROOT/skills" ]]; then
+    cp -R "$ROOT/skills/." "$sd/"
+  fi
+    cp -R "$ROOT/skills/." "$sd/"
+  fi
+}
+
 
 pack_native_dir() {
   cargo build --release
@@ -59,6 +72,7 @@ pack_native_dir() {
   fi
   cp "$ROOT/target/release/logen" "$ROOT/target/release/logend" "$dist/bin/"
   copy_pack_tools "$dist" "$ROOT/target/release"
+  copy_pack_skills "$dist"
   cp -R "$ROOT/etc/." "$dist/etc/"
   copy_pack_install "$dist"
   chmod +x "$dist/bin/logen" "$dist/bin/logend"
@@ -196,6 +210,7 @@ pack_linux_tarball() {
   fi
   cp "$release_dir/logen" "$release_dir/logend" "$stage/bin/"
   copy_pack_tools "$stage" "$release_dir"
+  copy_pack_skills "$stage"
   cp -R "$ROOT/etc/." "$stage/etc/"
   copy_pack_install "$stage"
   chmod +x "$stage/bin/logen" "$stage/bin/logend"
