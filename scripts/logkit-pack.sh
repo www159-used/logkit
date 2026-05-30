@@ -57,8 +57,6 @@ copy_pack_skills() {
   elif [[ -d "$ROOT/skills" ]]; then
     cp -R "$ROOT/skills/." "$sd/"
   fi
-    cp -R "$ROOT/skills/." "$sd/"
-  fi
 }
 
 
