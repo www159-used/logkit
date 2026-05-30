@@ -1,8 +1,8 @@
 # logkit
 
-[![Clippy](https://github.com/951mmm/logkit/actions/workflows/clippy.yml/badge.svg)](https://github.com/951mmm/logkit/actions/workflows/clippy.yml)
-[![Test](https://github.com/951mmm/logkit/actions/workflows/test.yml/badge.svg)](https://github.com/951mmm/logkit/actions/workflows/test.yml)
-[![Coverage](https://github.com/951mmm/logkit/actions/workflows/coverage.yml/badge.svg)](https://github.com/951mmm/logkit/actions/workflows/coverage.yml)
+[![Clippy](https://github.com/www159-used/logkit/actions/workflows/clippy.yml/badge.svg)](https://github.com/www159-used/logkit/actions/workflows/clippy.yml)
+[![Test](https://github.com/www159-used/logkit/actions/workflows/test.yml/badge.svg)](https://github.com/www159-used/logkit/actions/workflows/test.yml)
+[![Coverage](https://github.com/www159-used/logkit/actions/workflows/coverage.yml/badge.svg)](https://github.com/www159-used/logkit/actions/workflows/coverage.yml)
 
 许可：[GPL-3.0](LICENSE)
 
