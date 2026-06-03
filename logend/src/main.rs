@@ -64,6 +64,7 @@ struct RunningWorker {
     eps_interval: f64,
     /// [`format_sink_summary`]，与嵌套 `sink:` 一致
     sink_summary: String,
+    retry_total: u64,
 }
 
 struct LogenSvcState {
@@ -241,6 +242,7 @@ impl Logen for LogenSvc {
                     eps_interval: r.eps_interval,
                     log_events_estimated: events_est,
                     sink_summary: r.sink_summary.clone(),
+                    retry_total: r.retry_total,
                 }
             })
             .collect();
@@ -313,6 +315,7 @@ impl Logen for LogenSvc {
                 last_reported_log_events: 0,
                 eps_interval: 0.0,
                 sink_summary,
+                retry_total: 0,
             },
         );
         Ok(tonic::Response::new(StartWorkerReply {
@@ -408,13 +411,15 @@ impl Logen for LogenSvc {
         let msg = req.into_inner();
         let id = msg.id;
         let log_events_total = msg.log_events_total;
+        let retry_total = msg.retry_total;
         if id.is_empty() {
             return Err(tonic::Status::invalid_argument("id required"));
         }
         trace!(
-            "rpc Heartbeat id={} log_events_total={}",
+            "rpc Heartbeat id={} log_events_total={} retry_total={}",
             id,
-            log_events_total
+            log_events_total,
+            retry_total
         );
         let mut guard = self.inner.workers.lock().await;
         let Some(running) = guard.get_mut(&id) else {
@@ -441,6 +446,7 @@ impl Logen for LogenSvc {
         }
         running.last_reported_log_events = log_events_total;
         running.last_heartbeat = now;
+        running.retry_total = retry_total;
         Ok(tonic::Response::new(HeartbeatReply {}))
     }
 }

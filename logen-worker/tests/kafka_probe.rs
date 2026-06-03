@@ -10,6 +10,8 @@
 mod fixtures;
 
 use std::path::PathBuf;
+use std::sync::atomic::AtomicU64;
+use std::sync::Arc;
 
 use logen_dsl::KafkaConfig;
 use logen_worker::{probe_kafka_ssl_cluster, produce_one_kafka_ssl_line, KafkaLineSink};
@@ -68,7 +70,12 @@ fn print_workspace_tls_assets_dir() {
 #[test]
 fn kafka_line_sink_try_new_with_jks_fixture() {
     let k = kafka_config_from_kafka_asset_broker_yaml();
-    KafkaLineSink::new(&k, "kafka-probe-fixture").expect("create Kafka sink with JKS fixture");
+    KafkaLineSink::new(
+        &k,
+        "kafka-probe-fixture",
+        Arc::new(AtomicU64::new(0)),
+    )
+    .expect("create Kafka sink with JKS fixture");
 }
 
 const PRODUCE_PAYLOAD: &str = "produce one record";

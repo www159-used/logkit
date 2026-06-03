@@ -79,6 +79,8 @@ message HeartbeatRequest {
   string id = 1;
   // 自启动以来累计输出的日志条数（事件数），用于估算 eps
   uint64 log_events_total = 2;
+  // 自 worker 启动以来累计发生的 Kafka QueueFull 重试次数。
+  uint64 retry_total = 3;
 }
 
 message HeartbeatReply {}
@@ -105,6 +107,7 @@ message WorkerStatDetail {
   double log_events_estimated = 11;
   // 自实例 YAML 的 `sink:` 摘要（与嵌套 sink 一致）
   string sink_summary = 12;
+  uint64 retry_total = 13;
 }
 
 message StatWorkerReply {

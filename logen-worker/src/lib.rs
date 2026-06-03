@@ -49,7 +49,14 @@ impl EmbeddedWorker for TokioEmbeddedWorker {
         heartbeat: Option<WorkerHeartbeatEnv>,
     ) -> SpawnedWorkerTasks {
         let events = Arc::new(AtomicU64::new(0));
-        let heartbeat_task = heartbeat.map(|hb| spawn_heartbeat_task(hb, events.clone()));
+        let retry_total = Arc::new(AtomicU64::new(0));
+        let heartbeat_task = heartbeat.map(|hb| {
+            spawn_heartbeat_task(
+                hb,
+                events.clone(),
+                retry_total.clone(),
+            )
+        });
         let span = info_span!("worker", worker_id = %worker_id);
         let worker_task = tokio::spawn(
             async move {
@@ -59,6 +66,7 @@ impl EmbeddedWorker for TokioEmbeddedWorker {
                     worker_config,
                     output_base,
                     events,
+                    retry_total,
                 )
                 .await
                 {

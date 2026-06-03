@@ -168,6 +168,7 @@ async fn run() -> Result<(), LogenError> {
                 );
                 println!("events_total:\t{}", s.log_events_total);
                 println!("events_est:\t{:.1}", s.log_events_estimated);
+                println!("retry_total:\t{}", s.retry_total);
                 println!("sec_since_hb:\t{:.3}", s.seconds_since_heartbeat);
                 println!("hb_timeout_s:\t{}", s.heartbeat_timeout_secs);
                 println!("hb_interval_s:\t{}", s.heartbeat_interval_secs);

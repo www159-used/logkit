@@ -15,6 +15,8 @@ pub use kafka::KafkaLineSink;
 pub use stdout::StdoutLineSink;
 
 use std::path::Path;
+use std::sync::atomic::AtomicU64;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use logen_dsl::SinkConfig;
@@ -29,10 +31,11 @@ pub fn build_line_sink(
     sink: &SinkConfig,
     output_base: &Path,
     worker_id: &str,
+    retry_total: Arc<AtomicU64>,
 ) -> Result<Box<dyn LogLineSink>, SinkError> {
     match sink {
         SinkConfig::Kafka { kafka: Some(k), .. } => {
-            let s = KafkaLineSink::new(k, worker_id)?;
+            let s = KafkaLineSink::new(k, worker_id, retry_total)?;
             Ok(Box::new(s))
         }
         SinkConfig::Kafka { kafka: None, .. } => Err(SinkError::Internal(

@@ -30,6 +30,7 @@ async fn heartbeat_loop(
     period: Duration,
     uri: String,
     events: Arc<AtomicU64>,
+    retry_total: Arc<AtomicU64>,
 ) {
     let Ok(endpoint) = Endpoint::from_shared(uri) else {
         return;
@@ -57,6 +58,7 @@ async fn heartbeat_loop(
             .heartbeat(HeartbeatRequest {
                 id: id.clone(),
                 log_events_total: total,
+                retry_total: retry_total.load(Ordering::Relaxed),
             })
             .await
             .is_err()
@@ -66,7 +68,11 @@ async fn heartbeat_loop(
     }
 }
 
-pub fn spawn_heartbeat_task(hb: WorkerHeartbeatEnv, events: Arc<AtomicU64>) -> JoinHandle<()> {
+pub fn spawn_heartbeat_task(
+    hb: WorkerHeartbeatEnv,
+    events: Arc<AtomicU64>,
+    retry_total: Arc<AtomicU64>,
+) -> JoinHandle<()> {
     let iv = hb.heartbeat_interval_secs.max(1);
     tokio::spawn(heartbeat_loop(
         hb.control_socket,
@@ -74,6 +80,7 @@ pub fn spawn_heartbeat_task(hb: WorkerHeartbeatEnv, events: Arc<AtomicU64>) -> J
         Duration::from_secs(iv),
         hb.client_connect_uri,
         events,
+        retry_total,
     ))
 }
 
@@ -83,6 +90,7 @@ pub(crate) async fn run_worker_with_config(
     cfg: WorkerConfig,
     output_base: PathBuf,
     events: Arc<AtomicU64>,
+    retry_total: Arc<AtomicU64>,
 ) -> Result<()> {
     let thread_count = cfg.threads.max(1) as usize;
     let mut set = JoinSet::new();
@@ -95,9 +103,18 @@ pub(crate) async fn run_worker_with_config(
         let cfg = cfg.clone();
         let output_base = output_base.clone();
         let events = events.clone();
+        let retry_total = retry_total.clone();
         let wid = worker_id.clone();
         set.spawn(async move {
-            run_worker_loop(wid, loop_name, cfg, output_base, events).await
+            run_worker_loop(
+                wid,
+                loop_name,
+                cfg,
+                output_base,
+                events,
+                retry_total,
+            )
+            .await
         });
     }
 
@@ -113,6 +130,7 @@ async fn run_worker_loop(
     cfg: WorkerConfig,
     output_base: PathBuf,
     events: Arc<AtomicU64>,
+    retry_total: Arc<AtomicU64>,
 ) -> Result<()> {
     let WorkerConfig {
         template,
@@ -122,11 +140,15 @@ async fn run_worker_loop(
         ..
     } = cfg;
 
-    let mut line_sink = build_line_sink(&sink, output_base.as_path(), worker_id.as_str())
+    let mut line_sink = build_line_sink(
+        &sink,
+        output_base.as_path(),
+        worker_id.as_str(),
+        retry_total,
+    )
         .with_context(|| format!("{config_name}: sink"))?;
     let mut runner = TemplateRunner::try_new(template, fields)
         .map_err(|e| anyhow::anyhow!("{config_name}: template runner: {e}"))?;
-
     if min_interval.is_zero() {
         loop {
             let line = runner

@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -14,6 +14,7 @@ use rdkafka::producer::{
     BaseRecord, DefaultProducerContext, FutureProducer, Producer, ProducerContext,
     ThreadedProducer,
 };
+use rdkafka::types::RDKafkaErrorCode;
 
 use super::context_id::next_context_id;
 use super::kafka_agent::{self, RuntimeAgentConfig};
@@ -29,6 +30,7 @@ const PRODUCER_LINGER_MS: &str = "10";
 const PRODUCER_MESSAGE_MAX_BYTES: &str = "10485760";
 const PRODUCER_COMPRESSION: &str = "lz4";
 const PRODUCER_SOCKET_TIMEOUT_MS: &str = "60000";
+const QUEUE_FULL_BACKOFF_MS_MAX: u64 = 100;
 
 fn apply_builtin_producer_profile(cfg: &mut ClientConfig) {
     cfg.set("queue.buffering.max.kbytes", PRODUCER_QUEUE_MAX_KBYTES);
@@ -148,6 +150,7 @@ pub struct KafkaLineSink {
     tls_enabled: bool,
     sasl_keys_in_yaml: bool,
     runtime_agent_config: Option<RuntimeAgentConfig>,
+    retry_total: Arc<AtomicU64>,
 }
 
 fn kafka_frame_size_error_hint(err_display: &str) -> Option<&'static str> {
@@ -190,6 +193,20 @@ fn format_produce_err(
         );
     }
     s
+}
+
+fn is_queue_full_error(e: &KafkaError) -> bool {
+    matches!(e, KafkaError::MessageProduction(RDKafkaErrorCode::QueueFull))
+}
+
+fn queue_full_backoff(attempt: u32) -> Duration {
+    let shift = attempt.min(6);
+    let ms = 1u64 << shift;
+    Duration::from_millis(ms.min(QUEUE_FULL_BACKOFF_MS_MAX))
+}
+
+fn should_log_queue_full_retry(attempt: u32) -> bool {
+    attempt == 0 || (attempt + 1).is_power_of_two()
 }
 
 fn security_protocol_upper(k: &KafkaConfig) -> Option<String> {
@@ -433,7 +450,11 @@ fn build_rdkafka_client_config(
 }
 
 impl KafkaLineSink {
-    pub fn new(k: &KafkaConfig, worker_id: &str) -> Result<Self, SinkError> {
+    pub fn new(
+        k: &KafkaConfig,
+        worker_id: &str,
+        retry_total: Arc<AtomicU64>,
+    ) -> Result<Self, SinkError> {
         let brokers_display = normalize_brokers(k).join(", ");
         let headers = if k.mode == KafkaSinkMode::Agent {
             None
@@ -461,6 +482,7 @@ impl KafkaLineSink {
             tls_enabled,
             sasl_keys_in_yaml: sasl_keys_present(k),
             runtime_agent_config,
+            retry_total,
         })
     }
 }
@@ -501,16 +523,37 @@ impl LogLineSink for KafkaLineSink {
             rec = rec.headers(h.clone());
         }
 
-        self.producer.send(rec).map_err(|(e, _)| {
-            SinkError::Kafka(format_produce_err(
-                &e,
-                &self.brokers_display,
-                topic,
-                self.tls_enabled,
-                self.sasl_keys_in_yaml,
-                &self.kafka_config,
-            ))
-        })
+        let mut attempt = 0u32;
+        loop {
+            match self.producer.send(rec) {
+                Ok(()) => return Ok(()),
+                Err((e, returned_rec)) if is_queue_full_error(&e) => {
+                    let backoff = queue_full_backoff(attempt);
+                    self.retry_total.fetch_add(1, Ordering::Relaxed);
+                    if should_log_queue_full_retry(attempt) {
+                        tracing::warn!(
+                            topic = %topic,
+                            attempt = attempt + 1,
+                            backoff_ms = backoff.as_millis(),
+                            "kafka producer queue full; retrying send"
+                        );
+                    }
+                    rec = returned_rec;
+                    attempt = attempt.saturating_add(1);
+                    tokio::time::sleep(backoff).await;
+                }
+                Err((e, _)) => {
+                    return Err(SinkError::Kafka(format_produce_err(
+                        &e,
+                        &self.brokers_display,
+                        topic,
+                        self.tls_enabled,
+                        self.sasl_keys_in_yaml,
+                        &self.kafka_config,
+                    )))
+                }
+            }
+        }
     }
 }
 
@@ -648,5 +691,16 @@ mod producer_profile_tests {
         let (cfg, _) =
             build_rdkafka_client_config(&k, KafkaTransportMode::Plaintext).unwrap();
         assert_eq!(cfg.get("batch.size").map(String::from), Some("131072".to_string()));
+    }
+
+    /// 测试内容：`QueueFull` 属于可重试错误，其它生产错误不应误判。
+    /// 输入：`KafkaError::MessageProduction(QueueFull)` 与 `KafkaError::Canceled`。
+    /// 预期：前者返回 `true`，后者返回 `false`。
+    #[test]
+    fn detect_queue_full_error_for_retry() {
+        assert!(is_queue_full_error(&KafkaError::MessageProduction(
+            RDKafkaErrorCode::QueueFull
+        )));
+        assert!(!is_queue_full_error(&KafkaError::Canceled));
     }
 }
