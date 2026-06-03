@@ -56,7 +56,7 @@ prost = "0.14"
 rust-embed = { version = "8", features = ["include-exclude"] }
 uuid = { version = "1", default-features = false, features = ["v4"] }
 
-# Linux perf / 火焰图：带 DWARF、保留 frame pointer（配合 RUSTFLAGS 见 scripts/build-logend-perf.sh）
+# Linux perf / 火焰图：带 DWARF、保留 frame pointer（配合 LOGKIT_PACK_PROFILE=release-perf）
 [profile.release-perf]
 inherits = "release"
 debug = 1

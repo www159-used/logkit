@@ -17,12 +17,57 @@
 #   cargo  — 强制 cargo build（仅 native 或已自配链接器时合理）
 #   cross  — 强制 cross build（需 Docker）
 #
+# 环境变量 LOGKIT_PACK_PROFILE（可选，默认 release）：
+#   release       — 发行默认（strip、无 debug）
+#   release-perf  — perf/BCC 火焰图：保留符号 + 自动追加 force-frame-pointers
+#   dev           — 调试构建
+#
+# 示例：
+#   LOGKIT_PACK_PROFILE=release-perf ./scripts/logkit-pack.sh gnu
+#
 # macOS 上链 logend 若 ProcessFdQuotaExceeded：ulimit -n 65536 后再打包。
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 MODE="${1:-gnu}"
+LOGKIT_PACK_PROFILE="${LOGKIT_PACK_PROFILE:-release}"
+
+validate_pack_profile() {
+  case "$LOGKIT_PACK_PROFILE" in
+    release|release-perf|dev) ;;
+    *)
+      echo "error: LOGKIT_PACK_PROFILE 须为 release|release-perf|dev（当前: $LOGKIT_PACK_PROFILE）" >&2
+      exit 2
+      ;;
+  esac
+}
+
+prepare_pack_profile() {
+  validate_pack_profile
+  apply_pack_profile_rustflags
+}
+
+apply_pack_profile_rustflags() {
+  [[ "$LOGKIT_PACK_PROFILE" == "release-perf" ]] || return 0
+  if [[ -z "${RUSTFLAGS:-}" ]]; then
+    export RUSTFLAGS="-C force-frame-pointers=yes"
+    return 0
+  fi
+  export RUSTFLAGS="$RUSTFLAGS -C force-frame-pointers=yes"
+}
+
+cargo_profile_name() {
+  echo "$LOGKIT_PACK_PROFILE"
+}
+
+artifact_profile_dir_name() {
+  if [[ "$LOGKIT_PACK_PROFILE" == "dev" ]]; then
+    echo "debug"
+  else
+    echo "$LOGKIT_PACK_PROFILE"
+  fi
+}
 
 # 将仓库 bin/install.sh 拷到发行包 **logkit/** 根目录（解压后在该目录执行 ./install.sh 写 ~/.bashrc）。
 copy_pack_install() {
@@ -48,33 +93,26 @@ copy_pack_tools() {
     fi
   done
 }
-copy_pack_skills() {
-  local dest_root="$1"
-  local sd="$dest_root/skills"
-  mkdir -p "$sd"
-  if [[ -d "$HOME/Documents/skills/logkit" ]]; then
-    cp -R "$HOME/Documents/skills/logkit/." "$sd/"
-  elif [[ -d "$ROOT/skills" ]]; then
-    cp -R "$ROOT/skills/." "$sd/"
-  fi
-}
-
-
 pack_native_dir() {
-  cargo build --release
+  prepare_pack_profile
+  local profile
+  profile="$(cargo_profile_name)"
+  local artifact_profile
+  artifact_profile="$(artifact_profile_dir_name)"
+  cargo build --profile "$profile"
+  local artifact_dir="$ROOT/target/$artifact_profile"
   local dist="$ROOT/dist/logkit"
   rm -rf "$dist"
   mkdir -p "$dist/bin" "$dist/etc"
   if [[ "$(uname -s)" == "Darwin" ]]; then
     export COPYFILE_DISABLE=1
   fi
-  cp "$ROOT/target/release/logen" "$ROOT/target/release/logend" "$dist/bin/"
-  copy_pack_tools "$dist" "$ROOT/target/release"
-  copy_pack_skills "$dist"
+  cp "$artifact_dir/logen" "$artifact_dir/logend" "$dist/bin/"
+  copy_pack_tools "$dist" "$artifact_dir"
   cp -R "$ROOT/etc/." "$dist/etc/"
   copy_pack_install "$dist"
   chmod +x "$dist/bin/logen" "$dist/bin/logend"
-  echo "packed -> $dist"
+  echo "packed (profile=$LOGKIT_PACK_PROFILE) -> $dist"
 }
 
 raise_open_files_limit() {
@@ -139,44 +177,48 @@ preflight_linux_linker() {
 run_build() {
   local target="$1"
   local mode="${LOGKIT_PACK_LINKER:-auto}"
+  local profile
+  profile="$(cargo_profile_name)"
   local -a jobs=()
   if [[ -n "${LOGKIT_PACK_JOBS:-}" ]]; then
     jobs=(-j "$LOGKIT_PACK_JOBS")
   fi
   case "${mode}" in
     cross)
-      cross build --release --target "$target" "${jobs[@]}"
+      cross build --profile "$profile" --target "$target" "${jobs[@]}"
       ;;
     zig)
-      cargo zigbuild --release --target "$target" "${jobs[@]}"
+      cargo zigbuild --profile "$profile" --target "$target" "${jobs[@]}"
       ;;
     cargo)
-      cargo build --release --target "$target" "${jobs[@]}"
+      cargo build --profile "$profile" --target "$target" "${jobs[@]}"
       ;;
     auto)
       # gnu.2.17 / musl 交叉统一 zigbuild，避免链到宿主新 glibc
-      cargo zigbuild --release --target "$target" "${jobs[@]}"
+      cargo zigbuild --profile "$profile" --target "$target" "${jobs[@]}"
       ;;
   esac
 }
 
-# zigbuild 的 *.gnu.2.17 链的是老 glibc，但产物目录仍是 target/<base-triple>/release/
-target_release_dir() {
+# zigbuild 的 *.gnu.2.17 链的是老 glibc，但产物目录仍是 target/<base-triple>/<profile>/
+target_artifact_dir() {
   local target="$1"
-  local dir="$ROOT/target/$target/release"
+  local artifact_profile
+  artifact_profile="$(artifact_profile_dir_name)"
+  local dir="$ROOT/target/$target/$artifact_profile"
   if [[ -f "$dir/logen" ]]; then
     echo "$dir"
     return 0
   fi
   local base="${target%.2.*}"
   if [[ "$base" != "$target" ]]; then
-    dir="$ROOT/target/$base/release"
+    dir="$ROOT/target/$base/$artifact_profile"
     if [[ -f "$dir/logen" ]]; then
       echo "$dir"
       return 0
     fi
   fi
-  echo "error: 未找到 $target 的 release 产物（已查 target/$target/release 与 target/$base/release）" >&2
+  echo "error: 未找到 $target profile=$LOGKIT_PACK_PROFILE 的产物（已查 target/$target/$artifact_profile 与 target/$base/$artifact_profile）" >&2
   exit 1
 }
 
@@ -197,8 +239,8 @@ make_targz() {
 
 pack_linux_tarball() {
   local target="$1"
-  local release_dir
-  release_dir="$(target_release_dir "$target")"
+  local artifact_dir
+  artifact_dir="$(target_artifact_dir "$target")"
   local parent="$ROOT/dist/.stage-$target"
   local stage="$parent/logkit"
   rm -rf "$parent"
@@ -206,14 +248,16 @@ pack_linux_tarball() {
   if [[ "$(uname -s)" == "Darwin" ]]; then
     export COPYFILE_DISABLE=1
   fi
-  cp "$release_dir/logen" "$release_dir/logend" "$stage/bin/"
-  copy_pack_tools "$stage" "$release_dir"
-  copy_pack_skills "$stage"
+  cp "$artifact_dir/logen" "$artifact_dir/logend" "$stage/bin/"
+  copy_pack_tools "$stage" "$artifact_dir"
   cp -R "$ROOT/etc/." "$stage/etc/"
   copy_pack_install "$stage"
   chmod +x "$stage/bin/logen" "$stage/bin/logend"
   find "$parent" -name '._*' -delete 2>/dev/null || true
   local out="$ROOT/dist/logkit-${target}.tar.gz"
+  if [[ "$LOGKIT_PACK_PROFILE" != "release" ]]; then
+    out="$ROOT/dist/logkit-${target}.${LOGKIT_PACK_PROFILE}.tar.gz"
+  fi
   mkdir -p "$ROOT/dist"
   make_targz "$out" "$parent" "logkit"
   rm -rf "$parent"
@@ -234,12 +278,14 @@ ensure_rust_std() {
 
 pack_linux_targets() {
   local -a targets=("$@")
+  prepare_pack_profile
   mkdir -p "$ROOT/dist"
   preflight_linux_linker
+  echo "pack profile: $LOGKIT_PACK_PROFILE"
   local target
   for target in "${targets[@]}"; do
     ensure_rust_std "$target"
-    echo "building $target ..."
+    echo "building $target (profile=$LOGKIT_PACK_PROFILE) ..."
     run_build "$target"
     pack_linux_tarball "$target"
   done
@@ -265,7 +311,8 @@ case "$MODE" in
     echo "usage: $0 [gnu|musl|native]" >&2
     echo "  gnu   — glibc 2.17（默认，与 CI 一致）" >&2
     echo "  musl  — 旧 musl 静态链" >&2
-    echo "  native — 本机 release" >&2
+    echo "  native — 本机构建（见 LOGKIT_PACK_PROFILE）" >&2
+    echo "  LOGKIT_PACK_PROFILE=release|release-perf|dev（默认 release）" >&2
     exit 2
     ;;
 esac
