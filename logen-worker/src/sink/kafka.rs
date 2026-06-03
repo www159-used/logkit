@@ -1,9 +1,10 @@
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use backon::{BackoffBuilder, ExponentialBuilder};
 use logen_dsl::{KafkaConfig, KafkaSinkMode};
 use serde_yaml::Value;
 use rdkafka::client::ClientContext;
@@ -30,7 +31,23 @@ const PRODUCER_LINGER_MS: &str = "10";
 const PRODUCER_MESSAGE_MAX_BYTES: &str = "10485760";
 const PRODUCER_COMPRESSION: &str = "lz4";
 const PRODUCER_SOCKET_TIMEOUT_MS: &str = "60000";
+const QUEUE_FULL_BACKOFF_MS_MIN: u64 = 1;
 const QUEUE_FULL_BACKOFF_MS_MAX: u64 = 100;
+const DELIVERY_TIMEOUT_BACKOFF_MS_MIN: u64 = 10;
+const DELIVERY_TIMEOUT_RETRY_LIMIT: u32 = 3;
+const DELIVERY_TIMEOUT_BACKOFF_MS_MAX: u64 = 1000;
+
+#[derive(Clone, Copy)]
+enum DeliveryFailureKind {
+    Other,
+    TimedOut,
+}
+
+#[derive(Clone)]
+struct DeliveryFailure {
+    detail: String,
+    kind: DeliveryFailureKind,
+}
 
 fn apply_builtin_producer_profile(cfg: &mut ClientConfig) {
     cfg.set("queue.buffering.max.kbytes", PRODUCER_QUEUE_MAX_KBYTES);
@@ -88,8 +105,7 @@ fn wall_clock_ms_i64() -> i64 {
 struct LogenKafkaProducerContext {
     worker_id: Arc<str>,
     topic: Arc<str>,
-    failed: Arc<AtomicBool>,
-    last_error: Arc<Mutex<Option<String>>>,
+    delivery_failure: Arc<Mutex<Option<DeliveryFailure>>>,
 }
 
 impl LogenKafkaProducerContext {
@@ -97,22 +113,15 @@ impl LogenKafkaProducerContext {
         Self {
             worker_id: Arc::from(worker_id),
             topic: Arc::from(topic),
-            failed: Arc::new(AtomicBool::new(false)),
-            last_error: Arc::new(Mutex::new(None)),
+            delivery_failure: Arc::new(Mutex::new(None)),
         }
     }
 
-    fn sticky_error(&self) -> Result<(), SinkError> {
-        if !self.failed.load(Ordering::Relaxed) {
-            return Ok(());
-        }
-        let detail = self
-            .last_error
+    fn take_delivery_failure(&self) -> Option<DeliveryFailure> {
+        self.delivery_failure
             .lock()
             .ok()
-            .and_then(|g| g.clone())
-            .unwrap_or_else(|| "prior kafka delivery failed".into());
-        Err(SinkError::Kafka(detail))
+            .and_then(|mut g| g.take())
     }
 
     fn record_delivery_failure(&self, e: &KafkaError) {
@@ -121,9 +130,15 @@ impl LogenKafkaProducerContext {
             topic = %self.topic.as_ref(),
             "kafka delivery failed: {e}"
         );
-        self.failed.store(true, Ordering::Relaxed);
-        if let Ok(mut g) = self.last_error.lock() {
-            *g = Some(e.to_string());
+        if let Ok(mut g) = self.delivery_failure.lock() {
+            *g = Some(DeliveryFailure {
+                detail: e.to_string(),
+                kind: if is_message_timed_out_error(e) {
+                DeliveryFailureKind::TimedOut
+            } else {
+                DeliveryFailureKind::Other
+            },
+            });
         }
     }
 }
@@ -199,14 +214,33 @@ fn is_queue_full_error(e: &KafkaError) -> bool {
     matches!(e, KafkaError::MessageProduction(RDKafkaErrorCode::QueueFull))
 }
 
-fn queue_full_backoff(attempt: u32) -> Duration {
-    let shift = attempt.min(6);
-    let ms = 1u64 << shift;
-    Duration::from_millis(ms.min(QUEUE_FULL_BACKOFF_MS_MAX))
+fn is_message_timed_out_error(e: &KafkaError) -> bool {
+    matches!(
+        e,
+        KafkaError::MessageProduction(RDKafkaErrorCode::MessageTimedOut)
+    )
+}
+
+fn queue_full_backoff_builder() -> ExponentialBuilder {
+    ExponentialBuilder::default()
+        .with_min_delay(Duration::from_millis(QUEUE_FULL_BACKOFF_MS_MIN))
+        .with_max_delay(Duration::from_millis(QUEUE_FULL_BACKOFF_MS_MAX))
+        .without_max_times()
+}
+
+fn delivery_timeout_backoff_builder() -> ExponentialBuilder {
+    ExponentialBuilder::default()
+        .with_min_delay(Duration::from_millis(DELIVERY_TIMEOUT_BACKOFF_MS_MIN))
+        .with_max_delay(Duration::from_millis(DELIVERY_TIMEOUT_BACKOFF_MS_MAX))
+        .with_max_times(DELIVERY_TIMEOUT_RETRY_LIMIT as usize)
 }
 
 fn should_log_queue_full_retry(attempt: u32) -> bool {
     attempt == 0 || (attempt + 1).is_power_of_two()
+}
+
+fn should_log_delivery_timeout_retry(attempt: u32) -> bool {
+    attempt == 0 || attempt + 1 == DELIVERY_TIMEOUT_RETRY_LIMIT
 }
 
 fn security_protocol_upper(k: &KafkaConfig) -> Option<String> {
@@ -503,7 +537,6 @@ impl Drop for KafkaLineSink {
 #[async_trait]
 impl LogLineSink for KafkaLineSink {
     async fn emit_line(&mut self, line: &str) -> Result<(), SinkError> {
-        self.producer.context().sticky_error()?;
         let topic = self.producer.context().topic.as_ref();
 
         let agent_msg = self.runtime_agent_config.as_ref().map(|c| {
@@ -524,11 +557,40 @@ impl LogLineSink for KafkaLineSink {
         }
 
         let mut attempt = 0u32;
+        let mut timeout_attempt = 0u32;
+        let mut queue_full_backoff = queue_full_backoff_builder().build();
+        let mut delivery_timeout_backoff = delivery_timeout_backoff_builder().build();
         loop {
+            if let Some(failure) = self.producer.context().take_delivery_failure() {
+                match failure.kind {
+                    DeliveryFailureKind::TimedOut => {
+                        let Some(backoff) = delivery_timeout_backoff.next() else {
+                            return Err(SinkError::Kafka(failure.detail));
+                        };
+                        self.retry_total.fetch_add(1, Ordering::Relaxed);
+                        if should_log_delivery_timeout_retry(timeout_attempt) {
+                            tracing::warn!(
+                                topic = %topic,
+                                attempt = timeout_attempt + 1,
+                                backoff_ms = backoff.as_millis(),
+                                "kafka delivery timed out; retrying send loop"
+                            );
+                        }
+                        timeout_attempt = timeout_attempt.saturating_add(1);
+                        tokio::time::sleep(backoff).await;
+                        continue;
+                    }
+                    DeliveryFailureKind::Other => {
+                        return Err(SinkError::Kafka(failure.detail));
+                    }
+                }
+            }
             match self.producer.send(rec) {
                 Ok(()) => return Ok(()),
                 Err((e, returned_rec)) if is_queue_full_error(&e) => {
-                    let backoff = queue_full_backoff(attempt);
+                    let backoff = queue_full_backoff
+                        .next()
+                        .unwrap_or(Duration::from_millis(QUEUE_FULL_BACKOFF_MS_MAX));
                     self.retry_total.fetch_add(1, Ordering::Relaxed);
                     if should_log_queue_full_retry(attempt) {
                         tracing::warn!(
@@ -702,5 +764,16 @@ mod producer_profile_tests {
             RDKafkaErrorCode::QueueFull
         )));
         assert!(!is_queue_full_error(&KafkaError::Canceled));
+    }
+
+    /// 测试内容：Kafka delivery timeout 会被识别为有限次可恢复重试错误。
+    /// 输入：`KafkaError::MessageProduction(MessageTimedOut)` 与 `KafkaError::Canceled`。
+    /// 预期：前者返回 `true`，后者返回 `false`。
+    #[test]
+    fn detect_message_timed_out_error_for_retry() {
+        assert!(is_message_timed_out_error(&KafkaError::MessageProduction(
+            RDKafkaErrorCode::MessageTimedOut
+        )));
+        assert!(!is_message_timed_out_error(&KafkaError::Canceled));
     }
 }

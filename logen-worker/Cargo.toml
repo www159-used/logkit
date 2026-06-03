@@ -33,6 +33,7 @@ tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "tim
 tonic = { workspace = true }
 tower = { workspace = true }
 tracing = { workspace = true }
+backon = "1.6.0"
 
 [dev-dependencies]
 logen-dsl = { path = "../logen-dsl" }
