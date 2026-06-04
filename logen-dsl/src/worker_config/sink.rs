@@ -134,10 +134,7 @@ pub fn validate_sink(sink: &SinkConfig) -> Result<(), ConfigParseError> {
                     }
                 }
             } else {
-                let topic_ok = k
-                    .topic
-                    .as_deref()
-                    .is_some_and(|t| !t.trim().is_empty());
+                let topic_ok = k.topic.as_deref().is_some_and(|t| !t.trim().is_empty());
                 if !topic_ok {
                     return Err(ConfigParseError::Merge(
                         "`sink.type: kafka` requires a non-empty `sink.kafka.topic` when `sink.kafka.mode` is `common` (default)"
@@ -220,9 +217,7 @@ mod tests {
                 kafka: Some(Box::new(KafkaConfig {
                     brokers: Some(vec!["h1:9092".into()]),
                     topic: Some("t".into()),
-                    headers: Some(
-                        [("a".into(), Some("1".into()))].into_iter().collect(),
-                    ),
+                    headers: Some([("a".into(), Some("1".into()))].into_iter().collect(),),
                     ..Default::default()
                 })),
             }),

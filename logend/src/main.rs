@@ -12,20 +12,16 @@ use logen_proto::{
     StartWorkerRequest, StatWorkerReply, StatWorkerRequest, StopWorkerReply, StopWorkerRequest,
     WorkerEntry, WorkerStatDetail,
 };
-use logen_worker::{
-    EmbeddedWorker, WorkerHeartbeatEnv, SpawnedWorkerTasks, TokioEmbeddedWorker,
-};
+use logen_worker::{EmbeddedWorker, SpawnedWorkerTasks, TokioEmbeddedWorker, WorkerHeartbeatEnv};
 use tokio::net::UnixListener;
 use tokio::sync::Mutex;
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::Server;
 
-use tracing::{debug, info, trace, warn};
-use tracing_subscriber::{
-    fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Registry,
-};
 use logen_config::{load_merged, LogenConfig, LogenError, WorkerSection};
 use logen_dsl::{format_sink_summary, parse_worker_config};
+use tracing::{debug, info, trace, warn};
+use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Registry};
 
 #[derive(Parser)]
 #[command(
@@ -134,9 +130,8 @@ fn init_daemon_logging(
     } else {
         default_spec
     };
-    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-        EnvFilter::new(default_spec)
-    });
+    let env_filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_spec));
 
     let parent = log_path.parent().unwrap_or_else(|| Path::new("."));
     let file_name = log_path
@@ -433,9 +428,7 @@ impl Logen for LogenSvc {
                     task.abort();
                 }
             }
-            return Err(tonic::Status::failed_precondition(
-                "worker task has ended",
-            ));
+            return Err(tonic::Status::failed_precondition("worker task has ended"));
         }
         let now = Instant::now();
         let dt = now.duration_since(running.last_heartbeat);
@@ -464,7 +457,19 @@ fn unix_process_exists(pid: u32) -> bool {
 }
 
 #[cfg(unix)]
-async fn run(cfg: LogenConfig) -> Result<(), LogenError> {
+fn build_worker_runtime(cfg: &WorkerSection) -> Result<tokio::runtime::Runtime, LogenError> {
+    let mut builder = tokio::runtime::Builder::new_multi_thread();
+    builder.enable_all().thread_name("logend-worker-rt");
+    if let Some(n) = cfg.runtime_threads {
+        builder.worker_threads(n.max(1));
+    }
+    builder
+        .build()
+        .map_err(|e| LogenError::Cli(format!("build worker runtime: {e}")))
+}
+
+#[cfg(unix)]
+async fn run(cfg: LogenConfig, embedded_worker: Arc<dyn EmbeddedWorker>) -> Result<(), LogenError> {
     let worker_output_dir = cfg.worker.worker_output_dir.trim().to_string();
     if worker_output_dir.is_empty() {
         return Err(LogenError::Cli(
@@ -522,8 +527,7 @@ async fn run(cfg: LogenConfig) -> Result<(), LogenError> {
         fs::remove_file(sock).map_err(|e| LogenError::unix_io(sock.to_path_buf(), e))?;
     }
 
-    let uds =
-        UnixListener::bind(sock).map_err(|e| LogenError::unix_io(sock.to_path_buf(), e))?;
+    let uds = UnixListener::bind(sock).map_err(|e| LogenError::unix_io(sock.to_path_buf(), e))?;
     let incoming = UnixListenerStream::new(uds);
 
     let pid_body = format!("{}{}", std::process::id(), pid_suffix);
@@ -540,7 +544,7 @@ async fn run(cfg: LogenConfig) -> Result<(), LogenError> {
             control_socket_path,
             client_connect_uri,
             worker_output_dir,
-            embedded_worker: Arc::new(TokioEmbeddedWorker),
+            embedded_worker,
             workers: Mutex::new(HashMap::new()),
         }),
     };
@@ -560,23 +564,33 @@ async fn run(cfg: LogenConfig) -> Result<(), LogenError> {
 #[cfg(unix)]
 fn main() {
     let cli = LogendCli::parse();
+    let cfg = match load_merged(cli.defaults_file.as_deref()) {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            eprintln!("{e}");
+            std::process::exit(1);
+        }
+    };
 
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .expect("logend tokio runtime");
+    let worker_runtime = match build_worker_runtime(&cfg.worker) {
+        Ok(rt) => rt,
+        Err(e) => {
+            eprintln!("{e}");
+            std::process::exit(1);
+        }
+    };
+    let embedded_worker: Arc<dyn EmbeddedWorker> = Arc::new(TokioEmbeddedWorker::new(
+        worker_runtime.handle().clone(),
+        rt.handle().clone(),
+    ));
     rt.block_on(async {
-        match load_merged(cli.defaults_file.as_deref()) {
-            Ok(cfg) => {
-                if let Err(e) = run(cfg).await {
-                    eprintln!("{e}");
-                    std::process::exit(1);
-                }
-            }
-            Err(e) => {
-                eprintln!("{e}");
-                std::process::exit(1);
-            }
+        if let Err(e) = run(cfg, embedded_worker).await {
+            eprintln!("{e}");
+            std::process::exit(1);
         }
     });
 }

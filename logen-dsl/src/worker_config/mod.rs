@@ -3,22 +3,20 @@
 mod body;
 mod branch;
 mod field_spec;
-mod slot;
 mod kafka;
 mod sink;
+mod slot;
 mod worker;
 
 pub use body::BodyConfig;
 pub use branch::{OneOfBranch, OneOfTemplateBranch};
 pub use field_spec::FieldSpec;
+pub use kafka::{validate_agent_source_id, KafkaAgentConfig, KafkaConfig, KafkaSinkMode};
+pub use sink::{format_sink_summary, validate_sink, SinkConfig};
 pub use slot::TemplateSlot;
 pub(crate) use slot::{
     new_logen_handlebars, register_logen_template, render_with_slots, slots_from_fields,
 };
-pub use kafka::{
-    validate_agent_source_id, KafkaAgentConfig, KafkaConfig, KafkaSinkMode,
-};
-pub use sink::{format_sink_summary, validate_sink, SinkConfig};
 pub use worker::WorkerConfig;
 
 use std::time::Duration;

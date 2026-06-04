@@ -63,16 +63,13 @@ mod tests {
     /// 预期：与对应 `Duration` 一致。
     #[test]
     fn unit_suffixes() {
-        assert_eq!(parse_min_interval("100ms").unwrap(), Duration::from_millis(100));
+        assert_eq!(
+            parse_min_interval("100ms").unwrap(),
+            Duration::from_millis(100)
+        );
         assert_eq!(parse_min_interval("1s").unwrap(), Duration::from_secs(1));
-        assert_eq!(
-            parse_min_interval("2m").unwrap(),
-            Duration::from_secs(120)
-        );
-        assert_eq!(
-            parse_min_interval("1h").unwrap(),
-            Duration::from_secs(3600)
-        );
+        assert_eq!(parse_min_interval("2m").unwrap(), Duration::from_secs(120));
+        assert_eq!(parse_min_interval("1h").unwrap(), Duration::from_secs(3600));
     }
 
     /// 测试内容：小数字符串可带小数秒。

@@ -138,9 +138,7 @@ impl OneOfSlot {
                     fields,
                 }) => (
                     w,
-                    OneOfArm::Nested(Box::new(make_composite_template_slot(
-                        template, fields,
-                    )?)),
+                    OneOfArm::Nested(Box::new(make_composite_template_slot(template, fields)?)),
                 ),
             };
             weights.push(w);

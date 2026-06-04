@@ -51,9 +51,7 @@ pub fn build_line_sink(
                 .map(str::trim)
                 .filter(|s| !s.is_empty())
                 .ok_or_else(|| {
-                    SinkError::Internal(
-                        "sink.type file but output missing after validation".into(),
-                    )
+                    SinkError::Internal("sink.type file but output missing after validation".into())
                 })?;
             Ok(Box::new(FileLineSink::open(
                 output_base,

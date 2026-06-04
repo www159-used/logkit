@@ -199,7 +199,12 @@ sink:
         let sink = acc.get(KEY_SINK).unwrap();
         assert_eq!(sink.get(KEY_TYPE).unwrap().as_str().unwrap(), "kafka");
         assert_eq!(
-            sink.get("kafka").unwrap().get("topic").unwrap().as_str().unwrap(),
+            sink.get("kafka")
+                .unwrap()
+                .get("topic")
+                .unwrap()
+                .as_str()
+                .unwrap(),
             "t1"
         );
         assert!(sink.get("kafka").unwrap().get("brokers").is_some());
@@ -225,7 +230,12 @@ sink:
             ),
         );
         assert_eq!(
-            acc.get(KEY_SINK).unwrap().get(KEY_TYPE).unwrap().as_str().unwrap(),
+            acc.get(KEY_SINK)
+                .unwrap()
+                .get(KEY_TYPE)
+                .unwrap()
+                .as_str()
+                .unwrap(),
             "stdout"
         );
     }

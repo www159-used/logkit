@@ -9,6 +9,7 @@ use hyper_util::rt::TokioIo;
 use logen_dsl::{TemplateRunner, WorkerConfig};
 use logen_proto::logen_client::LogenClient;
 use logen_proto::HeartbeatRequest;
+use tokio::runtime::Handle;
 use tokio::task::{JoinHandle, JoinSet};
 use tonic::transport::Endpoint;
 use tower::service_fn;
@@ -69,12 +70,13 @@ async fn heartbeat_loop(
 }
 
 pub fn spawn_heartbeat_task(
+    handle: &Handle,
     hb: WorkerHeartbeatEnv,
     events: Arc<AtomicU64>,
     retry_total: Arc<AtomicU64>,
 ) -> JoinHandle<()> {
     let iv = hb.heartbeat_interval_secs.max(1);
-    tokio::spawn(heartbeat_loop(
+    handle.spawn(heartbeat_loop(
         hb.control_socket,
         hb.worker_id,
         Duration::from_secs(iv),
@@ -106,15 +108,7 @@ pub(crate) async fn run_worker_with_config(
         let retry_total = retry_total.clone();
         let wid = worker_id.clone();
         set.spawn(async move {
-            run_worker_loop(
-                wid,
-                loop_name,
-                cfg,
-                output_base,
-                events,
-                retry_total,
-            )
-            .await
+            run_worker_loop(wid, loop_name, cfg, output_base, events, retry_total).await
         });
     }
 
@@ -146,7 +140,7 @@ async fn run_worker_loop(
         worker_id.as_str(),
         retry_total,
     )
-        .with_context(|| format!("{config_name}: sink"))?;
+    .with_context(|| format!("{config_name}: sink"))?;
     let mut runner = TemplateRunner::try_new(template, fields)
         .map_err(|e| anyhow::anyhow!("{config_name}: template runner: {e}"))?;
     if min_interval.is_zero() {

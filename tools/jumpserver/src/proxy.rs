@@ -163,7 +163,6 @@ impl Mapping {
             }
             out = out.header(name, value);
         }
-        out.body(Full::new(resp_body))
-            .context("build response")
+        out.body(Full::new(resp_body)).context("build response")
     }
 }

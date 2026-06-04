@@ -9,8 +9,8 @@ use crate::worker_config::{
     new_logen_handlebars, register_logen_template, render_with_slots, slots_from_fields,
     TemplateSlot,
 };
-use crate::FieldSpec;
 use crate::worker_config::{validate_sink, WorkerConfig};
+use crate::FieldSpec;
 use crate::{ConfigParseError, Error};
 
 fn yaml_extension_ok(path: &Path) -> Result<(), ConfigParseError> {

@@ -300,9 +300,6 @@ template: "{}"
 fields: {}
 "#;
         let e = parse_worker_config(Path::new("t.yaml"), raw).unwrap_err();
-        assert!(
-            e.to_string().to_ascii_lowercase().contains("agent"),
-            "{e}"
-        );
+        assert!(e.to_string().to_ascii_lowercase().contains("agent"), "{e}");
     }
 }

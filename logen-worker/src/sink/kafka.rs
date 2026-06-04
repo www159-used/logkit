@@ -6,16 +6,15 @@ use std::time::Duration;
 use async_trait::async_trait;
 use backon::{BackoffBuilder, ExponentialBuilder};
 use logen_dsl::{KafkaConfig, KafkaSinkMode};
-use serde_yaml::Value;
 use rdkafka::client::ClientContext;
 use rdkafka::config::ClientConfig;
 use rdkafka::error::KafkaError;
 use rdkafka::message::{DeliveryResult, Header, OwnedHeaders};
 use rdkafka::producer::{
-    BaseRecord, DefaultProducerContext, FutureProducer, Producer, ProducerContext,
-    ThreadedProducer,
+    BaseRecord, DefaultProducerContext, FutureProducer, Producer, ProducerContext, ThreadedProducer,
 };
 use rdkafka::types::RDKafkaErrorCode;
+use serde_yaml::Value;
 
 use super::context_id::next_context_id;
 use super::kafka_agent::{self, RuntimeAgentConfig};
@@ -64,9 +63,7 @@ fn yaml_value_to_config_string(v: &Value) -> Option<String> {
         Value::Bool(b) => Some(b.to_string()),
         Value::Number(n) => Some(n.to_string()),
         Value::String(s) => Some(s.clone()),
-        Value::Mapping(_) | Value::Sequence(_) | Value::Tagged(_) => {
-            serde_json::to_string(v).ok()
-        }
+        Value::Mapping(_) | Value::Sequence(_) | Value::Tagged(_) => serde_json::to_string(v).ok(),
     }
 }
 
@@ -80,9 +77,9 @@ fn apply_kafka_extras(cfg: &mut ClientConfig, extras: &BTreeMap<String, Value>) 
             Some(val) => {
                 cfg.set(key, val);
             }
-            None => tracing::warn!(
-                "kafka.extras: skip key {key:?} (null or unsupported YAML value)"
-            ),
+            None => {
+                tracing::warn!("kafka.extras: skip key {key:?} (null or unsupported YAML value)")
+            }
         }
     }
 }
@@ -118,10 +115,7 @@ impl LogenKafkaProducerContext {
     }
 
     fn take_delivery_failure(&self) -> Option<DeliveryFailure> {
-        self.delivery_failure
-            .lock()
-            .ok()
-            .and_then(|mut g| g.take())
+        self.delivery_failure.lock().ok().and_then(|mut g| g.take())
     }
 
     fn record_delivery_failure(&self, e: &KafkaError) {
@@ -134,10 +128,10 @@ impl LogenKafkaProducerContext {
             *g = Some(DeliveryFailure {
                 detail: e.to_string(),
                 kind: if is_message_timed_out_error(e) {
-                DeliveryFailureKind::TimedOut
-            } else {
-                DeliveryFailureKind::Other
-            },
+                    DeliveryFailureKind::TimedOut
+                } else {
+                    DeliveryFailureKind::Other
+                },
             });
         }
     }
@@ -211,7 +205,10 @@ fn format_produce_err(
 }
 
 fn is_queue_full_error(e: &KafkaError) -> bool {
-    matches!(e, KafkaError::MessageProduction(RDKafkaErrorCode::QueueFull))
+    matches!(
+        e,
+        KafkaError::MessageProduction(RDKafkaErrorCode::QueueFull)
+    )
 }
 
 fn is_message_timed_out_error(e: &KafkaError) -> bool {
@@ -627,9 +624,9 @@ pub(crate) fn probe_kafka_ssl_cluster(k: &KafkaConfig) -> Result<(usize, usize),
 fn probe_kafka_ssl_cluster_inner(k: &KafkaConfig) -> Result<(usize, usize), SinkError> {
     let transport = kafka_transport_mode(k)?;
     let (cfg, _) = build_rdkafka_client_config(k, transport)?;
-    let producer: FutureProducer = cfg.create().map_err(|e| {
-        SinkError::Kafka(format!("failed to create Kafka producer: {e}"))
-    })?;
+    let producer: FutureProducer = cfg
+        .create()
+        .map_err(|e| SinkError::Kafka(format!("failed to create Kafka producer: {e}")))?;
     let meta = producer
         .client()
         .fetch_metadata(None, Duration::from_secs(30))
@@ -638,10 +635,7 @@ fn probe_kafka_ssl_cluster_inner(k: &KafkaConfig) -> Result<(usize, usize), Sink
 }
 
 /// 集成测试：发送一条并 flush。
-pub(crate) fn produce_one_kafka_ssl_line(
-    k: &KafkaConfig,
-    payload: &str,
-) -> Result<(), SinkError> {
+pub(crate) fn produce_one_kafka_ssl_line(k: &KafkaConfig, payload: &str) -> Result<(), SinkError> {
     produce_one_kafka_ssl_line_inner(k, payload)
 }
 
@@ -677,8 +671,7 @@ mod producer_profile_tests {
     #[test]
     fn builtin_producer_profile_maps_java_defaults() {
         let k = minimal_plaintext_kafka();
-        let (cfg, _) =
-            build_rdkafka_client_config(&k, KafkaTransportMode::Plaintext).unwrap();
+        let (cfg, _) = build_rdkafka_client_config(&k, KafkaTransportMode::Plaintext).unwrap();
         assert_eq!(
             cfg.get("queue.buffering.max.kbytes").map(String::from),
             Some(PRODUCER_QUEUE_MAX_KBYTES.to_string())
@@ -714,9 +707,11 @@ mod producer_profile_tests {
             compression_type: Some("gzip".into()),
             ..minimal_plaintext_kafka()
         };
-        let (cfg, _) =
-            build_rdkafka_client_config(&k, KafkaTransportMode::Plaintext).unwrap();
-        assert_eq!(cfg.get("compression.type").map(String::from), Some("gzip".to_string()));
+        let (cfg, _) = build_rdkafka_client_config(&k, KafkaTransportMode::Plaintext).unwrap();
+        assert_eq!(
+            cfg.get("compression.type").map(String::from),
+            Some("gzip".to_string())
+        );
     }
 
     /// 测试内容：extras 中 `compression.type` 覆盖一等字段。
@@ -725,17 +720,13 @@ mod producer_profile_tests {
     #[test]
     fn extras_compression_type_overrides_field() {
         let mut extras = BTreeMap::new();
-        extras.insert(
-            "compression.type".into(),
-            Value::String("zstd".into()),
-        );
+        extras.insert("compression.type".into(), Value::String("zstd".into()));
         let k = KafkaConfig {
             compression_type: Some("gzip".into()),
             extras,
             ..minimal_plaintext_kafka()
         };
-        let (cfg, _) =
-            build_rdkafka_client_config(&k, KafkaTransportMode::Plaintext).unwrap();
+        let (cfg, _) = build_rdkafka_client_config(&k, KafkaTransportMode::Plaintext).unwrap();
         assert_eq!(
             cfg.get("compression.type").map(String::from),
             Some("zstd".to_string())
@@ -750,9 +741,11 @@ mod producer_profile_tests {
             extras,
             ..minimal_plaintext_kafka()
         };
-        let (cfg, _) =
-            build_rdkafka_client_config(&k, KafkaTransportMode::Plaintext).unwrap();
-        assert_eq!(cfg.get("batch.size").map(String::from), Some("131072".to_string()));
+        let (cfg, _) = build_rdkafka_client_config(&k, KafkaTransportMode::Plaintext).unwrap();
+        assert_eq!(
+            cfg.get("batch.size").map(String::from),
+            Some("131072".to_string())
+        );
     }
 
     /// 测试内容：`QueueFull` 属于可重试错误，其它生产错误不应误判。

@@ -97,11 +97,10 @@ pub fn load(path: Option<&Path>) -> Result<RuntimeConfig, ConfigError> {
             path: path.to_path_buf(),
             source,
         })?;
-        let file: FileConfig =
-            serde_yaml::from_str(&raw).map_err(|source| ConfigError::Parse {
-                path: path.to_path_buf(),
-                source,
-            })?;
+        let file: FileConfig = serde_yaml::from_str(&raw).map_err(|source| ConfigError::Parse {
+            path: path.to_path_buf(),
+            source,
+        })?;
         if let Some(h) = file.upstream_host.filter(|s| !s.trim().is_empty()) {
             upstream_host = h;
         }

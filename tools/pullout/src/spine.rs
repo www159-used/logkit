@@ -30,14 +30,8 @@ type DecryptWorkKeyFn = unsafe extern "C" fn(
     *mut usize,
 ) -> i32;
 
-type DecryptDataFn = unsafe extern "C" fn(
-    *const u8,
-    usize,
-    *const c_char,
-    *mut u8,
-    usize,
-    *mut usize,
-) -> i32;
+type DecryptDataFn =
+    unsafe extern "C" fn(*const u8, usize, *const c_char, *mut u8, usize, *mut usize) -> i32;
 
 #[derive(Debug, Error)]
 pub enum SpineError {
@@ -68,7 +62,10 @@ pub enum SpineError {
     #[error("plaintext is not valid utf-8")]
     PlaintextUtf8(#[from] std::string::FromUtf8Error),
     #[error("{action} failed: {message}")]
-    Native { action: &'static str, message: String },
+    Native {
+        action: &'static str,
+        message: String,
+    },
 }
 
 #[derive(Deserialize)]
@@ -141,7 +138,10 @@ fn opt_home() -> PathBuf {
 /// `librootkey_crypto.so` 随 spine_keeper 装在 OEM Python site-packages 下（仅作路径，不调用 Python）。
 fn default_spine_so_path(arch: &str) -> PathBuf {
     let lib_root = opt_home().join("python/lib");
-    trace(format!("scan librootkey_crypto under {}", lib_root.display()));
+    trace(format!(
+        "scan librootkey_crypto under {}",
+        lib_root.display()
+    ));
     let fallback = lib_root
         .join("python3.12/site-packages/spine_keeper/lib/linux")
         .join(arch)
@@ -208,18 +208,18 @@ fn load_engine(path: &Path) -> Result<SpineEngine, SpineError> {
             path: path.to_path_buf(),
             source,
         })?;
-        let decrypt_work_key: Symbol<DecryptWorkKeyFn> =
-            lib.get(b"rk_decrypt_work_key_with_material_files\0")
+        let decrypt_work_key: Symbol<DecryptWorkKeyFn> = lib
+            .get(b"rk_decrypt_work_key_with_material_files\0")
+            .map_err(|source| SpineError::LoadLibrary {
+                path: path.to_path_buf(),
+                source,
+            })?;
+        let decrypt_data: Symbol<DecryptDataFn> =
+            lib.get(b"rk_decrypt_data\0")
                 .map_err(|source| SpineError::LoadLibrary {
                     path: path.to_path_buf(),
                     source,
                 })?;
-        let decrypt_data: Symbol<DecryptDataFn> = lib.get(b"rk_decrypt_data\0").map_err(|source| {
-            SpineError::LoadLibrary {
-                path: path.to_path_buf(),
-                source,
-            }
-        })?;
         trace("resolved rk_decrypt_work_key_with_material_files, rk_decrypt_data");
         Ok(SpineEngine {
             decrypt_work_key: *decrypt_work_key,

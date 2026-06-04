@@ -54,6 +54,9 @@ pub struct WorkerSection {
     pub worker_output_dir: String,
     pub heartbeat_timeout_secs: u64,
     pub heartbeat_interval_secs: u64,
+    /// worker 专用 tokio runtime 线程数；省略时使用 tokio 默认线程数。
+    #[serde(default)]
+    pub runtime_threads: Option<usize>,
 }
 
 /// 合并后的全局配置。
@@ -177,4 +180,41 @@ pub fn load_merged(user_defaults: Option<&Path>) -> Result<LogenConfig, LogenErr
     }
     cfg.common.tmp_dir = t.to_string();
     Ok(cfg)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 测试内容：未配置 `[worker].runtime_threads` 时保持兼容默认行为。
+    /// 输入：仅加载内嵌 `conf.ref.toml`，不提供用户覆盖配置。
+    /// 预期：`cfg.worker.runtime_threads` 为 `None`，交由运行时层使用 tokio 默认线程数。
+    #[test]
+    fn load_merged_accepts_missing_worker_runtime_threads() {
+        let cfg = load_merged(None).expect("embedded defaults");
+        assert_eq!(cfg.worker.runtime_threads, None);
+    }
+
+    /// 测试内容：用户 TOML 可显式覆盖 `[worker].runtime_threads`。
+    /// 输入：临时 `defaults.toml`，仅写入 `[worker].runtime_threads = 3`。
+    /// 预期：`load_merged` 成功合并，且 `cfg.worker.runtime_threads == Some(3)`。
+    #[test]
+    fn load_merged_reads_explicit_worker_runtime_threads() {
+        let dir = std::env::temp_dir().join(format!("logen-config-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let path = dir.join("defaults.toml");
+        std::fs::write(
+            &path,
+            r#"
+[worker]
+runtime_threads = 3
+"#,
+        )
+        .expect("write defaults");
+
+        let cfg = load_merged(Some(path.as_path())).expect("merged config");
+        assert_eq!(cfg.worker.runtime_threads, Some(3));
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_dir(&dir);
+    }
 }

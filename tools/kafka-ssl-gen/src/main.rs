@@ -70,9 +70,9 @@ fn yaml_scalar(value: &str) -> String {
     );
     let plain = !reserved
         && !value.starts_with('-')
-        && value.chars().all(|c| {
-            c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '/' | '-' | '+')
-        });
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '/' | '-' | '+'));
     if plain {
         return value.to_string();
     }
@@ -209,7 +209,10 @@ mod tests {
 
     #[test]
     fn yaml_scalar_plain_paths_and_tls() {
-        assert_eq!(yaml_scalar("/opt/yotta/cert/x.jks"), "/opt/yotta/cert/x.jks");
+        assert_eq!(
+            yaml_scalar("/opt/yotta/cert/x.jks"),
+            "/opt/yotta/cert/x.jks"
+        );
         assert_eq!(yaml_scalar("TLSv1.3"), "TLSv1.3");
     }
 

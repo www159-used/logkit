@@ -12,7 +12,8 @@ struct KafkaProbeFixtures;
 pub fn kafka_config_from_kafka_asset_broker_yaml() -> KafkaConfig {
     let asset = KafkaProbeFixtures::get("kafka_asset_broker.yaml")
         .expect("embedded kafka_asset_broker.yaml missing");
-    let raw = std::str::from_utf8(asset.data.as_ref()).expect("kafka_asset_broker.yaml must be UTF-8");
+    let raw =
+        std::str::from_utf8(asset.data.as_ref()).expect("kafka_asset_broker.yaml must be UTF-8");
     let mut doc: serde_yaml::Value = serde_yaml::from_str(raw)
         .unwrap_or_else(|e| panic!("parse embedded kafka_asset_broker.yaml: {e}"));
     let cfg: WorkerConfig = worker_config_from_document(&mut doc)

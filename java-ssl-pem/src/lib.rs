@@ -28,14 +28,8 @@ pub enum PemMaterial<'a> {
 #[derive(Debug, Clone, Copy)]
 pub enum TrustMaterial<'a> {
     Pem(PemMaterial<'a>),
-    Jks {
-        path: &'a str,
-        password: &'a str,
-    },
-    P12 {
-        path: &'a str,
-        password: &'a str,
-    },
+    Jks { path: &'a str, password: &'a str },
+    P12 { path: &'a str, password: &'a str },
 }
 
 /// 客户端 **mTLS** 身份。可与 [`TrustMaterial`] **独立**选择存储形态（例如 JKS trust + PEM identity）。
@@ -173,12 +167,11 @@ fn load_p12_keystore(path: &Path, password: &str) -> Result<P12KeyStore, JavaSsl
     let path_s = path.display().to_string();
     match P12KeyStore::from_pkcs12(&data, password, Pkcs12ImportPolicy::Strict) {
         Ok(ks) => Ok(ks),
-        Err(strict_err) => P12KeyStore::from_pkcs12(&data, password, Pkcs12ImportPolicy::Relaxed).map_err(
-            |relaxed_err| JavaSslPemError::Pkcs12 {
+        Err(strict_err) => P12KeyStore::from_pkcs12(&data, password, Pkcs12ImportPolicy::Relaxed)
+            .map_err(|relaxed_err| JavaSslPemError::Pkcs12 {
                 path: path_s,
                 detail: format!("strict: {strict_err}; relaxed: {relaxed_err}"),
-            },
-        ),
+            }),
     }
 }
 
@@ -283,7 +276,10 @@ fn p12_client_keystore_to_pem_strings(
 }
 
 /// 将 **JKS truststore** 中的受信任证书导出为单个 PEM 文本（多条 `BEGIN CERTIFICATE`）。
-pub fn jks_truststore_to_ca_pem_string(jks: &Path, password: &str) -> Result<String, JavaSslPemError> {
+pub fn jks_truststore_to_ca_pem_string(
+    jks: &Path,
+    password: &str,
+) -> Result<String, JavaSslPemError> {
     if is_p12_path(jks) {
         return p12_truststore_to_ca_pem_string(jks, password);
     }
@@ -292,9 +288,9 @@ pub fn jks_truststore_to_ca_pem_string(jks: &Path, password: &str) -> Result<Str
     let mut n = 0usize;
     for alias in ks.aliases() {
         if ks.is_trusted_certificate_entry(&alias) {
-            let tce = ks
-                .get_trusted_certificate_entry(&alias)
-                .map_err(|e| JavaSslPemError::jks("truststore", jks, format!("trusted entry {alias:?}: {e}")))?;
+            let tce = ks.get_trusted_certificate_entry(&alias).map_err(|e| {
+                JavaSslPemError::jks("truststore", jks, format!("trusted entry {alias:?}: {e}"))
+            })?;
             if !tce.certificate.cert_type.eq_ignore_ascii_case("X509") {
                 return Err(JavaSslPemError::jks(
                     "truststore",
@@ -402,7 +398,10 @@ pub fn jks_client_keystore_to_pem_strings(
 }
 
 /// 信任锚：PEM 链或单张 X.509 DER 文件；JKS/P12 须走 `truststore_location`。
-fn read_trust_anchor_file_to_pem(path: &Path, label: &'static str) -> Result<String, JavaSslPemError> {
+fn read_trust_anchor_file_to_pem(
+    path: &Path,
+    label: &'static str,
+) -> Result<String, JavaSslPemError> {
     if !path.is_file() {
         return Err(JavaSslPemError::TrustPath {
             label,
@@ -441,7 +440,8 @@ fn read_trust_anchor_file_to_pem(path: &Path, label: &'static str) -> Result<Str
     Err(JavaSslPemError::TrustPath {
         label,
         path: path.display().to_string(),
-        detail: "expected PEM (-----BEGIN ...) or a single X.509 DER certificate file (often .cer)".into(),
+        detail: "expected PEM (-----BEGIN ...) or a single X.509 DER certificate file (often .cer)"
+            .into(),
     })
 }
 
@@ -487,7 +487,10 @@ fn materialize_trust(t: &TrustMaterial<'_>) -> Result<Option<String>, JavaSslPem
     }
 }
 
-fn materialize_pem_identity_one(p: PemMaterial<'_>, label: &'static str) -> Result<String, JavaSslPemError> {
+fn materialize_pem_identity_one(
+    p: PemMaterial<'_>,
+    label: &'static str,
+) -> Result<String, JavaSslPemError> {
     match p {
         PemMaterial::Inline(text) => {
             let t = text.trim();
@@ -513,7 +516,9 @@ fn materialize_pem_identity_one(p: PemMaterial<'_>, label: &'static str) -> Resu
             if looks_like_pem_bytes(&bytes) {
                 let raw = String::from_utf8_lossy(&bytes);
                 if label == "client_cert" {
-                    if !(raw.contains("BEGIN CERTIFICATE") || raw.contains("BEGIN TRUSTED CERTIFICATE")) {
+                    if !(raw.contains("BEGIN CERTIFICATE")
+                        || raw.contains("BEGIN TRUSTED CERTIFICATE"))
+                    {
                         return Err(JavaSslPemError::ClientIdentity {
                             detail: format!(
                                 "{}: PEM file must contain a certificate block",
@@ -526,7 +531,10 @@ fn materialize_pem_identity_one(p: PemMaterial<'_>, label: &'static str) -> Resu
                     || raw.contains("BEGIN EC PRIVATE KEY"))
                 {
                     return Err(JavaSslPemError::ClientIdentity {
-                        detail: format!("{}: PEM file must contain a private key block", path.display()),
+                        detail: format!(
+                            "{}: PEM file must contain a private key block",
+                            path.display()
+                        ),
                     });
                 }
                 return normalize_pem_document(&raw);
@@ -537,16 +545,15 @@ fn materialize_pem_identity_one(p: PemMaterial<'_>, label: &'static str) -> Resu
                 return normalize_pem_document(&pem);
             }
             Err(JavaSslPemError::ClientIdentity {
-                detail: format!(
-                    "{label}: unsupported file format for {}",
-                    path.display()
-                ),
+                detail: format!("{label}: unsupported file format for {}", path.display()),
             })
         }
     }
 }
 
-fn materialize_identity(id: &IdentityMaterial<'_>) -> Result<Option<(String, String)>, JavaSslPemError> {
+fn materialize_identity(
+    id: &IdentityMaterial<'_>,
+) -> Result<Option<(String, String)>, JavaSslPemError> {
     match id {
         IdentityMaterial::Pem {
             certificate,
@@ -568,7 +575,9 @@ fn materialize_identity(id: &IdentityMaterial<'_>) -> Result<Option<(String, Str
 }
 
 /// 将 [`JavaSslMaterial`] 解析为 PEM 文本；失败时返回 [`JavaSslPemError`]。
-pub fn materialize_java_ssl_pem(m: &JavaSslMaterial<'_>) -> Result<MaterializedSslPem, JavaSslPemError> {
+pub fn materialize_java_ssl_pem(
+    m: &JavaSslMaterial<'_>,
+) -> Result<MaterializedSslPem, JavaSslPemError> {
     let ca_pem = match &m.trust {
         Some(t) => materialize_trust(t)?,
         None => None,
@@ -596,7 +605,9 @@ mod tests {
     use std::path::PathBuf;
 
     fn worker_assets() -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("assets")
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("assets")
     }
 
     /// 与 `logen-worker/tests/fixtures/kafka_asset_broker.yaml` 中 `sink.kafka` 口令一致（勿与真实环境口令混用）。
@@ -609,7 +620,8 @@ mod tests {
     fn jks_truststore_fixture_emits_ca_pem() {
         let ts = worker_assets().join("truststore.jks");
         assert!(ts.is_file(), "missing fixture {}", ts.display());
-        let pem = jks_truststore_to_ca_pem_string(&ts, FIXTURE_TRUSTSTORE_PASSWORD).expect("truststore → PEM");
+        let pem = jks_truststore_to_ca_pem_string(&ts, FIXTURE_TRUSTSTORE_PASSWORD)
+            .expect("truststore → PEM");
         assert!(
             pem.contains("BEGIN CERTIFICATE") || pem.contains("BEGIN TRUSTED CERTIFICATE"),
             "expected certificate PEM"
@@ -621,8 +633,8 @@ mod tests {
     fn jks_keystore_fixture_emits_client_cert_and_key_pem() {
         let ks = worker_assets().join("keystore.jks");
         assert!(ks.is_file(), "missing fixture {}", ks.display());
-        let (cert, key) =
-            jks_client_keystore_to_pem_strings(&ks, FIXTURE_KEYSTORE_PASSWORD, None).expect("keystore → PEM");
+        let (cert, key) = jks_client_keystore_to_pem_strings(&ks, FIXTURE_KEYSTORE_PASSWORD, None)
+            .expect("keystore → PEM");
         assert!(cert.contains("BEGIN CERTIFICATE"), "cert PEM");
         assert!(
             key.contains("BEGIN PRIVATE KEY") || key.contains("BEGIN RSA PRIVATE KEY"),

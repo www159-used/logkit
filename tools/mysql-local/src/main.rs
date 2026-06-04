@@ -35,7 +35,11 @@ fn normalize_mysql_style_flags(args: impl IntoIterator<Item = OsString>) -> Vec<
         if rest.is_empty() || rest.starts_with('-') {
             return None;
         }
-        if prefix == "-p" && deny_suffix.iter().any(|d| rest == *d || rest.starts_with(d)) {
+        if prefix == "-p"
+            && deny_suffix
+                .iter()
+                .any(|d| rest == *d || rest.starts_with(d))
+        {
             return None;
         }
         Some((prefix.to_string(), rest.to_string()))
@@ -198,10 +202,8 @@ mod tests {
     /// 预期：拆成独立 flag 与值。
     #[test]
     fn normalize_splits_attached_short_flags() {
-        let out = normalize_mysql_style_flags([
-            OsString::from("-psecret"),
-            OsString::from("-uroot"),
-        ]);
+        let out =
+            normalize_mysql_style_flags([OsString::from("-psecret"), OsString::from("-uroot")]);
         assert_eq!(
             out,
             vec![
@@ -264,6 +266,9 @@ mod tests {
     #[test]
     fn clap_forwards_mysql_h_flag() {
         let p = parse_cli([OsString::from("-h"), OsString::from("127.0.0.1")]);
-        assert_eq!(p.mysql_args, vec![OsString::from("-h"), OsString::from("127.0.0.1")]);
+        assert_eq!(
+            p.mysql_args,
+            vec![OsString::from("-h"), OsString::from("127.0.0.1")]
+        );
     }
 }

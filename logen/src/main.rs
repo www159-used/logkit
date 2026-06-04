@@ -177,8 +177,8 @@ async fn run() -> Result<(), LogenError> {
         }
         Commands::Start { config } => {
             let path = PathBuf::from(&config);
-            let merged = load_worker_config(path.as_path())
-                .map_err(|e| LogenError::Cli(e.to_string()))?;
+            let merged =
+                load_worker_config(path.as_path()).map_err(|e| LogenError::Cli(e.to_string()))?;
             let instance_yaml = worker_config_to_yaml(&merged)
                 .map_err(|e| LogenError::Cli(format!("serialize instance YAML: {e}")))?;
             let config_label = config;

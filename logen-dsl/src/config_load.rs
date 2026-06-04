@@ -41,13 +41,12 @@ fn resolve_include_path(
         let base = current_file.parent().unwrap_or_else(|| Path::new("."));
         base.join(inc)
     };
-    let canonical = std::fs::canonicalize(&candidate).map_err(|e| {
-        ConfigParseError::IncludeNotFound {
+    let canonical =
+        std::fs::canonicalize(&candidate).map_err(|e| ConfigParseError::IncludeNotFound {
             from: current_file.display().to_string(),
             path: include_path.into(),
             source: e,
-        }
-    })?;
+        })?;
     yaml_extension_ok(&canonical)?;
     Ok(canonical)
 }
@@ -131,9 +130,11 @@ pub fn load_worker_config(config_path: &Path) -> Result<WorkerConfig, ConfigPars
     let entry = if config_path.is_absolute() {
         config_path.to_path_buf()
     } else {
-        anchor.join(config_path.file_name().ok_or_else(|| {
-            ConfigParseError::Merge("config path has no file name".into())
-        })?)
+        anchor.join(
+            config_path
+                .file_name()
+                .ok_or_else(|| ConfigParseError::Merge("config path has no file name".into()))?,
+        )
     };
     let entry = std::fs::canonicalize(&entry)
         .map_err(|e| ConfigParseError::Io(entry.display().to_string(), e))?;
@@ -177,10 +178,7 @@ mod tests {
     fn load_detects_include_cycle() {
         let path = fixture_root().join("cycle-a.yaml");
         let e = load_worker_config(&path).unwrap_err();
-        assert!(
-            e.to_string().to_lowercase().contains("cycle"),
-            "{e}"
-        );
+        assert!(e.to_string().to_lowercase().contains("cycle"), "{e}");
     }
 
     /// 测试内容：`include` 可用 `..` 引用入口目录外的 YAML。

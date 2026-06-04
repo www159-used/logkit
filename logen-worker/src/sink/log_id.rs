@@ -3,8 +3,8 @@
 use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD_NO_PAD;
+use base64::Engine as _;
 use uuid::Uuid;
 
 #[derive(Debug)]
@@ -39,8 +39,7 @@ impl TimeBasedLogIdGenerator {
         for (i, b) in munged_node.iter_mut().enumerate() {
             *b ^= s[10 + i];
         }
-        let sequence_number =
-            u32::from_be_bytes([s[12], s[13], s[14], s[15]]) & 0x00ff_ffff;
+        let sequence_number = u32::from_be_bytes([s[12], s[13], s[14], s[15]]) & 0x00ff_ffff;
         Self {
             sequence_number,
             last_timestamp_ms: 0,
@@ -92,6 +91,8 @@ mod tests {
         assert_eq!(a.len(), 20);
         assert_eq!(b.len(), 20);
         assert_ne!(a, b);
-        assert!(a.chars().all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '/'));
+        assert!(a
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '/'));
     }
 }

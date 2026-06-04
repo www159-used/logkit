@@ -9,10 +9,7 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 pub enum JavaSslPemError {
     #[error("java-ssl-pem · trust · `{field}`: {detail}")]
-    TrustField {
-        field: &'static str,
-        detail: String,
-    },
+    TrustField { field: &'static str, detail: String },
 
     #[error("java-ssl-pem · trust · {label} · `{path}`: {detail}")]
     TrustPath {

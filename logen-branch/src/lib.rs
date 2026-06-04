@@ -5,8 +5,8 @@
 
 use rand::distributions::Distribution;
 use rand::thread_rng;
-use rand_distr::WeightedIndex;
 use rand_distr::WeightedError;
+use rand_distr::WeightedIndex;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -62,10 +62,7 @@ mod tests {
 
     #[test]
     fn rejects_empty_and_zero_weight() {
-        assert!(matches!(
-            BranchPicker::new(&[]),
-            Err(BranchError::Empty)
-        ));
+        assert!(matches!(BranchPicker::new(&[]), Err(BranchError::Empty)));
         assert!(matches!(
             BranchPicker::new(&[1, 0, 1]),
             Err(BranchError::ZeroWeight(0, 1))

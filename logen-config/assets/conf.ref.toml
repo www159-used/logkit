@@ -25,3 +25,5 @@ client_connect_uri = "http://127.0.0.1:1"
 worker_output_dir = "./output"
 heartbeat_timeout_secs = 30
 heartbeat_interval_secs = 1
+# worker 专用 tokio runtime 线程数；省略时使用 tokio 默认线程数。
+# runtime_threads = 4

@@ -76,6 +76,15 @@ copy_pack_install() {
   chmod +x "$dest_root/install.sh"
 }
 
+copy_pack_license() {
+  local dest_root="$1"
+  if [[ -f "$ROOT/LICENSE" ]]; then
+    cp "$ROOT/LICENSE" "$dest_root/LICENSE"
+  else
+    echo "warning: 未找到 $ROOT/LICENSE（跳过拷入发行包）" >&2
+  fi
+}
+
 TOOL_BINS=(kafka-ssl-gen mysql_local pullout jumpserver)
 
 copy_pack_tools() {
@@ -111,6 +120,7 @@ pack_native_dir() {
   copy_pack_tools "$dist" "$artifact_dir"
   cp -R "$ROOT/etc/." "$dist/etc/"
   copy_pack_install "$dist"
+  copy_pack_license "$dist"
   chmod +x "$dist/bin/logen" "$dist/bin/logend"
   echo "packed (profile=$LOGKIT_PACK_PROFILE) -> $dist"
 }
@@ -252,6 +262,7 @@ pack_linux_tarball() {
   copy_pack_tools "$stage" "$artifact_dir"
   cp -R "$ROOT/etc/." "$stage/etc/"
   copy_pack_install "$stage"
+  copy_pack_license "$stage"
   chmod +x "$stage/bin/logen" "$stage/bin/logend"
   find "$parent" -name '._*' -delete 2>/dev/null || true
   local out="$ROOT/dist/logkit-${target}.tar.gz"

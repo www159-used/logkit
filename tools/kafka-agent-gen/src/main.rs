@@ -14,7 +14,10 @@ fn prompt(p: &str) -> String {
     write!(stdout, "{p}").ok();
     stdout.flush().ok();
     let stdin = io::stdin().lock();
-    stdin.lines().next().map_or_else(String::new, |l| l.unwrap_or_default())
+    stdin
+        .lines()
+        .next()
+        .map_or_else(String::new, |l| l.unwrap_or_default())
 }
 
 fn prompt_default(p: &str, def: &str) -> String {
@@ -22,8 +25,15 @@ fn prompt_default(p: &str, def: &str) -> String {
     write!(stdout, "{p} [{def}]: ").ok();
     stdout.flush().ok();
     let stdin = io::stdin().lock();
-    let v = stdin.lines().next().map_or_else(String::new, |l| l.unwrap_or_default());
-    if v.trim().is_empty() { def.to_string() } else { v }
+    let v = stdin
+        .lines()
+        .next()
+        .map_or_else(String::new, |l| l.unwrap_or_default());
+    if v.trim().is_empty() {
+        def.to_string()
+    } else {
+        v
+    }
 }
 
 fn render(source_id: &str, appname: &str, tag: &str) -> String {

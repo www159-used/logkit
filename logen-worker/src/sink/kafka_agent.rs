@@ -65,17 +65,18 @@ fn build_runtime_agent_config_inner(k: &KafkaConfig) -> Result<RuntimeAgentConfi
             "build_runtime_agent_config requires mode agent".into(),
         ));
     }
-    let agent = k.agent.as_ref().ok_or_else(|| {
-        SinkError::Internal("missing sink.kafka.agent after validation".into())
-    })?;
-    let domain = agent
-        .domain
-        .as_deref()
-        .unwrap_or("")
-        .trim()
-        .to_string();
+    let agent = k
+        .agent
+        .as_ref()
+        .ok_or_else(|| SinkError::Internal("missing sink.kafka.agent after validation".into()))?;
+    let domain = agent.domain.as_deref().unwrap_or("").trim().to_string();
 
-    let source_id = match agent.source_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+    let source_id = match agent
+        .source_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         Some(s) => {
             if !validate_agent_source_id(s) {
                 return Err(KafkaConfigError::new(
@@ -88,7 +89,12 @@ fn build_runtime_agent_config_inner(k: &KafkaConfig) -> Result<RuntimeAgentConfi
         None => Uuid::new_v4().to_string(),
     };
 
-    let hostname = match agent.hostname.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+    let hostname = match agent
+        .hostname
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         Some(s) => s.to_string(),
         None => detect_hostname(),
     };

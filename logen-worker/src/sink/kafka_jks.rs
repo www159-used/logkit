@@ -1,8 +1,8 @@
 use std::path::Path;
 
 use java_ssl_pem::{
-    materialize_java_ssl_pem,
-    IdentityMaterial, JavaSslMaterial, JavaSslPemError, PemMaterial, TrustMaterial,
+    materialize_java_ssl_pem, IdentityMaterial, JavaSslMaterial, JavaSslPemError, PemMaterial,
+    TrustMaterial,
 };
 use logen_dsl::KafkaConfig;
 use rdkafka::config::ClientConfig;
@@ -25,8 +25,16 @@ fn pem_material_from_field(s: &str) -> PemMaterial<'_> {
 }
 
 fn trust_from_kafka(k: &KafkaConfig) -> Result<Option<TrustMaterial<'_>>, JavaSslPemError> {
-    let ca_pem = k.ssl_ca_pem.as_deref().map(str::trim).filter(|s| !s.is_empty());
-    let ca_loc = k.ssl_ca_location.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    let ca_pem = k
+        .ssl_ca_pem
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let ca_loc = k
+        .ssl_ca_location
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
     if ca_pem.is_some() && ca_loc.is_some() {
         return Err(JavaSslPemError::Config {
             detail: "both ssl.ca.pem and ssl.ca.location are set; use only one CA trust source"
@@ -54,9 +62,15 @@ fn trust_from_kafka(k: &KafkaConfig) -> Result<Option<TrustMaterial<'_>>, JavaSs
         let ext = path_ext_lower(p);
         let pwd = k.ssl_truststore_password.as_deref().unwrap_or("");
         return Ok(Some(if ext == "jks" {
-            TrustMaterial::Jks { path: p, password: pwd }
+            TrustMaterial::Jks {
+                path: p,
+                password: pwd,
+            }
         } else if ext == "p12" || ext == "pfx" {
-            TrustMaterial::P12 { path: p, password: pwd }
+            TrustMaterial::P12 {
+                path: p,
+                password: pwd,
+            }
         } else {
             TrustMaterial::Pem(PemMaterial::Path(p))
         }));
@@ -86,13 +100,15 @@ fn identity_from_kafka(k: &KafkaConfig) -> Result<Option<IdentityMaterial<'_>>, 
 
     if (cert.is_some() || key.is_some()) && ks.is_some() {
         return Err(JavaSslPemError::Config {
-            detail: "set either PEM certificate/key fields or ssl.keystore.location, not both".into(),
+            detail: "set either PEM certificate/key fields or ssl.keystore.location, not both"
+                .into(),
         });
     }
     if cert.is_some() ^ key.is_some() {
         return Err(JavaSslPemError::ClientIdentity {
-            detail: "provide both PEM certificate and private key, or ssl.keystore.location for JKS/P12"
-                .into(),
+            detail:
+                "provide both PEM certificate and private key, or ssl.keystore.location for JKS/P12"
+                    .into(),
         });
     }
     if let (Some(c), Some(ke)) = (cert, key) {
@@ -116,7 +132,10 @@ fn identity_from_kafka(k: &KafkaConfig) -> Result<Option<IdentityMaterial<'_>>, 
             }));
         }
         if ext == "p12" || ext == "pfx" {
-            return Ok(Some(IdentityMaterial::P12 { path: p, password: pwd }));
+            return Ok(Some(IdentityMaterial::P12 {
+                path: p,
+                password: pwd,
+            }));
         }
         return Err(JavaSslPemError::ClientIdentity {
             detail: format!(

@@ -383,15 +383,25 @@ kafka:
 
     #[test]
     fn validate_agent_source_id_accepts_hyphenated_uuid() {
-        assert!(validate_agent_source_id("01234567-89ab-cdef-0123-456789abcdef"));
-        assert!(validate_agent_source_id("01234567-89AB-CDEF-0123-456789ABCDEF"));
+        assert!(validate_agent_source_id(
+            "01234567-89ab-cdef-0123-456789abcdef"
+        ));
+        assert!(validate_agent_source_id(
+            "01234567-89AB-CDEF-0123-456789ABCDEF"
+        ));
     }
 
     #[test]
     fn validate_agent_source_id_rejects_non_uuid() {
-        assert!(!validate_agent_source_id("0123456789abcdef0123456789abcdef"));
-        assert!(!validate_agent_source_id("01234567-89ab-cdef-0123-456789abcde"));
-        assert!(!validate_agent_source_id("not-a-uuid-at-all-here-xxxxxxxxxx"));
+        assert!(!validate_agent_source_id(
+            "0123456789abcdef0123456789abcdef"
+        ));
+        assert!(!validate_agent_source_id(
+            "01234567-89ab-cdef-0123-456789abcde"
+        ));
+        assert!(!validate_agent_source_id(
+            "not-a-uuid-at-all-here-xxxxxxxxxx"
+        ));
     }
 
     #[test]
@@ -444,14 +454,8 @@ kafka:
         let w: Wrap = serde_yaml::from_str(y).unwrap();
         let k = &w.kafka;
         let h = k.headers.as_ref().expect("headers");
-        assert_eq!(
-            h.get("source").and_then(|v| v.as_deref()),
-            Some("logen")
-        );
-        assert_eq!(
-            h.get("trace-id").and_then(|v| v.as_deref()),
-            Some("abc-42")
-        );
+        assert_eq!(h.get("source").and_then(|v| v.as_deref()), Some("logen"));
+        assert_eq!(h.get("trace-id").and_then(|v| v.as_deref()), Some("abc-42"));
         assert_eq!(h.get("empty-value"), Some(&None));
         assert_eq!(h.get("count").and_then(|v| v.as_deref()), Some("7"));
     }

@@ -9,9 +9,10 @@ pub struct TlsMaterial {
 }
 
 pub fn load_material(paths: &TlsPaths) -> Result<TlsMaterial> {
-    let ca_pem = std::fs::read(&paths.ca).with_context(|| format!("read CA {}", paths.ca.display()))?;
-    let cert_pem =
-        std::fs::read(&paths.cert).with_context(|| format!("read cert {}", paths.cert.display()))?;
+    let ca_pem =
+        std::fs::read(&paths.ca).with_context(|| format!("read CA {}", paths.ca.display()))?;
+    let cert_pem = std::fs::read(&paths.cert)
+        .with_context(|| format!("read cert {}", paths.cert.display()))?;
     let key_pem = pullout::decrypt_key_file(&paths.key)
         .map_err(|e| anyhow::anyhow!("agent.key: {e}"))?
         .into_bytes();
@@ -28,7 +29,8 @@ pub fn build_http_client(material: &TlsMaterial, insecure: bool) -> Result<reqwe
         identity_pem.push(b'\n');
     }
     identity_pem.extend_from_slice(&material.key_pem);
-    let identity = reqwest::Identity::from_pem(&identity_pem).context("parse client cert/key PEM")?;
+    let identity =
+        reqwest::Identity::from_pem(&identity_pem).context("parse client cert/key PEM")?;
 
     let mut builder = reqwest::Client::builder()
         .use_rustls_tls()
