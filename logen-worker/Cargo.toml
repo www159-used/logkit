@@ -29,12 +29,19 @@ rdkafka = { version = "0.39", default-features = false, features = [
   "tokio",
 ] }
 serde_yaml = { workspace = true }
-tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "time"] }
+tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "sync", "time"] }
 tonic = { workspace = true }
 tower = { workspace = true }
 tracing = { workspace = true }
 backon = "1.6.0"
+futures-channel = "0.3"
+futures-util = { version = "0.3", default-features = false, features = ["std", "alloc"] }
 
 [dev-dependencies]
+criterion = "0.8.2"
 logen-dsl = { path = "../logen-dsl" }
 rust-embed = { workspace = true }
+
+[[bench]]
+name = "agent_message"
+harness = false

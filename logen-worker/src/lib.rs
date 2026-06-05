@@ -18,6 +18,9 @@ pub use sink::{
     build_line_sink, FileLineSink, KafkaConfigError, KafkaLineSink, LogLineSink, SinkError,
     StdoutLineSink,
 };
+pub use sink::kafka_agent::{
+    build_agent_message, build_runtime_agent_config, KafkaAgentMessage, RuntimeAgentConfig,
+};
 
 use runtime::{run_worker_with_config, spawn_heartbeat_task};
 

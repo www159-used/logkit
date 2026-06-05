@@ -23,3 +23,25 @@ cargo build --release
 ./scripts/logkit-pack.sh              # x86_64 / aarch64 → dist/*.tar.gz
 ./scripts/logkit-pack.sh native       # 本机 target/release → dist/logkit/
 ```
+
+## Benchmark
+
+当前仓库提供两组可长期维护的 `cargo bench` 微基准，用于量化热点链路的单次成本与吞吐：
+
+- `logen-dsl`：模板初始化与单条渲染
+- `logen-worker`：agent 模式下 `raw_message -> payload` 的 JSON 打包
+
+运行方式：
+
+```bash
+cargo bench -p logen-dsl --bench template_runner
+cargo bench -p logen-worker --bench agent_message
+```
+
+结果解读建议：
+
+- `template_runner_init/*`：看模板与字段 fixture 的初始化成本，适合比较编译期/预热期变化。
+- `template_runner_next_line/*`：看单条渲染吞吐，适合比较 `handlebars`、slot 组合与字段生成开销。
+- `build_agent_message/*`：看不同 `raw_message` 大小下的 agent JSON 打包成本。
+
+输出位于 `target/criterion/`。做提交间对比时，建议保持同一台机器、同一编译 profile、同一组 fixture，只比较同名 benchmark 的变化。
