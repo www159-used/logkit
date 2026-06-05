@@ -20,10 +20,12 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use logen_dsl::SinkConfig;
+use tokio::sync::mpsc;
 
 #[async_trait]
 pub trait LogLineSink: Send {
-    async fn emit_line(&mut self, line: &str) -> Result<(), SinkError>;
+    /// 消费 render→sink 通道中的行直至发送端关闭。
+    async fn drain_lines(&mut self, line_rx: mpsc::Receiver<String>) -> Result<(), SinkError>;
 }
 
 /// 按 [`SinkConfig`] 构造行日志 sink（须已通过 [`validate_sink`](logen_dsl::validate_sink)）。

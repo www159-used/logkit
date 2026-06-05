@@ -3,6 +3,7 @@ use std::io::{BufWriter, Seek, SeekFrom, Write};
 use std::path::Path;
 
 use async_trait::async_trait;
+use tokio::sync::mpsc;
 
 use super::{LogLineSink, SinkError};
 
@@ -29,11 +30,8 @@ impl FileLineSink {
             max_size,
         })
     }
-}
 
-#[async_trait]
-impl LogLineSink for FileLineSink {
-    async fn emit_line(&mut self, line: &str) -> Result<(), SinkError> {
+    fn write_line(&mut self, line: &str) -> Result<(), SinkError> {
         writeln!(&mut self.writer, "{line}")
             .and_then(|_| self.writer.flush())
             .map_err(SinkError::from)?;
@@ -48,6 +46,16 @@ impl LogLineSink for FileLineSink {
         f.set_len(0)
             .and_then(|_| f.seek(SeekFrom::Start(0)))
             .map_err(SinkError::from)?;
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl LogLineSink for FileLineSink {
+    async fn drain_lines(&mut self, mut line_rx: mpsc::Receiver<String>) -> Result<(), SinkError> {
+        while let Some(line) = line_rx.recv().await {
+            self.write_line(&line)?;
+        }
         Ok(())
     }
 }

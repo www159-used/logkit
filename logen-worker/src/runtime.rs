@@ -3,18 +3,22 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use http::Uri;
 use hyper_util::rt::TokioIo;
 use logen_dsl::{TemplateRunner, WorkerConfig};
 use logen_proto::logen_client::LogenClient;
 use logen_proto::HeartbeatRequest;
 use tokio::runtime::Handle;
+use tokio::sync::mpsc;
 use tokio::task::{JoinHandle, JoinSet};
 use tonic::transport::Endpoint;
 use tower::service_fn;
 
 use crate::sink::build_line_sink;
+
+/// render → sink 有界队列深度；sink 慢时在此背压，避免无界堆积。
+const LINE_PIPELINE_CAPACITY: usize = 4096;
 
 /// 向守护进程上报心跳所需环境。
 #[derive(Debug, Clone)]
@@ -134,25 +138,45 @@ async fn run_worker_loop(
         ..
     } = cfg;
 
+    let runner = TemplateRunner::try_new(template, fields)
+        .map_err(|e| anyhow::anyhow!("{config_name}: template runner: {e}"))?;
+
     let mut line_sink = build_line_sink(
         &sink,
         output_base.as_path(),
         worker_id.as_str(),
         retry_total,
     )
-    .with_context(|| format!("{config_name}: sink"))?;
-    let mut runner = TemplateRunner::try_new(template, fields)
-        .map_err(|e| anyhow::anyhow!("{config_name}: template runner: {e}"))?;
+    .map_err(|e| anyhow::anyhow!("{config_name}: sink: {e}"))?;
+    let (line_tx, line_rx) = mpsc::channel(LINE_PIPELINE_CAPACITY);
+    let sink_name = config_name.clone();
+    let sink_task = tokio::spawn(async move {
+        line_sink
+            .drain_lines(line_rx)
+            .await
+            .map_err(|e| anyhow::anyhow!("{sink_name}: sink: {e}"))
+    });
+
+    let render_res = render_enqueue_loop(runner, &config_name, events, line_tx, min_interval).await;
+    let sink_join = sink_task
+        .await
+        .map_err(|e| anyhow::anyhow!("{config_name}: sink task join: {e}"))?;
+
+    render_res?;
+    sink_join?;
+    Ok(())
+}
+
+async fn render_enqueue_loop(
+    mut runner: TemplateRunner,
+    config_name: &str,
+    events: Arc<AtomicU64>,
+    line_tx: mpsc::Sender<String>,
+    min_interval: Duration,
+) -> Result<()> {
     if min_interval.is_zero() {
         loop {
-            let line = runner
-                .next_line()
-                .map_err(|e| anyhow::anyhow!("{config_name}: render: {e}"))?;
-            events.fetch_add(1, Ordering::Relaxed);
-            line_sink
-                .emit_line(&line)
-                .await
-                .with_context(|| format!("{config_name}: emit"))?;
+            render_enqueue_once(&mut runner, config_name, &events, &line_tx).await?;
         }
     }
 
@@ -160,13 +184,23 @@ async fn run_worker_loop(
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
         tick.tick().await;
-        let line = runner
-            .next_line()
-            .map_err(|e| anyhow::anyhow!("{config_name}: render: {e}"))?;
-        events.fetch_add(1, Ordering::Relaxed);
-        line_sink
-            .emit_line(&line)
-            .await
-            .with_context(|| format!("{config_name}: emit"))?;
+        render_enqueue_once(&mut runner, config_name, &events, &line_tx).await?;
     }
+}
+
+async fn render_enqueue_once(
+    runner: &mut TemplateRunner,
+    config_name: &str,
+    events: &Arc<AtomicU64>,
+    line_tx: &mpsc::Sender<String>,
+) -> Result<()> {
+    let line = runner
+        .next_line()
+        .map_err(|e| anyhow::anyhow!("{config_name}: render: {e}"))?;
+    line_tx
+        .send(line)
+        .await
+        .map_err(|_| anyhow::anyhow!("{config_name}: sink pipeline closed"))?;
+    events.fetch_add(1, Ordering::Relaxed);
+    Ok(())
 }
