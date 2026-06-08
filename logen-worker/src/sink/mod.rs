@@ -4,7 +4,7 @@ mod context_id;
 mod error;
 mod file;
 pub(crate) mod kafka;
-mod kafka_agent;
+pub(crate) mod kafka_agent;
 mod kafka_jks;
 mod log_id;
 mod stdout;

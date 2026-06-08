@@ -58,7 +58,7 @@ where
     }
 }
 
-/// Kafka 行 sink 模式：`common` 为模板整行直发；`agent` 为紧凑 JSON 外壳 + 固定 topic。
+/// Kafka 行 sink 模式：`common` 为模板整行直发；`agent` 为 JSON 或 PB value + 固定 topic `raw_message`。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum KafkaSinkMode {
@@ -67,10 +67,21 @@ pub enum KafkaSinkMode {
     Agent,
 }
 
+/// Agent 模式 Kafka value 编码：`json` 为 UTF-8 JSON；`pb` 为 `EventInfo` protobuf 二进制。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum KafkaAgentFormat {
+    #[default]
+    Json,
+    Pb,
+}
+
 /// `sink.kafka.agent:` 可选覆盖项；**`domain` 可省略**（空则 JSON 外壳不写 `domain` 字段）。其余未填字段由 worker 在启动时生成或取本机信息（如 `log_id` 现为每条消息自动生成）。
 /// 未建模键落入 **`extras`**（反序列化时吸收，序列化时原样写回）。
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct KafkaAgentConfig {
+    #[serde(default)]
+    pub format: KafkaAgentFormat,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub domain: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -326,6 +337,46 @@ kafka:
         assert_eq!(k.topic.as_deref(), Some("t1"));
         assert_eq!(k.brokers, Some(vec!["127.0.0.1:9092".to_string()]));
         assert!(k.request_required_acks.is_none());
+    }
+
+    /// 测试内容：`agent.format` 可反序列化为 `json` 或 `pb`。
+    /// 输入：YAML 中 `agent.format: pb` 与 `agent.format: json`。
+    /// 预期：分别得到 `KafkaAgentFormat::Pb` 与 `KafkaAgentFormat::Json`。
+    #[test]
+    fn deserialize_kafka_agent_format_json_and_pb() {
+        for (yaml_format, expected) in [("pb", KafkaAgentFormat::Pb), ("json", KafkaAgentFormat::Json)]
+        {
+            let y = format!(
+                r#"
+kafka:
+  mode: agent
+  brokers: ["127.0.0.1:9092"]
+  agent:
+    format: {yaml_format}
+"#
+            );
+            let w: Wrap = serde_yaml::from_str(&y).unwrap();
+            assert_eq!(w.kafka.agent.as_ref().unwrap().format, expected);
+        }
+    }
+
+    /// 测试内容：省略 `agent.format` 时默认为 `json`。
+    /// 输入：agent 段不含 `format` 的最小 YAML。
+    /// 预期：`KafkaAgentFormat::Json`。
+    #[test]
+    fn deserialize_kafka_agent_format_defaults_to_json() {
+        let y = r#"
+kafka:
+  mode: agent
+  brokers: ["127.0.0.1:9092"]
+  agent:
+    domain: acme
+"#;
+        let w: Wrap = serde_yaml::from_str(y).unwrap();
+        assert_eq!(
+            w.kafka.agent.as_ref().unwrap().format,
+            KafkaAgentFormat::Json
+        );
     }
 
     #[test]

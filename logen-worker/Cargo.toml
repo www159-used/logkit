@@ -15,6 +15,7 @@ hyper-util = { workspace = true }
 java-ssl-pem = { path = "../java-ssl-pem" }
 logen-dsl = { path = "../logen-dsl" }
 logen-proto = { path = "../logen-proto" }
+prost = { workspace = true }
 fake = { version = "5", default-features = true }
 hostname = "0.4"
 serde = { workspace = true, features = ["derive"] }
@@ -40,7 +41,6 @@ futures-util = { version = "0.3", default-features = false, features = ["std", "
 [dev-dependencies]
 criterion = "0.8.2"
 logen-dsl = { path = "../logen-dsl" }
-rust-embed = { workspace = true }
 
 [[bench]]
 name = "agent_message"

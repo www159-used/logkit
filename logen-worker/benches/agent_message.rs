@@ -1,35 +1,12 @@
 use std::hint::black_box;
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use logen_dsl::{KafkaAgentConfig, KafkaConfig, KafkaSinkMode};
-use logen_worker::{build_agent_message, build_runtime_agent_config, RuntimeAgentConfig};
+use logen_dsl::KafkaAgentFormat;
+use logen_worker::{agent_fixtures, build_agent_message};
 
 struct PayloadCase {
     name: &'static str,
     raw_message: String,
-}
-
-fn runtime_agent_config() -> RuntimeAgentConfig {
-    let kafka = KafkaConfig {
-        mode: KafkaSinkMode::Agent,
-        agent: Some(KafkaAgentConfig {
-            domain: Some("dom1".to_string()),
-            domain_token: Some("dom-token-123456".to_string()),
-            appname: Some("apache_middleware".to_string()),
-            source: Some("middleware".to_string()),
-            token: Some("token-1234567890".to_string()),
-            tag: Some("root_60".to_string()),
-            hostname: Some("bench-host-01".to_string()),
-            ip: Some("192.168.1.60".to_string()),
-            source_id: Some("3d4cc8d3-4acf-4eb2-9b8b-f24da54be340".to_string()),
-            flag: Some(0),
-            fields: Some(r#"{"cluster":"bench","role":"middleware"}"#.to_string()),
-            ..Default::default()
-        }),
-        brokers: Some(vec!["127.0.0.1:9092".to_string()]),
-        ..Default::default()
-    };
-    build_runtime_agent_config(&kafka).unwrap()
 }
 
 fn payload_cases() -> Vec<PayloadCase> {
@@ -55,23 +32,27 @@ fn payload_cases() -> Vec<PayloadCase> {
 }
 
 fn bench_build_agent_message(c: &mut Criterion) {
-    let runtime_config = runtime_agent_config();
     let cases = payload_cases();
-    let mut group = c.benchmark_group("build_agent_message");
-    for case in &cases {
-        group.throughput(Throughput::Bytes(case.raw_message.len() as u64));
-        group.bench_with_input(BenchmarkId::from_parameter(case.name), case, |b, case| {
-            b.iter(|| {
-                black_box(build_agent_message(
-                    &runtime_config,
-                    black_box(case.raw_message.as_str()),
-                    black_box(123_i64),
-                    black_box(1_700_000_000_000_i64),
-                ))
+    for (label, format) in [("json", KafkaAgentFormat::Json), ("pb", KafkaAgentFormat::Pb)] {
+        let runtime_config =
+            agent_fixtures::agent_runtime_config(agent_fixtures::BENCH_YAML, format)
+                .expect("bench agent fixture");
+        let mut group = c.benchmark_group(format!("build_agent_message_{label}"));
+        for case in &cases {
+            group.throughput(Throughput::Bytes(case.raw_message.len() as u64));
+            group.bench_with_input(BenchmarkId::from_parameter(case.name), case, |b, case| {
+                b.iter(|| {
+                    black_box(build_agent_message(
+                        &runtime_config,
+                        black_box(case.raw_message.as_str()),
+                        black_box(123_i64),
+                        black_box(1_700_000_000_000_i64),
+                    ))
+                });
             });
-        });
+        }
+        group.finish();
     }
-    group.finish();
 }
 
 criterion_group!(benches, bench_build_agent_message);

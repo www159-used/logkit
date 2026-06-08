@@ -13,6 +13,9 @@ use tracing::{info_span, Instrument};
 pub mod runtime;
 pub mod sink;
 
+#[doc(hidden)]
+pub mod agent_fixtures;
+
 pub use runtime::WorkerHeartbeatEnv;
 pub use sink::{
     build_line_sink, FileLineSink, KafkaConfigError, KafkaLineSink, LogLineSink, SinkError,

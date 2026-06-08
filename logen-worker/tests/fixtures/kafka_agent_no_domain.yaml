@@ -1,0 +1,12 @@
+# agent 省略 domain；用于 json/pb 空 domain 行为单测。
+body:
+  template: "x"
+  fields: {}
+
+sink:
+  type: kafka
+  kafka:
+    mode: agent
+    brokers:
+      - "127.0.0.1:9092"
+    agent: {}

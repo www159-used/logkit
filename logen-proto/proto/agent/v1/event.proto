@@ -1,0 +1,26 @@
+syntax = "proto2";
+package logen.agent.v1;
+
+message EventInfo {
+    optional string domain = 1;
+    optional string appname = 2;
+    optional string tag = 3;
+    optional string token = 4;
+    optional string hostname = 5;
+    optional string logID = 6;
+    optional int64 contextID = 7;
+    optional int64 timestamp = 8;
+    optional int64 recvTimestamp = 9;
+    optional int64 logTimestamp = 10;
+    optional string rawMessage = 11;
+    // 读到事件时，对应事件源的更新时间，单位:毫秒，UTC时间
+    optional int64 sourceUpdateTimestamp = 12;
+    // 事件源，对于来自于文件的，就是文件的完整路径
+    optional string source = 13;
+    optional string ip = 14;
+    // 标志位
+    optional int64 flag = 15;
+    optional string fields = 16;
+    optional string sourceType = 17;
+    optional bytes source_id = 18;
+}

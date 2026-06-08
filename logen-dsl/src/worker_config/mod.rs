@@ -11,7 +11,9 @@ mod worker;
 pub use body::BodyConfig;
 pub use branch::{OneOfBranch, OneOfTemplateBranch};
 pub use field_spec::FieldSpec;
-pub use kafka::{validate_agent_source_id, KafkaAgentConfig, KafkaConfig, KafkaSinkMode};
+pub use kafka::{
+    validate_agent_source_id, KafkaAgentConfig, KafkaAgentFormat, KafkaConfig, KafkaSinkMode,
+};
 pub use sink::{format_sink_summary, validate_sink, SinkConfig};
 pub use slot::TemplateSlot;
 pub(crate) use slot::{

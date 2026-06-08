@@ -10,6 +10,7 @@ sink:
     brokers:
       - "192.168.1.60:9092"
     agent:
+      format: pb
       source_id: 43983bfc-2db3-47a5-a3a8-d832b2855d51
       domain: acme
 ```
@@ -18,6 +19,7 @@ sink:
 
 | 字段 | 必填 |
 |------|------|
+| [`format`](#format) | 否 |
 | [`source_id`](#source_id) | 否 |
 | [`domain`](#domain) | 否 |
 | [`domain_token`](#others) | 否 |
@@ -31,6 +33,17 @@ sink:
 | [`fields`](#others) | 否 |
 
 ## 字段说明
+
+<a id="format"></a>
+
+### `format`
+
+Kafka value 编码：`json`（默认，UTF-8 JSON 外壳）或 `pb`（`EventInfo` protobuf 二进制，与 log_parser 兼容）。`domain_token` 仅 `json` 模式写入；`pb` 不含该字段。
+
+```yaml
+agent:
+  format: pb
+```
 
 <a id="source_id"></a>
 

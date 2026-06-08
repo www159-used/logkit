@@ -1,0 +1,23 @@
+# bench / 单测共用 agent fixture；`format` 由 loader 覆盖为 json 或 pb。
+body:
+  template: "bench"
+  fields: {}
+
+sink:
+  type: kafka
+  kafka:
+    mode: agent
+    brokers:
+      - "127.0.0.1:9092"
+    agent:
+      domain: dom1
+      domain_token: dom-token-123456
+      appname: apache_middleware
+      source: middleware
+      token: token-1234567890
+      tag: root_60
+      hostname: bench-host-01
+      ip: 192.168.1.60
+      source_id: 43983bfc-2db3-47a5-a3a8-d832b2855d51
+      flag: 0
+      fields: '{"cluster":"bench","role":"middleware"}'

@@ -36,11 +36,7 @@ const DELIVERY_TIMEOUT_BACKOFF_MS_MIN: u64 = 10;
 const DELIVERY_TIMEOUT_RETRY_LIMIT: u32 = 3;
 const DELIVERY_TIMEOUT_BACKOFF_MS_MAX: u64 = 1000;
 
-#[derive(Clone)]
-struct LineRecord {
-    payload: String,
-    key: Option<String>,
-}
+type LineRecord = super::kafka_agent::KafkaAgentMessage;
 
 pub struct KafkaLineSink {
     producer: FutureProducer,
@@ -194,8 +190,8 @@ fn build_future_record<'a>(
     topic: &'a str,
     line: &'a LineRecord,
     headers: Option<&OwnedHeaders>,
-) -> FutureRecord<'a, str, str> {
-    let mut record = FutureRecord::to(topic).payload(line.payload.as_str());
+) -> FutureRecord<'a, str, [u8]> {
+    let mut record = FutureRecord::to(topic).payload(line.payload.as_slice());
     if let Some(ref key) = line.key {
         record = record.key(key.as_str());
     }
@@ -206,11 +202,10 @@ fn build_future_record<'a>(
 }
 
 fn line_record_from_owned_message(msg: OwnedMessage) -> LineRecord {
-    let payload = msg
-        .payload()
-        .map(|p| String::from_utf8_lossy(p).into_owned())
-        .unwrap_or_default();
-    let key = msg.key().map(|k| String::from_utf8_lossy(k).into_owned());
+    let payload = msg.payload().map(|p| p.to_vec()).unwrap_or_default();
+    let key = msg
+        .key()
+        .map(|k| String::from_utf8_lossy(k).into_owned());
     LineRecord { payload, key }
 }
 
@@ -492,14 +487,10 @@ impl KafkaLineSink {
     fn build_line_record(&self, line: &str) -> LineRecord {
         if let Some(c) = self.runtime_agent_config.as_ref() {
             let ts = super::log_id::wall_clock_ms_u64().min(i64::MAX as u64) as i64;
-            let msg = kafka_agent::build_agent_message(c, line, next_context_id(), ts);
-            return LineRecord {
-                payload: msg.payload,
-                key: msg.key,
-            };
+            return kafka_agent::build_agent_message(c, line, next_context_id(), ts);
         }
         LineRecord {
-            payload: line.to_string(),
+            payload: line.as_bytes().to_vec(),
             key: None,
         }
     }
