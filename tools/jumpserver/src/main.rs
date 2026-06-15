@@ -1,4 +1,4 @@
-//! HTTP → HTTPS 反向代理：按端口映射暴露上游（默认本机 HTTP 15440→上游 HTTPS 54400），mTLS 使用 OEM 证书目录。
+//! HTTP → HTTPS 反向代理：按端口映射暴露上游（默认 HTTP :15440→HTTPS :54400、:1940→:9400），mTLS 使用 OEM 证书目录。
 
 mod config;
 mod proxy;

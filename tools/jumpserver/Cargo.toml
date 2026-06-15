@@ -1,6 +1,6 @@
 [package]
 name = "jumpserver"
-description = "HTTP reverse proxy to HTTPS upstream with OEM mTLS (default HTTP :15440 → HTTPS :54400)"
+description = "HTTP reverse proxy to HTTPS upstream with OEM mTLS (default :15440→:54400, :1940→:9400)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

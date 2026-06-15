@@ -5,8 +5,8 @@ use resolve_oem::LocalIpError;
 use serde::Deserialize;
 use thiserror::Error;
 
-/// 内置默认：上游 HTTPS 54400 → 本机 HTTP 15440（`port_maps` 键为上游、值为监听）。
-pub const DEFAULT_PORT_MAP: &[(u32, u32)] = &[(54400, 15440)];
+/// 内置默认：上游 HTTPS → 本机 HTTP（`port_maps` 键为上游、值为监听）。
+pub const DEFAULT_PORT_MAP: &[(u32, u32)] = &[(54400, 15440), (9400, 1940)];
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
@@ -177,11 +177,12 @@ mod tests {
 
     /// 测试内容：无配置文件时使用内置端口映射与上游 Host。
     /// 输入：`load(None)`。
-    /// 预期：监听 `15440` → 上游 `54400`；`upstream_host` 可解析为非 loopback IP。
+    /// 预期：监听 `15440` → 上游 `54400`；`1940` → `9400`；`upstream_host` 可解析为非 loopback IP。
     #[test]
     fn builtin_default_mapping() {
         let cfg = load(None).unwrap();
         assert_eq!(cfg.listen_to_upstream.get(&15440), Some(&54400));
+        assert_eq!(cfg.listen_to_upstream.get(&1940), Some(&9400));
         let ip: IpAddr = cfg.upstream_host.parse().expect("upstream_host is IP");
         assert!(!ip.is_loopback());
     }
