@@ -4,7 +4,7 @@
 [![Test](https://github.com/www159-used/logkit/actions/workflows/test.yml/badge.svg)](https://github.com/www159-used/logkit/actions/workflows/test.yml)
 [![Coverage](https://github.com/www159-used/logkit/actions/workflows/coverage.yml/badge.svg)](https://github.com/www159-used/logkit/actions/workflows/coverage.yml)
 
-许可：[GPL-3.0](LICENSE)
+许可：[AGPL-3.0](LICENSE)
 
 ## 编译
 

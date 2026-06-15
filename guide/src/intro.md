@@ -4,7 +4,7 @@
 
 **thanks to: [logspout](https://github.com/jiwen624/logspout)**（本仓库已更名为 logen，与上游项目无隶属关系）
 
-许可：**GPL-3.0**（见 [`LICENSE`](../../LICENSE)）。
+许可：**AGPL-3.0**（见 [`LICENSE`](../../LICENSE)）。
 
 ## 组件
 
