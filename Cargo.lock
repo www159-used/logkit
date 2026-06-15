@@ -1539,7 +1539,7 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
 name = "java-ssl-pem"
-version = "1.10.0"
+version = "1.10.1"
 dependencies = [
  "jks",
  "p12-keystore",
@@ -1597,7 +1597,7 @@ dependencies = [
 
 [[package]]
 name = "jumpserver"
-version = "1.10.0"
+version = "1.10.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -1618,14 +1618,14 @@ dependencies = [
 
 [[package]]
 name = "kafka-agent-gen"
-version = "1.10.0"
+version = "1.10.1"
 dependencies = [
  "uuid",
 ]
 
 [[package]]
 name = "kafka-ssl-gen"
-version = "1.10.0"
+version = "1.10.1"
 dependencies = [
  "resolve-oem",
 ]
@@ -1716,7 +1716,7 @@ checksum = "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897"
 
 [[package]]
 name = "logen"
-version = "1.10.0"
+version = "1.10.1"
 dependencies = [
  "clap",
  "http",
@@ -1731,7 +1731,7 @@ dependencies = [
 
 [[package]]
 name = "logen-branch"
-version = "1.10.0"
+version = "1.10.1"
 dependencies = [
  "rand 0.8.6",
  "rand_distr",
@@ -1740,7 +1740,7 @@ dependencies = [
 
 [[package]]
 name = "logen-config"
-version = "1.10.0"
+version = "1.10.1"
 dependencies = [
  "rust-embed",
  "serde",
@@ -1750,7 +1750,7 @@ dependencies = [
 
 [[package]]
 name = "logen-dsl"
-version = "1.10.0"
+version = "1.10.1"
 dependencies = [
  "chrono",
  "criterion",
@@ -1767,7 +1767,7 @@ dependencies = [
 
 [[package]]
 name = "logen-proto"
-version = "1.10.0"
+version = "1.10.1"
 dependencies = [
  "prost",
  "tonic",
@@ -1777,7 +1777,7 @@ dependencies = [
 
 [[package]]
 name = "logen-worker"
-version = "1.10.0"
+version = "1.10.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1809,7 +1809,7 @@ dependencies = [
 
 [[package]]
 name = "logend"
-version = "1.10.0"
+version = "1.10.1"
 dependencies = [
  "clap",
  "http",
@@ -1898,7 +1898,7 @@ checksum = "1d87ecb2933e8aeadb3e3a02b828fed80a7528047e68b4f424523a0981a3a084"
 
 [[package]]
 name = "mysql-local"
-version = "1.10.0"
+version = "1.10.1"
 dependencies = [
  "clap",
  "resolve-oem",
@@ -2483,7 +2483,7 @@ dependencies = [
 
 [[package]]
 name = "pullout"
-version = "1.10.0"
+version = "1.10.1"
 dependencies = [
  "base64",
  "libloading",
@@ -2798,7 +2798,7 @@ dependencies = [
 
 [[package]]
 name = "resolve-oem"
-version = "1.10.0"
+version = "1.10.1"
 dependencies = [
  "local-ip-address",
  "thiserror 2.0.18",
