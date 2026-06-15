@@ -1,0 +1,39 @@
+# Graphviz diagram theme tokens. Use {{ key }} in dot code blocks.
+# When a block has no placeholders, [preamble] attributes are injected automatically.
+
+[light]
+text = "#24292f"
+node_fill = "#f6f7f9"
+node_stroke = "#7a869a"
+edge = "#5c6b7a"
+edge_muted = "#9aa5b1"
+cluster_stroke = "#c5ccd6"
+green_fill = "#eef6ee"
+green_stroke = "#6a9a6a"
+blue_fill = "#e8f1fb"
+blue_stroke = "#4a7fc1"
+amber_fill = "#fff8ee"
+amber_stroke = "#c49a4a"
+purple_fill = "#f3eef8"
+purple_stroke = "#8a6aad"
+
+[dark]
+text = "#adbac7"
+node_fill = "#2d333b"
+node_stroke = "#636d83"
+edge = "#768390"
+edge_muted = "#636d83"
+cluster_stroke = "#484f58"
+green_fill = "#253827"
+green_stroke = "#6a9a6a"
+blue_fill = "#1c3154"
+blue_stroke = "#539bf5"
+amber_fill = "#3d3528"
+amber_stroke = "#c49a4a"
+purple_fill = "#352a45"
+purple_stroke = "#a98fd4"
+
+[preamble]
+graph = 'graph [ bgcolor="transparent", fontcolor="{{ text }}" ];'
+node = 'node [ style="filled", fillcolor="{{ node_fill }}", color="{{ node_stroke }}", fontcolor="{{ text }}" ];'
+edge = 'edge [ color="{{ edge }}", fontcolor="{{ text }}" ];'

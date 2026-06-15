@@ -42,4 +42,4 @@ daemon 日志由 **logend** 配置（如 `[daemon].log_level`、`RUST_LOG`），
 
 ## 实例 YAML
 
-实例内容**不在** TOML 里，而在 **`start`** 指定的 YAML 文件中，规范见 **[logen-dsl](../../guide/book/logen-dsl/)**。
+实例内容**不在** TOML 里，而在 **`start`** 指定的 YAML 文件中，规范见 **[logen-dsl](../logen-dsl/intro.md)**。

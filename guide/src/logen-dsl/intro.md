@@ -40,30 +40,40 @@ sink:
 
 ## 架构
 
-```mermaid
-flowchart TB
-  subgraph yaml["YAML 文件"]
-    body["body\ntemplate + fields"]
-    sched["min-interval / threads"]
-    inc["include"]
-    snk["sink"]
-  end
-  subgraph dsl["logen-dsl"]
-    parse["解析、include 合并、校验"]
-    tpl_runner["TemplateRunner"]
-  end
-  subgraph worker["logen-worker"]
-    sink_runner["LogLineSink"]
-  end
-  line["日志行"]
-  out["stdout / file / Kafka"]
-  inc --> parse
-  body --> parse
-  sched --> parse
-  snk --> parse
-  parse --> tpl_runner
-  parse --> sink_runner
-  tpl_runner --> line
-  line --> sink_runner
-  sink_runner --> out
+```modern-dot
+digraph {
+  rankdir=TB
+
+  subgraph cluster_yaml {
+    label="YAML 文件"
+    body [label="body\ntemplate + fields"]
+    sched [label="min-interval / threads"]
+    inc [label="include"]
+    snk [label="sink"]
+  }
+
+  subgraph cluster_dsl {
+    label="logen-dsl"
+    parse [label="解析、include 合并、校验"]
+    tpl_runner [label="TemplateRunner"]
+  }
+
+  subgraph cluster_worker {
+    label="logen-worker"
+    sink_runner [label="LogLineSink"]
+  }
+
+  line [label="日志行"]
+  out [label="stdout / file / Kafka"]
+
+  inc -> parse
+  body -> parse
+  sched -> parse
+  snk -> parse
+  parse -> tpl_runner
+  parse -> sink_runner
+  tpl_runner -> line
+  line -> sink_runner
+  sink_runner -> out
+}
 ```

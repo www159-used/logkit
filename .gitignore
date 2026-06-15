@@ -1,12 +1,5 @@
-# mdBook Mermaid 运行时（构建前：./scripts/fetch-mdbook-mermaid-assets.sh）
-guide/mermaid.min.js
-guide/mermaid-init.js
-logen/guide/mermaid.min.js
-logen/guide/mermaid-init.js
-
 # mdBook 生成物
 guide/book/
-logen/guide/book/
 **/*.md.tmp
 
 # Rust

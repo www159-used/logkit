@@ -10,7 +10,7 @@ logen start CONFIG.yaml
 
 | 参数 | 说明 |
 |------|------|
-| **CONFIG.yaml** | 实例配置文件路径；须含 `template`、`fields`、`sink` 等（见 [logen-dsl](../../../guide/book/logen-dsl/)） |
+| **CONFIG.yaml** | 实例配置文件路径；须含 `template`、`fields`、`sink` 等（见 [logen-dsl](../../logen-dsl/intro.md)） |
 
 ## 行为
 
@@ -26,20 +26,14 @@ $ logen start etc/apache.combined.file.yaml
 f47ac10b-58cc-4372-a567-0e02b2c3d479    started
 ```
 
-仓库根目录 [`etc/`](../../../etc/) 提供多种格式示例。
+仓库根目录 [`etc/`](../../../../etc/) 提供多种格式示例。
 
 ## 配置要求
 
 - **TOML** 中 **`[worker].worker_output_dir`** 必须已配置（`logend` 启动时会校验）。
 - **`sink.type: file`** 时，`output` 为相对 **`worker_output_dir`** 的路径。
-- **`sink.type: kafka`** 时，需 broker、TLS 等满足 [logen-dsl · Kafka](../../../guide/book/logen-dsl/sink/kafka.html)。
+- **`sink.type: kafka`** 时，需 broker、TLS 等满足 [logen-dsl · Kafka](../../logen-dsl/sink/kafka.md)。
 
 ## 消息大小
 
 整份 YAML 作为单次 RPC 载荷。若文件很大，需调大 TOML **`[protocol.grpc].max_encoding_message_size_bytes`**（及 daemon 侧 decoding 上限），见 [配置与套接字](../reference/config.md)。
-
-## 相关
-
-- YAML 语法：[logen-dsl · 实例配置](../../../guide/book/logen-dsl/reference/instance.html)
-- 查看运行中配置：[cat](cat.md)
-- 停止：[stop](stop.md)

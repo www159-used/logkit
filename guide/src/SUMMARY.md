@@ -18,3 +18,14 @@
 - [include](logen-dsl/include.md)
 
 ---
+
+# cli
+
+- [简介](cli/intro.md)
+- [list](cli/manual/list.md)
+- [start](cli/manual/start.md)
+- [stop](cli/manual/stop.md)
+- [stat](cli/manual/stat.md)
+- [cat](cli/manual/cat.md)
+- [全局选项](cli/reference/cli.md)
+- [配置与套接字](cli/reference/config.md)

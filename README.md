@@ -3,8 +3,13 @@
 [![Clippy](https://github.com/www159-used/logkit/actions/workflows/clippy.yml/badge.svg)](https://github.com/www159-used/logkit/actions/workflows/clippy.yml)
 [![Test](https://github.com/www159-used/logkit/actions/workflows/test.yml/badge.svg)](https://github.com/www159-used/logkit/actions/workflows/test.yml)
 [![Coverage](https://github.com/www159-used/logkit/actions/workflows/coverage.yml/badge.svg)](https://github.com/www159-used/logkit/actions/workflows/coverage.yml)
+[![Docs](https://github.com/www159-used/logkit/actions/workflows/docs.yml/badge.svg)](https://www159-used.github.io/logkit/)
 
 许可：[AGPL-3.0](LICENSE)
+
+## 文档
+
+**<https://www159-used.github.io/logkit/>** — mdbook（logen-dsl、CLI 等）。本地：`cd guide && mdbook build`。
 
 ## 编译
 

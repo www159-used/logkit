@@ -8,11 +8,14 @@ language = "zh-Hans"
 build-dir = "book"
 
 [output.html]
+site-url = "/logkit/"
 default-theme = "light"
 preferred-dark-theme = "navy"
-additional-js = ["mermaid.min.js", "mermaid-init.js"]
+additional-css = ["modern-dot-theme.css"]
 
 [preprocessor]
 
-[preprocessor.mermaid]
-command = "mdbook-mermaid"
+[preprocessor.modern-dot]
+command = "mdbook-modern-dot"
+themed-output = true
+theme-file = "themes/default.toml"

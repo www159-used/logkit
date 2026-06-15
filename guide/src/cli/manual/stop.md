@@ -32,8 +32,3 @@ a1b2c3d4-e5f6-7890-abcd-ef1234567890    true    true    file: logs/app.log
 $ logen stop a1b2c3d4
 stopped
 ```
-
-## 相关
-
-- 列表：[list](list.md)
-- 统计：[stat](stat.md)

@@ -4,10 +4,6 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT}"
 
-if [[ ! -f guide/mermaid.min.js ]]; then
-  "${ROOT}/scripts/fetch-mdbook-mermaid-assets.sh"
-fi
-
 echo "serve-guide: 构建 guide …"
 (cd guide && mdbook build)
 

@@ -21,9 +21,16 @@
 
 ## 文档
 
+在线阅读：**<https://www159-used.github.io/logkit/>**（推送到 `master` 后由 GitHub Actions 自动发布）
+
+本地构建与预览：
+
 ```bash
 cd guide && mdbook build
-# 本地预览：mdbook serve --open
+# 或：./scripts/serve-guide.sh
 ```
 
-- [logen-dsl 配置规范](logen-dsl/intro.md)（源码目录 `guide/src/logen-dsl/`）
+含架构图时需安装 **[mdbook-modern-dot](https://github.com/www159-used/mdbook-modern-dot)** 与系统 **Graphviz**（`dot`）。
+
+- [logen-dsl 配置规范](logen-dsl/intro.md)
+- [logen CLI](cli/intro.md)

@@ -37,8 +37,3 @@ a1b2c3d4-e5f6-7890-abcd-ef1234567890    true    true    stdout
 
 - 仅包含 daemon **已知**的实例；已 `stop` 或异常退出的不会长期保留（以 daemon 实现为准）。
 - 需要更细的吞吐、心跳间隔等，请用 [stat](stat.md)。
-
-## 相关
-
-- 启动实例：[start](start.md)
-- 停止实例：[stop](stop.md)

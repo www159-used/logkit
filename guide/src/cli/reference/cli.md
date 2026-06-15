@@ -44,18 +44,6 @@ logen start --help
 
 本仓库 CLI **未启用** `help` 子命令（`disable_help_subcommand`）；请用 `--help`。
 
-## 子命令一览
-
-| 子命令 | 别名 | 说明 |
-|--------|------|------|
-| `ping` | — | 探活 |
-| `echo` | — | 回显测试 |
-| `list` | `ls` | 列出实例 |
-| `start` | — | 启动实例 |
-| `stop` | — | 停止实例 |
-| `stat` | — | 运行统计 |
-| `cat` | — | 打印内存中的实例 YAML |
-
 ## 平台
 
 **logen** 仅在 **Unix** 上编译运行（依赖 Unix domain socket）。非 Unix 平台构建时仅打印错误并退出。

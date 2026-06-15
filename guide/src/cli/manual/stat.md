@@ -57,8 +57,3 @@ $ logen stat a1b2
 
 - 压测或灌流时观察 **EPS** 是否稳定。
 - 排查「实例在跑但不健康」：对比 **healthy** 与 **sec_since_hb**。
-
-## 相关
-
-- 简要列表：[list](list.md)
-- 心跳配置：[配置与套接字](../reference/config.md) · `[worker]`
