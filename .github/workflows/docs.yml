@@ -1,5 +1,6 @@
 # 构建 guide/ mdbook 并部署到 GitHub Pages（项目站点：https://www159-used.github.io/logkit/）。
 # 仓库 Settings → Pages → Build and deployment → Source: GitHub Actions。
+# 仅 master 推送时发布文档。
 
 name: Docs
 
@@ -7,6 +8,7 @@ on:
   push:
     branches: [master]
   workflow_dispatch:
+    branches: [master]
 
 permissions:
   contents: read

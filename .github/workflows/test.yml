@@ -1,10 +1,13 @@
 # 工作区单元 / 集成测试（默认不跑 #[ignore] 网络测）。
+# dev / master 日常开发；PR 目标为 dev 或 master 时也会触发。
 
 name: Test
 
 on:
   push:
+    branches: [dev, master]
   pull_request:
+    branches: [dev, master]
 
 permissions:
   contents: read
