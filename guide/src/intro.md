@@ -21,7 +21,7 @@
 
 ## 文档
 
-在线阅读：**<https://www159-used.github.io/logkit/>**（推送到 `master` 后由 GitHub Actions 自动发布）
+在线阅读：**<https://www159.codeberg.page/logkit/>**（推送到 `master` 后由 Forgejo Actions 自动发布）
 
 本地构建与预览：
 
