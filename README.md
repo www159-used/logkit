@@ -1,13 +1,13 @@
 # logkit
 
-[![Clippy](https://codeberg.org/www159/logkit/badges/workflows/clippy.yaml/badge.svg)](https://codeberg.org/www159/logkit/actions)
-[![Test](https://codeberg.org/www159/logkit/badges/workflows/test.yaml/badge.svg)](https://codeberg.org/www159/logkit/actions)
-[![Coverage](https://codeberg.org/www159/logkit/badges/workflows/coverage.yaml/badge.svg)](https://codeberg.org/www159/logkit/actions)
-[![Docs](https://codeberg.org/www159/logkit/badges/workflows/docs.yaml/badge.svg)](https://www159.codeberg.page/logkit/)
+[![Clippy](https://github.com/www159-used/logkit/actions/workflows/clippy.yml/badge.svg)](https://github.com/www159-used/logkit/actions/workflows/clippy.yml)
+[![Test](https://github.com/www159-used/logkit/actions/workflows/test.yml/badge.svg)](https://github.com/www159-used/logkit/actions/workflows/test.yml)
+[![Coverage](https://github.com/www159-used/logkit/actions/workflows/coverage.yml/badge.svg)](https://github.com/www159-used/logkit/actions/workflows/coverage.yml)
+[![Docs](https://github.com/www159-used/logkit/actions/workflows/docs.yml/badge.svg)](https://www159-used.github.io/logkit/)
 
 许可：[AGPL-3.0](LICENSE)
 
-使用方法和介绍查看：[logkit book](https://www159.codeberg.page/logkit/)
+使用方法和介绍查看：[logkit book](https://www159-used.github.io/logkit/)
 
 ## 编译
 

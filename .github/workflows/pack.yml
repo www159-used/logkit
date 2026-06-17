@@ -1,20 +1,22 @@
 name: Release builds
 
-# Linux：x86_64 / aarch64 glibc 2.17（Zig 链老 glibc，pullout 可 dlopen）。
-# 推送 v* 标签时打包并创建 Forgejo Release（含源码 git archive）。
-# macOS 发行包请在 Apple Silicon 本机或自有 runner 上构建。
+# Linux：x86_64 / aarch64 glibc 2.17（Zig 链老 glibc，pullout 可 dlopen）。macOS：Apple Silicon。
+# 推送 v* 标签时合并产物并创建 GitHub Release（含源码 git archive）。
 
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   linux-gnu:
-    runs-on: codeberg-medium
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -22,8 +24,9 @@ jobs:
         with:
           targets: x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu
 
-      - name: Install protoc
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      - uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: mlugg/setup-zig@v2
         with:
@@ -68,30 +71,81 @@ jobs:
           done
 
       - name: Source archive (git archive)
-        if: startsWith(forge.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/')
         run: |
           mkdir -p dist
-          git archive --format=tar.gz -o "dist/logkit-${{ forge.ref_name }}-src.tar.gz" HEAD
+          git archive --format=tar.gz -o "dist/logkit-${{ github.ref_name }}-src.tar.gz" HEAD
 
       - uses: actions/upload-artifact@v4
         with:
           name: logkit-dist-linux-gnu
           path: dist/*.tar.gz
 
+  macos-arm:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build and package
+        run: |
+          set -euo pipefail
+          target=aarch64-apple-darwin
+          cargo build --release --target "$target"
+          parent="$GITHUB_WORKSPACE/dist/.stage-$target"
+          stage="$parent/logkit"
+          rm -rf "$parent"
+          mkdir -p "$stage/bin" "$stage/etc" "$stage/tools/bin"
+          cp "$GITHUB_WORKSPACE/target/$target/release/logen" \
+             "$GITHUB_WORKSPACE/target/$target/release/logend" \
+             "$stage/bin/"
+          for tool in kafka-ssl-gen mysql_local pullout; do
+            if [[ -f "$GITHUB_WORKSPACE/target/$target/release/$tool" ]]; then
+              cp "$GITHUB_WORKSPACE/target/$target/release/$tool" "$stage/tools/bin/"
+              chmod +x "$stage/tools/bin/$tool"
+            else
+              echo "warning: $tool missing for $target" >&2
+            fi
+          done
+          cp -R "$GITHUB_WORKSPACE/etc/." "$stage/etc/"
+          cp "$GITHUB_WORKSPACE/bin/install.sh" "$stage/install.sh"
+          chmod +x "$stage/install.sh" \
+            "$stage/bin/logen" "$stage/bin/logend"
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          COPYFILE_DISABLE=1 tar -czf "$GITHUB_WORKSPACE/dist/logkit-${target}.tar.gz" -C "$parent" logkit
+          rm -rf "$parent"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: logkit-dist-macos-arm
+          path: dist/*.tar.gz
+
   release:
-    if: startsWith(forge.ref, 'refs/tags/')
-    needs: [linux-gnu]
-    runs-on: codeberg-tiny
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [linux-gnu, macos-arm]
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
         with:
           name: logkit-dist-linux-gnu
           path: release-assets
 
-      - name: Forgejo Release
+      - uses: actions/download-artifact@v4
+        with:
+          name: logkit-dist-macos-arm
+          path: release-assets
+
+      - name: GitHub Release
         uses: softprops/action-gh-release@v2
-        env:
-          GITHUB_TOKEN: ${{ forge.token }}
         with:
           files: release-assets/*
           generate_release_notes: true
