@@ -30,7 +30,7 @@ logen stat <id_prefix>
 | **events_total** | 累计渲染并 emit 的事件数 |
 | **events_est** | 估算总事件（含外推） |
 | **sec_since_hb** | 距上次心跳秒数 |
-| **hb_timeout_s** / **hb_interval_s** | TOML `[worker]` 中的心跳配置 |
+| **hb_timeout_s** / **hb_interval_s** | TOML `[logend]` 中的心跳配置 |
 
 ## 示例
 

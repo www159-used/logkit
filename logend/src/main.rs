@@ -18,7 +18,7 @@ use tokio::sync::Mutex;
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::Server;
 
-use logen_config::{load_merged, LogenConfig, LogenError, WorkerSection};
+use logen_config::{load_merged, LogenConfig, LogenError, LogendSection};
 use logen_dsl::{format_sink_summary, parse_worker_config};
 use tracing::{debug, info, trace, warn};
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Registry};
@@ -65,10 +65,9 @@ struct RunningWorker {
 
 struct LogenSvcState {
     ping_reply: Arc<str>,
-    worker: WorkerSection,
+    logend: LogendSection,
     control_socket_path: String,
-    client_connect_uri: String,
-    worker_output_dir: String,
+    worker_heartbeat_uri: String,
     embedded_worker: Arc<dyn EmbeddedWorker>,
     workers: Mutex<HashMap<String, RunningWorker>>,
 }
@@ -181,7 +180,7 @@ impl Logen for LogenSvc {
         &self,
         _req: tonic::Request<ListWorkersRequest>,
     ) -> Result<tonic::Response<ListWorkersReply>, tonic::Status> {
-        let timeout = Duration::from_secs(self.inner.worker.heartbeat_timeout_secs.max(1));
+        let timeout = Duration::from_secs(self.inner.logend.heartbeat_timeout_secs.max(1));
         let mut guard = self.inner.workers.lock().await;
         reap_exited(&mut guard);
 
@@ -207,9 +206,9 @@ impl Logen for LogenSvc {
         req: tonic::Request<StatWorkerRequest>,
     ) -> Result<tonic::Response<StatWorkerReply>, tonic::Status> {
         let prefix = req.into_inner().id_prefix;
-        let timeout = Duration::from_secs(self.inner.worker.heartbeat_timeout_secs.max(1));
-        let hb_timeout = self.inner.worker.heartbeat_timeout_secs;
-        let hb_interval = self.inner.worker.heartbeat_interval_secs;
+        let timeout = Duration::from_secs(self.inner.logend.heartbeat_timeout_secs.max(1));
+        let hb_timeout = self.inner.logend.heartbeat_timeout_secs;
+        let hb_interval = self.inner.logend.heartbeat_interval_secs;
 
         let mut guard = self.inner.workers.lock().await;
         reap_exited(&mut guard);
@@ -276,10 +275,10 @@ impl Logen for LogenSvc {
         let hb = WorkerHeartbeatEnv {
             control_socket: self.inner.control_socket_path.clone(),
             worker_id: id.clone(),
-            heartbeat_interval_secs: self.inner.worker.heartbeat_interval_secs.max(1),
-            client_connect_uri: self.inner.client_connect_uri.clone(),
+            heartbeat_interval_secs: self.inner.logend.heartbeat_interval_secs.max(1),
+            client_connect_uri: self.inner.worker_heartbeat_uri.clone(),
         };
-        let output_base = PathBuf::from(&self.inner.worker_output_dir);
+        let output_base = PathBuf::from(&self.inner.logend.worker_output_dir);
         let SpawnedWorkerTasks {
             worker_task,
             heartbeat_task,
@@ -457,10 +456,10 @@ fn unix_process_exists(pid: u32) -> bool {
 }
 
 #[cfg(unix)]
-fn build_worker_runtime(cfg: &WorkerSection) -> Result<tokio::runtime::Runtime, LogenError> {
+fn build_worker_runtime(logend: &LogendSection) -> Result<tokio::runtime::Runtime, LogenError> {
     let mut builder = tokio::runtime::Builder::new_multi_thread();
     builder.enable_all().thread_name("logend-worker-rt");
-    if let Some(n) = cfg.runtime_threads {
+    if let Some(n) = logend.runtime_threads {
         builder.worker_threads(n.max(1));
     }
     builder
@@ -470,35 +469,29 @@ fn build_worker_runtime(cfg: &WorkerSection) -> Result<tokio::runtime::Runtime, 
 
 #[cfg(unix)]
 async fn run(cfg: LogenConfig, embedded_worker: Arc<dyn EmbeddedWorker>) -> Result<(), LogenError> {
-    let worker_output_dir = cfg.worker.worker_output_dir.trim().to_string();
-    if worker_output_dir.is_empty() {
-        return Err(LogenError::Cli(
-            "[worker].worker_output_dir must be set (non-empty directory;实例 YAML \"output\" is relative to it)"
-                .into(),
-        ));
-    }
+    let logend = cfg.logend.clone();
+    let worker_output_dir = logend.worker_output_dir.clone();
     let worker_out_path = Path::new(&worker_output_dir);
     fs::create_dir_all(worker_out_path)
         .map_err(|e| LogenError::unix_io(worker_out_path.to_path_buf(), e))?;
 
-    let pid_suffix = cfg.daemon.pid_record_suffix.clone();
-    let max_dec = cfg.protocol.grpc.max_decoding_message_size_bytes as usize;
-    let max_enc = cfg.protocol.grpc.max_encoding_message_size_bytes as usize;
-    let ping_reply: Arc<str> =
-        Arc::from(cfg.protocol.grpc.ping_reply_text.clone().into_boxed_str());
-    let client_connect_uri = cfg.protocol.grpc.client_connect_uri.clone();
+    let pid_suffix = logend.pid_record_suffix.clone();
+    let max_dec = logend.max_decoding_message_size_bytes as usize;
+    let max_enc = logend.max_encoding_message_size_bytes as usize;
+    let ping_reply: Arc<str> = Arc::from(logend.ping_reply_text.clone().into_boxed_str());
+    let worker_heartbeat_uri = cfg.worker_heartbeat_uri().to_string();
 
-    let tmp_dir = cfg.tmp_dir_path();
+    let tmp_dir = logend.tmp_dir_path();
     fs::create_dir_all(&tmp_dir).map_err(|e| LogenError::unix_io(tmp_dir.clone(), e))?;
 
-    let pid_path_buf = cfg.daemon_pid_path();
+    let pid_path_buf = logend.pid_path();
     if pid_path_buf.exists() {
         let raw = fs::read_to_string(&pid_path_buf).unwrap_or_default();
         let trimmed = raw.trim();
         if let Ok(old) = trimmed.parse::<u32>() {
             if unix_process_exists(old) {
                 return Err(LogenError::Cli(format!(
-                    "logend already running (pid {old}) under {}. Use a different [common].tmp_dir for another instance, or stop the existing process.",
+                    "logend already running (pid {old}) under {}. Use a different [logend].tmp_dir for another instance, or stop the existing process.",
                     tmp_dir.display()
                 )));
             }
@@ -506,11 +499,11 @@ async fn run(cfg: LogenConfig, embedded_worker: Arc<dyn EmbeddedWorker>) -> Resu
         let _ = fs::remove_file(&pid_path_buf);
     }
 
-    let socket_path_buf = cfg.daemon_socket_path();
+    let socket_path_buf = logend.socket_path();
     let control_socket_path = socket_path_buf.to_string_lossy().into_owned();
-    let log_path_buf = cfg.daemon_log_path();
+    let log_path_buf = logend.log_path();
 
-    let _log_handle = init_daemon_logging(log_path_buf.as_path(), &cfg.daemon.log_level)?;
+    let _log_handle = init_daemon_logging(log_path_buf.as_path(), &logend.log_level)?;
 
     let sock = socket_path_buf.as_path();
     info!(
@@ -520,7 +513,7 @@ async fn run(cfg: LogenConfig, embedded_worker: Arc<dyn EmbeddedWorker>) -> Resu
         sock.display(),
         worker_output_dir,
         log_path_buf.display(),
-        cfg.daemon.log_level.trim(),
+        logend.log_level.trim(),
     );
 
     if sock.exists() {
@@ -537,26 +530,43 @@ async fn run(cfg: LogenConfig, embedded_worker: Arc<dyn EmbeddedWorker>) -> Resu
 
     info!("listening for gRPC on {}", sock.display());
 
+    let tcp_addr = logend.tcp_listen_addr()?;
+
     let svc = LogenSvc {
         inner: Arc::new(LogenSvcState {
             ping_reply,
-            worker: cfg.worker,
+            logend,
             control_socket_path,
-            client_connect_uri,
-            worker_output_dir,
+            worker_heartbeat_uri,
             embedded_worker,
             workers: Mutex::new(HashMap::new()),
         }),
     };
-    let grpc = LogenServer::new(svc)
-        .max_decoding_message_size(max_dec)
-        .max_encoding_message_size(max_enc);
 
-    Server::builder()
-        .add_service(grpc)
-        .serve_with_incoming(incoming)
-        .await
+    let make_server = |s: LogenSvc| {
+        LogenServer::new(s)
+            .max_decoding_message_size(max_dec)
+            .max_encoding_message_size(max_enc)
+    };
+
+    if let Some(addr) = tcp_addr {
+        info!("listening for gRPC on tcp {addr}");
+        let uds_server = make_server(svc.clone());
+        let tcp_server = make_server(svc);
+        tokio::try_join!(
+            Server::builder()
+                .add_service(uds_server)
+                .serve_with_incoming(incoming),
+            Server::builder().add_service(tcp_server).serve(addr),
+        )
         .map_err(|e| LogenError::Grpc(e.to_string()))?;
+    } else {
+        Server::builder()
+            .add_service(make_server(svc))
+            .serve_with_incoming(incoming)
+            .await
+            .map_err(|e| LogenError::Grpc(e.to_string()))?;
+    }
 
     Ok(())
 }
@@ -576,7 +586,7 @@ fn main() {
         .enable_all()
         .build()
         .expect("logend tokio runtime");
-    let worker_runtime = match build_worker_runtime(&cfg.worker) {
+    let worker_runtime = match build_worker_runtime(&cfg.logend) {
         Ok(rt) => rt,
         Err(e) => {
             eprintln!("{e}");

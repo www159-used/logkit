@@ -30,10 +30,10 @@ f47ac10b-58cc-4372-a567-0e02b2c3d479    started
 
 ## 配置要求
 
-- **TOML** 中 **`[worker].worker_output_dir`** 必须已配置（`logend` 启动时会校验）。
+- **TOML** 中 **`[logend].worker_output_dir`** 必须已配置（`logend` 启动时会校验）。
 - **`sink.type: file`** 时，`output` 为相对 **`worker_output_dir`** 的路径。
 - **`sink.type: kafka`** 时，需 broker、TLS 等满足 [logen-dsl · Kafka](../../logen-dsl/sink/kafka.md)。
 
 ## 消息大小
 
-整份 YAML 作为单次 RPC 载荷。若文件很大，需调大 TOML **`[protocol.grpc].max_encoding_message_size_bytes`**（及 daemon 侧 decoding 上限），见 [配置与套接字](../reference/config.md)。
+整份 YAML 作为单次 RPC 载荷。若文件很大，需调大 TOML **`[logend].max_encoding_message_size_bytes`**（及 decoding 上限），见 [配置与套接字](../reference/config.md)。

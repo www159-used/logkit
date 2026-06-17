@@ -6,8 +6,8 @@
 
 ## 依赖前提
 
-- 已启动 **`logend`**，且套接字文件存在（默认 `{tmp_dir}/logend.sock`，由 [`logen-config`](../logen-config/README.md) 中的 `[common].tmp_dir` 决定）。
-- 若 CLI 与 daemon 使用不同的 `tmp_dir`，须用 **`-S` / `--sock`** 指向 daemon 实际使用的 `.sock`。
+- 已启动 **`logend`**，且套接字文件存在（默认 `{logend.tmp_dir}/logend.sock`，见 [`logen-config`](../logen-config/README.md)）。
+- 若 CLI 与 daemon 使用不同路径，须用 **`-S` / `--sock`** 指向 daemon 实际 `.sock`；远端则用 **`-H` / `-P`**。
 
 ## 常用选项
 
@@ -50,8 +50,8 @@
 **报错 unix socket 不存在**
 
 - 先启动 `logend`。
-- 对齐 **`LOGEN_DEFAULTS_FILE` / `--defaults-file`** 与 `[common].tmp_dir`，或使用 `-S` 指向正确 `.sock`。
+- 对齐 **`LOGEN_DEFAULTS_FILE` / `--defaults-file`** 与 `[logend].tmp_dir`，或使用 `-S` / `-H`/`-P`。
 
 **`start` 失败或消息过大**
 
--实例 YAML 作为单次 RPC 载荷；必要时调大 TOML 里 `[protocol.grpc]` 的 **`max_encoding_message_size_bytes`** 等（见 [`logen-config`](../logen-config/README.md)）。
+实例 YAML 作为单次 RPC 载荷；必要时调大 TOML `[logend]` 的 **`max_encoding_message_size_bytes`** 等（见 [`logen-config`](../logen-config/README.md)）。

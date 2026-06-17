@@ -7,7 +7,7 @@
 - **`proto/logen/v1/logen.proto`** — `package logen.v1`，服务 **`Logen`**（`Ping`、`Echo`、`ListWorkers`、`StartWorker`、`StopWorker`、`CatWorker`、`Heartbeat`、`StatWorker`）。
 - **`proto/agent/v1/event.proto`** — `package logen.agent.v1`，消息 **`EventInfo`**（Kafka agent 模式 `format: pb` 的 value 编码；字段与上游 log_parser 兼容）。
 
-传输：**Unix 套接字**（进程间仍为 gRPC 帧）；URI 仅用于 tonic Endpoint 构造，见 [`logen-config`](../logen-config/README.md) 的 **`client_connect_uri`**。
+传输：**Unix 套接字**或 **TCP**（由 `[client]` / `[logend].listen` 配置）；控制面仍为 gRPC，见 [`logen-config`](../logen-config/README.md)。
 
 ## 生成代码
 

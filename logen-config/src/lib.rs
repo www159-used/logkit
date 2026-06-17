@@ -7,8 +7,8 @@ mod embed;
 mod error;
 
 pub use config::{
-    load_merged, ClientSection, CommonSection, DaemonSection, GrpcSection, LogenConfig,
-    ProtocolSection, WorkerSection,
+    load_merged, ClientConnect, ClientOverrides, ClientSection, ClientTransport, LogenConfig,
+    LogendSection, LOCAL_GRPC_AUTHORITY_URI,
 };
 pub use error::LogenError;
 

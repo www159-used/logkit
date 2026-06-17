@@ -26,7 +26,7 @@ logen ping
 
 ## `-S` / `--sock PATH`
 
-覆盖由 **`[common].tmp_dir`** 推导的 Unix 套接字路径（默认 **`{tmp_dir}/logend.sock`**）。
+覆盖由 **`[logend].tmp_dir`** 推导的 Unix 套接字路径（默认 **`{tmp_dir}/logend.sock`**）。
 
 当 CLI 与 daemon 使用不同 `tmp_dir`、或套接字不在默认位置时必须指定：
 
