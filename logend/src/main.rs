@@ -18,8 +18,12 @@ use tokio::sync::Mutex;
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::Server;
 
-use logen_config::{load_merged, LogenConfig, LogenError, LogendSection};
-use logen_dsl::{format_sink_summary, parse_worker_config};
+use logen_config::{load_merged, LogenConfig, LogenError, LogendSection, ClientSection};
+use logen_dsl::{
+    finalize_file_sink_output, format_sink_summary, parse_worker_instance_yaml,
+    worker_config_to_yaml,
+};
+use kafka_protocol::KafkaProtocolOptions;
 use tracing::{debug, info, trace, warn};
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Registry};
 
@@ -27,7 +31,7 @@ use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, Env
 #[command(
     name = "logend",
     version,
-    about = "logend — gRPC control plane (Unix socket); embedded logen-worker drives worker instances",
+    about = "logend — gRPC control plane (Unix socket, optional TCP); embedded logen-worker drives worker instances",
     disable_help_subcommand = true
 )]
 struct LogendCli {
@@ -64,10 +68,9 @@ struct RunningWorker {
 }
 
 struct LogenSvcState {
-    ping_reply: Arc<str>,
+    ping_reply: PingReply,
     logend: LogendSection,
-    control_socket_path: String,
-    worker_heartbeat_uri: String,
+    client: ClientSection,
     embedded_worker: Arc<dyn EmbeddedWorker>,
     workers: Mutex<HashMap<String, RunningWorker>>,
 }
@@ -118,6 +121,24 @@ fn reap_exited(guard: &mut HashMap<String, RunningWorker>) {
     }
 }
 
+fn resolve_worker_id(
+    guard: &HashMap<String, RunningWorker>,
+    key: &str,
+    rpc: &str,
+) -> Result<String, tonic::Status> {
+    match pick_worker_id(guard, key) {
+        IdPick::One(s) => Ok(s),
+        IdPick::None => Err(tonic::Status::not_found("no such worker id")),
+        IdPick::Many(ids) => {
+            debug!("rpc {rpc} ambiguous prefix {key:?} matches {}", ids.len());
+            Err(tonic::Status::invalid_argument(format!(
+                "id prefix {key:?} matches multiple workers:\n{}",
+                ids.join("\n")
+            )))
+        }
+    }
+}
+
 /// `{tmp_dir}/logend.log`（非阻塞写入）。`RUST_LOG` 优先于 `default_spec`。
 fn init_daemon_logging(
     log_path: &Path,
@@ -162,9 +183,7 @@ impl Logen for LogenSvc {
         _req: tonic::Request<PingRequest>,
     ) -> Result<tonic::Response<PingReply>, tonic::Status> {
         trace!("rpc Ping");
-        Ok(tonic::Response::new(PingReply {
-            pong: self.inner.ping_reply.to_string(),
-        }))
+        Ok(tonic::Response::new(self.inner.ping_reply.clone()))
     }
 
     async fn echo(
@@ -260,9 +279,20 @@ impl Logen for LogenSvc {
                 "instance_yaml required (non-empty instance .yaml / .yml body)",
             ));
         }
-        let worker_cfg = parse_worker_config(Path::new("instance.yaml"), &yaml)
+        let auto_kafka = msg
+            .auto_kafka_protocol
+            .unwrap_or(self.inner.client.auto_kafka_protocol);
+        let mut kafka_opts = KafkaProtocolOptions::default();
+        if let Some(host) = msg
+            .kafka_broker_host
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            kafka_opts = kafka_opts.with_broker_host(host.to_string());
+        }
+        let mut worker_cfg = parse_worker_instance_yaml(&yaml, auto_kafka, kafka_opts)
             .map_err(|e| tonic::Status::invalid_argument(format!("实例 YAML: {e}")))?;
-        let sink_summary = format_sink_summary(&worker_cfg.sink);
 
         let label = msg.config_label;
         let config_label = if label.trim().is_empty() {
@@ -272,13 +302,17 @@ impl Logen for LogenSvc {
         };
 
         let id = uuid::Uuid::new_v4().to_string();
+        let output_base = PathBuf::from(&self.inner.logend.worker_output_dir);
+        finalize_file_sink_output(&mut worker_cfg.sink, &output_base, &id)
+            .map_err(|e| tonic::Status::invalid_argument(format!("实例 YAML: {e}")))?;
+        let instance_yaml = worker_config_to_yaml(&worker_cfg)
+            .map_err(|e| tonic::Status::internal(format!("实例 YAML 规范化失败: {e}")))?;
+        let sink_summary = format_sink_summary(&worker_cfg.sink);
         let hb = WorkerHeartbeatEnv {
-            control_socket: self.inner.control_socket_path.clone(),
+            connect: self.inner.logend.local_unix_connect(),
             worker_id: id.clone(),
             heartbeat_interval_secs: self.inner.logend.heartbeat_interval_secs.max(1),
-            client_connect_uri: self.inner.worker_heartbeat_uri.clone(),
         };
-        let output_base = PathBuf::from(&self.inner.logend.worker_output_dir);
         let SpawnedWorkerTasks {
             worker_task,
             heartbeat_task,
@@ -286,7 +320,6 @@ impl Logen for LogenSvc {
             id.clone(),
             config_label.clone(),
             worker_cfg,
-            output_base,
             Some(hb),
         );
 
@@ -301,7 +334,7 @@ impl Logen for LogenSvc {
             id.clone(),
             RunningWorker {
                 config_label,
-                instance_yaml: yaml,
+                instance_yaml,
                 worker_task,
                 heartbeat_task,
                 spawned_at: now,
@@ -328,23 +361,7 @@ impl Logen for LogenSvc {
         }
         let mut guard = self.inner.workers.lock().await;
         reap_exited(&mut guard);
-        let id = match pick_worker_id(&guard, &id) {
-            IdPick::One(s) => s,
-            IdPick::None => {
-                return Err(tonic::Status::not_found("no such worker id"));
-            }
-            IdPick::Many(ids) => {
-                debug!(
-                    "rpc StopWorker ambiguous prefix {:?} matches {}",
-                    id,
-                    ids.len()
-                );
-                return Err(tonic::Status::invalid_argument(format!(
-                    "id prefix {id:?} matches multiple workers:\n{}",
-                    ids.join("\n")
-                )));
-            }
-        };
+        let id = resolve_worker_id(&guard, &id, "StopWorker")?;
         let Some(running) = guard.remove(&id) else {
             return Err(tonic::Status::not_found("no such worker id"));
         };
@@ -368,23 +385,7 @@ impl Logen for LogenSvc {
         }
         let mut guard = self.inner.workers.lock().await;
         reap_exited(&mut guard);
-        let id = match pick_worker_id(&guard, &id) {
-            IdPick::One(s) => s,
-            IdPick::None => {
-                return Err(tonic::Status::not_found("no such worker id"));
-            }
-            IdPick::Many(ids) => {
-                debug!(
-                    "rpc CatWorker ambiguous prefix {:?} matches {}",
-                    id,
-                    ids.len()
-                );
-                return Err(tonic::Status::invalid_argument(format!(
-                    "id prefix {id:?} matches multiple workers:\n{}",
-                    ids.join("\n")
-                )));
-            }
-        };
+        let id = resolve_worker_id(&guard, &id, "CatWorker")?;
         let Some(running) = guard.get(&id) else {
             return Err(tonic::Status::not_found("no such worker id"));
         };
@@ -478,8 +479,9 @@ async fn run(cfg: LogenConfig, embedded_worker: Arc<dyn EmbeddedWorker>) -> Resu
     let pid_suffix = logend.pid_record_suffix.clone();
     let max_dec = logend.max_decoding_message_size_bytes as usize;
     let max_enc = logend.max_encoding_message_size_bytes as usize;
-    let ping_reply: Arc<str> = Arc::from(logend.ping_reply_text.clone().into_boxed_str());
-    let worker_heartbeat_uri = cfg.worker_heartbeat_uri().to_string();
+    let ping_reply = PingReply {
+        pong: logend.ping_reply_text.clone(),
+    };
 
     let tmp_dir = logend.tmp_dir_path();
     fs::create_dir_all(&tmp_dir).map_err(|e| LogenError::unix_io(tmp_dir.clone(), e))?;
@@ -491,7 +493,7 @@ async fn run(cfg: LogenConfig, embedded_worker: Arc<dyn EmbeddedWorker>) -> Resu
         if let Ok(old) = trimmed.parse::<u32>() {
             if unix_process_exists(old) {
                 return Err(LogenError::Cli(format!(
-                    "logend already running (pid {old}) under {}. Use a different [logend].tmp_dir for another instance, or stop the existing process.",
+                    "logend already running (pid {old}) under {}. Use a different [logend].tmp-dir for another instance, or stop the existing process.",
                     tmp_dir.display()
                 )));
             }
@@ -500,14 +502,13 @@ async fn run(cfg: LogenConfig, embedded_worker: Arc<dyn EmbeddedWorker>) -> Resu
     }
 
     let socket_path_buf = logend.socket_path();
-    let control_socket_path = socket_path_buf.to_string_lossy().into_owned();
     let log_path_buf = logend.log_path();
 
     let _log_handle = init_daemon_logging(log_path_buf.as_path(), &logend.log_level)?;
 
     let sock = socket_path_buf.as_path();
     info!(
-        "logend starting pid={} tmp_dir={} uds={} worker_output_dir={} log_file={} default_log_spec={} (RUST_LOG overrides if set)",
+        "logend starting pid={} tmp-dir={} uds={} worker-output-dir={} log_file={} default_log_spec={} (RUST_LOG overrides if set)",
         std::process::id(),
         tmp_dir.display(),
         sock.display(),
@@ -536,8 +537,7 @@ async fn run(cfg: LogenConfig, embedded_worker: Arc<dyn EmbeddedWorker>) -> Resu
         inner: Arc::new(LogenSvcState {
             ping_reply,
             logend,
-            control_socket_path,
-            worker_heartbeat_uri,
+            client: cfg.client.clone(),
             embedded_worker,
             workers: Mutex::new(HashMap::new()),
         }),

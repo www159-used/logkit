@@ -5,7 +5,12 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+http = { workspace = true }
+hyper-util = { workspace = true }
 rust-embed = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
+tokio = { workspace = true, features = ["net"] }
 toml = "0.8"
+tonic = { workspace = true }
+tower = { workspace = true }

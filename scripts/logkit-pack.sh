@@ -85,7 +85,7 @@ copy_pack_license() {
   fi
 }
 
-TOOL_BINS=(kafka-ssl-gen mysql_local pullout jumpserver)
+TOOL_BINS=(kafka-protocol mysql_local pullout jumpserver)
 
 copy_pack_tools() {
   local dest_root="$1"

@@ -6,11 +6,8 @@ license.workspace = true
 
 [dependencies]
 clap = { workspace = true }
-http = { workspace = true }
-hyper-util = { workspace = true }
 logen-config = { path = "../logen-config" }
 logen-dsl = { path = "../logen-dsl" }
 logen-proto = { path = "../logen-proto" }
 tokio = { workspace = true, features = ["macros", "net", "rt"] }
 tonic = { workspace = true }
-tower = { workspace = true }

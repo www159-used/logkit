@@ -1,0 +1,11 @@
+# 本地 logen --host 控远端 logend：仅需声明 kafka sink，传输由 kafka-protocol 自动发现。
+#
+#   export KAFKA_SERVER_PROPERTIES=./server.properties   # 或 KAFKA_CLIENT_CONF
+#   logen --host=LOGEND start etc/instance.kafka-remote.yaml
+#
+include:
+  - common.yaml
+  - body/json.yaml
+
+sink:
+  type: kafka

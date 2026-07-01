@@ -3,20 +3,16 @@
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
-use http::Uri;
-use hyper_util::rt::TokioIo;
 use logen_proto::logen_client::LogenClient;
 use logen_proto::{
     CatWorkerRequest, EchoRequest, ListWorkersRequest, PingRequest, StartWorkerRequest,
     StatWorkerRequest, StopWorkerRequest,
 };
-use tonic::transport::{Channel, Endpoint};
-use tower::service_fn;
 
 use logen_config::{
-    load_merged, ClientConnect, ClientOverrides, ClientTransport, LogenError,
+    connect_client_channel, load_merged, ClientConnect, ClientOverrides, LogenError,
 };
-use logen_dsl::{load_worker_config, worker_config_to_yaml};
+use logen_dsl::read_worker_instance_yaml;
 
 #[derive(Parser)]
 #[command(
@@ -31,16 +27,20 @@ struct Cli {
     defaults_file: Option<PathBuf>,
 
     /// 覆盖 Unix 套接字路径（与 `-H`/`-P` 互斥时优先于 `[client]` TCP）
-    #[arg(short = 'S', long = "sock", value_name = "PATH")]
+    #[arg(short = 'S', long = "socket", alias = "sock", value_name = "PATH")]
     socket: Option<PathBuf>,
 
     /// 远端 logend 主机（TCP；也可在 TOML `[client]` 或环境变量 LOGEN_HOST 配置）
     #[arg(short = 'H', long = "host", value_name = "HOST", env = "LOGEN_HOST")]
     host: Option<String>,
 
-    /// 远端 logend 端口（TCP；也可在 TOML `[client]` 或环境变量 LOGEN_PORT 配置）
+    /// 远端 logend 端口（省略时默认约定端口 11159；`-H` 时生效）
     #[arg(short = 'P', long = "port", value_name = "PORT", env = "LOGEN_PORT")]
     port: Option<u16>,
+
+    /// 覆盖 `[client].auto-kafka-protocol`；控制 `start` 时是否自动补全 Kafka 传输
+    #[arg(long = "auto-kafka-protocol", value_name = "BOOL")]
+    auto_kafka_protocol: Option<bool>,
 
     #[command(subcommand)]
     command: Commands,
@@ -82,68 +82,22 @@ async fn main() {
 }
 
 #[cfg(unix)]
-async fn connect_channel(connect: &ClientConnect) -> Result<Channel, LogenError> {
-    match connect.transport {
-        ClientTransport::Unix => {
-            let sock_path = connect.unix_socket.as_ref().ok_or_else(|| {
-                LogenError::Cli("internal error: unix connect without socket path".into())
-            })?;
-            if !sock_path.exists() {
-                return Err(LogenError::Cli(format!(
-                    "unix socket \"{}\" does not exist. Start logend first, or pass -S/--sock, \
-                     or set [client] host/port for tcp remote.",
-                    sock_path.display()
-                )));
-            }
-            let path = sock_path.to_string_lossy().into_owned();
-            let endpoint = Endpoint::from_shared(connect.endpoint_uri.clone())
-                .map_err(|e| LogenError::Grpc(e.to_string()))?;
-            endpoint
-                .connect_with_connector(service_fn(move |_: Uri| {
-                    let path = path.clone();
-                    async move {
-                        let s = tokio::net::UnixStream::connect(path).await?;
-                        Ok::<_, std::io::Error>(TokioIo::new(s))
-                    }
-                }))
-                .await
-                .map_err(|e| {
-                    LogenError::Grpc(format!(
-                        "transport error on unix socket {}: {e}",
-                        sock_path.display()
-                    ))
-                })
-        }
-        ClientTransport::Tcp => {
-            Endpoint::from_shared(connect.endpoint_uri.clone())
-                .map_err(|e| LogenError::Grpc(e.to_string()))?
-                .connect()
-                .await
-                .map_err(|e| {
-                    LogenError::Grpc(format!(
-                        "tcp connect to {} failed: {e}. Check logend [logend].listen and firewall.",
-                        connect.endpoint_uri
-                    ))
-                })
-        }
-    }
-}
-
-#[cfg(unix)]
 async fn run() -> Result<(), LogenError> {
     let cli = Cli::parse();
     let cfg = load_merged(cli.defaults_file.as_deref())?;
 
-    let connect = cfg.resolve_client_connect(ClientOverrides {
+    let client_overrides = ClientOverrides {
         socket: cli.socket.as_deref(),
         host: cli.host.as_deref(),
         port: cli.port,
-    })?;
+        auto_kafka_protocol: cli.auto_kafka_protocol,
+    };
+    let connect = cfg.resolve_client_connect(client_overrides)?;
 
     let max_dec = cfg.logend.max_decoding_message_size_bytes as usize;
     let max_enc = cfg.logend.max_encoding_message_size_bytes as usize;
 
-    let channel = connect_channel(&connect).await?;
+    let channel = connect_client_channel(&connect).await?;
 
     let mut client = LogenClient::new(channel)
         .max_decoding_message_size(max_dec)
@@ -212,15 +166,18 @@ async fn run() -> Result<(), LogenError> {
         }
         Commands::Start { config } => {
             let path = PathBuf::from(&config);
-            let merged =
-                load_worker_config(path.as_path()).map_err(|e| LogenError::Cli(e.to_string()))?;
-            let instance_yaml = worker_config_to_yaml(&merged)
-                .map_err(|e| LogenError::Cli(format!("serialize instance YAML: {e}")))?;
-            let config_label = config;
+            let instance_yaml = read_worker_instance_yaml(path.as_path())
+                .map_err(|e| LogenError::Cli(e.to_string()))?;
+            let kafka_broker_host = match &connect {
+                ClientConnect::Tcp { host, .. } => Some(host.clone()),
+                ClientConnect::Unix { .. } => None,
+            };
             let r = client
                 .start_worker(StartWorkerRequest {
                     instance_yaml,
-                    config_label,
+                    config_label: config,
+                    auto_kafka_protocol: cli.auto_kafka_protocol,
+                    kafka_broker_host,
                 })
                 .await
                 .map_err(|s| LogenError::Grpc(s.to_string()))?;

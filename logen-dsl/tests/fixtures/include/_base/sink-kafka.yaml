@@ -2,3 +2,5 @@ sink:
   type: kafka
   kafka:
     brokers: ["127.0.0.1:9092"]
+    security.protocol: SSL
+    ssl.truststore.location: /tmp/logkit-test-truststore.jks

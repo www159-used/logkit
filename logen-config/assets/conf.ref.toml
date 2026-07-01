@@ -1,23 +1,26 @@
 # Reference defaults (embedded). Override with --defaults-file merged on top.
+# 约定 TCP 端口 11159：logen 指定 host（-H）且未写 port 时使用；logend 仍须显式 bind+port。
 
 [client]
-transport = "unix"
-# transport = "tcp"
+# auto-kafka-protocol = true   # logen start 自动发现 Kafka（client.conf / server.properties）；false 时须在实例 YAML 手写 sink.kafka
 # host = "127.0.0.1"
-# port = 19407
+# port = 11159
 # socket = "/tmp/logend/logend.sock"
 
 [logend]
-# 单实例根目录（sock / pid / logend.log 默认在其下）；多实例须不同 tmp_dir
-tmp_dir = "/tmp/logend"
-pid_record_suffix = "\n"
-log_level = "info"
+# 单实例根目录（sock / pid / logend.log 默认在其下）；多实例须不同 tmp-dir
+tmp-dir = "/tmp/logend"
+pid-record-suffix = "\n"
+log-level = "info"
 # socket = "/var/run/logkit/logend.sock"
-# listen = "127.0.0.1:19407"
-worker_output_dir = "./output"
-heartbeat_timeout_secs = 30
-heartbeat_interval_secs = 1
-# runtime_threads = 4
-max_decoding_message_size_bytes = 4194304
-max_encoding_message_size_bytes = 4194304
-ping_reply_text = "PONG"
+# TCP（可选，bind 与 port 须同时配置；不配则仅 UDS）
+# bind = "0.0.0.0"
+# port = 11159
+# file sink 默认输出根目录（必须为绝对路径；未写 sink.output 时在此目录下生成 {uuid-pre-8}-{date}.log）
+worker-output-dir = "/tmp/logend/output"
+heartbeat-timeout-secs = 30
+heartbeat-interval-secs = 1
+# runtime-threads = 4
+max-decoding-message-size-bytes = 4194304
+max-encoding-message-size-bytes = 4194304
+ping-reply-text = "PONG"

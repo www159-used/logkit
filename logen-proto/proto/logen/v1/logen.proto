@@ -46,10 +46,14 @@ message ListWorkersReply {
 }
 
 message StartWorkerRequest {
-  // 实例 YAML 全文（由 logen 客户端读取本地文件后填入）
+  // 实例 YAML 全文：客户端读取本地文件并展开 include 后填入；由 logend 统一 parse / 校验 / Kafka 补全
   string instance_yaml = 1;
-  // 展示用标签，常为 `logen start` 传入的本地 YAML 路径（instance_yaml 须含完整 `sink:` 块）
+  // 展示用标签，常为 `logen start` 传入的本地 YAML 路径
   string config_label = 2;
+  // 覆盖 TOML `[client].auto-kafka-protocol`；省略时由 logend 按 TOML 默认
+  optional bool auto_kafka_protocol = 3;
+  // 远端 `-H` 时供 logend Kafka 自动补全 broker 主机；本地 UDS 通常省略
+  optional string kafka_broker_host = 4;
 }
 
 message StartWorkerReply {

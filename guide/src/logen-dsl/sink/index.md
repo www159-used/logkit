@@ -37,7 +37,7 @@ sink:
 
 ### `output`
 
-是**相对路径**，最终会拼到 daemon 配置里的 `[logend].worker_output_dir`
+是**相对路径**，最终会拼到 daemon 配置里的 `[worker].worker_output_dir`
 
 ```yaml
 sink:
@@ -45,7 +45,7 @@ sink:
   output: apache/access.log
 ```
 
-若 `[logend].worker_output_dir = "./output"`，最终路径类似 `./output/apache/access.log`。
+若 `[worker].worker_output_dir = "./output"`，最终路径类似 `./output/apache/access.log`。
 
 <a id="file-max-size"></a>
 

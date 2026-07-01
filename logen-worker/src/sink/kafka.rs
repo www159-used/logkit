@@ -203,9 +203,7 @@ fn build_future_record<'a>(
 
 fn line_record_from_owned_message(msg: OwnedMessage) -> LineRecord {
     let payload = msg.payload().map(|p| p.to_vec()).unwrap_or_default();
-    let key = msg
-        .key()
-        .map(|k| String::from_utf8_lossy(k).into_owned());
+    let key = msg.key().map(|k| String::from_utf8_lossy(k).into_owned());
     LineRecord { payload, key }
 }
 

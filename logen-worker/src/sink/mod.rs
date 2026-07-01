@@ -28,10 +28,9 @@ pub trait LogLineSink: Send {
     async fn drain_lines(&mut self, line_rx: mpsc::Receiver<String>) -> Result<(), SinkError>;
 }
 
-/// 按 [`SinkConfig`] 构造行日志 sink（须已通过 [`validate_sink`](logen_dsl::validate_sink)）。
+/// 按 [`SinkConfig`] 构造行日志 sink（须已通过 [`validate_sink`](logen_dsl::validate_sink) 且 file `output` 已由 daemon 归一化）。
 pub fn build_line_sink(
     sink: &SinkConfig,
-    output_base: &Path,
     worker_id: &str,
     retry_total: Arc<AtomicU64>,
 ) -> Result<Box<dyn LogLineSink>, SinkError> {
@@ -48,7 +47,7 @@ pub fn build_line_sink(
             max_size_bytes,
             ..
         } => {
-            let rel = output
+            let path = output
                 .as_deref()
                 .map(str::trim)
                 .filter(|s| !s.is_empty())
@@ -56,8 +55,7 @@ pub fn build_line_sink(
                     SinkError::Internal("sink.type file but output missing after validation".into())
                 })?;
             Ok(Box::new(FileLineSink::open(
-                output_base,
-                rel,
+                Path::new(path),
                 *max_size_bytes,
             )?))
         }

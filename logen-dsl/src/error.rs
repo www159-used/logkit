@@ -42,4 +42,6 @@ pub enum ConfigParseError {
     IncludeDepthExceeded { max: usize },
     #[error("invalid include path {path}: {reason}")]
     IncludePathInvalid { path: String, reason: String },
+    #[error("kafka protocol discovery: {0}")]
+    KafkaProtocol(#[from] kafka_protocol::KafkaProtocolError),
 }

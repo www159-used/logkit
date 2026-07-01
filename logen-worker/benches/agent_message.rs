@@ -33,7 +33,10 @@ fn payload_cases() -> Vec<PayloadCase> {
 
 fn bench_build_agent_message(c: &mut Criterion) {
     let cases = payload_cases();
-    for (label, format) in [("json", KafkaAgentFormat::Json), ("pb", KafkaAgentFormat::Pb)] {
+    for (label, format) in [
+        ("json", KafkaAgentFormat::Json),
+        ("pb", KafkaAgentFormat::Pb),
+    ] {
         let runtime_config =
             agent_fixtures::agent_runtime_config(agent_fixtures::BENCH_YAML, format)
                 .expect("bench agent fixture");

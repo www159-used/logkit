@@ -61,7 +61,7 @@ jobs:
             rm -rf "$parent"
             mkdir -p "$stage/bin" "$stage/etc" "$stage/tools/bin"
             cp "$release_dir/logen" "$release_dir/logend" "$stage/bin/"
-            for tool in kafka-ssl-gen mysql_local pullout jumpserver; do
+            for tool in kafka-protocol mysql_local pullout jumpserver; do
               if [[ -f "$release_dir/$tool" ]]; then
                 cp "$release_dir/$tool" "$stage/tools/bin/"
                 chmod +x "$stage/tools/bin/$tool"
@@ -125,7 +125,7 @@ jobs:
           cp "$GITHUB_WORKSPACE/target/$target/release/logen" \
              "$GITHUB_WORKSPACE/target/$target/release/logend" \
              "$stage/bin/"
-          for tool in kafka-ssl-gen mysql_local pullout; do
+          for tool in kafka-protocol mysql_local pullout; do
             if [[ -f "$GITHUB_WORKSPACE/target/$target/release/$tool" ]]; then
               cp "$GITHUB_WORKSPACE/target/$target/release/$tool" "$stage/tools/bin/"
               chmod +x "$stage/tools/bin/$tool"

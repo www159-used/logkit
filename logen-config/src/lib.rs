@@ -2,13 +2,17 @@
 //!
 //! CLI 可用 **`LOGEN_DEFAULTS_FILE`** 指向 TOML（等价于前置 `--defaults-file`），见 [`parse_cli_args`]。
 
+#[cfg(unix)]
+mod client;
 mod config;
 mod embed;
 mod error;
 
+#[cfg(unix)]
+pub use client::connect_client_channel;
 pub use config::{
-    load_merged, ClientConnect, ClientOverrides, ClientSection, ClientTransport, LogenConfig,
-    LogendSection, LOCAL_GRPC_AUTHORITY_URI,
+    load_merged, ClientConnect, ClientOverrides, ClientSection, LogenConfig, LogendSection,
+    CONVENTIONAL_CLIENT_TCP_PORT, LOCAL_GRPC_AUTHORITY_URI,
 };
 pub use error::LogenError;
 

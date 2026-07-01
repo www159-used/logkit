@@ -1,5 +1,8 @@
 //! `sink:` 变体（`stdout` | `file` | `kafka`）及校验、摘要。
 
+use std::path::{Path, PathBuf};
+
+use chrono::Local;
 use serde::{Deserialize, Serialize};
 
 use crate::ConfigParseError;
@@ -7,7 +10,7 @@ use crate::ConfigParseError;
 use super::kafka::{validate_agent_source_id, KafkaConfig, KafkaSinkMode};
 
 /// 行日志 sink：**必填** Serde internally-tagged **`type`**（`kafka` | `file` | `stdout`）。
-/// - **`output`**：仅 **`type: file`** 有意义；写 **`stdout` / `kafka`** 时多余键由 Serde 忽略。
+/// - **`output`**：仅 **`type: file`** 有意义；可省略，届时由 daemon 生成默认绝对路径；显式填写时必须为绝对路径。写 **`stdout` / `kafka`** 时多余键由 Serde 忽略。
 /// - **`max-size`**：仅 **`type: file`** 支持；整数（字节）或字符串，如 **`64KiB`**、`10MiB`（底数 1024）。`stdout` / `kafka` 无此字段；遗留 YAML 若仍写 `max-size`，Serde 默认忽略未知键。
 /// - **`kafka`**：仅 **`type: kafka`** 时需要（`sink.kafka:` 映射块）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -57,7 +60,7 @@ pub fn format_sink_summary(sink: &SinkConfig) -> String {
             max_size_bytes,
             output,
         } => {
-            let path = output.as_deref().unwrap_or("?");
+            let path = output.as_deref().unwrap_or("(auto)");
             if *max_size_bytes > 0 {
                 format!("file: {path} (max-size: {} bytes)", max_size_bytes)
             } else {
@@ -144,16 +147,49 @@ pub fn validate_sink(sink: &SinkConfig) -> Result<(), ConfigParseError> {
             }
         }
         SinkConfig::File { output, .. } => {
-            let o = output.as_deref().unwrap_or("").trim();
-            if o.is_empty() {
+            let Some(o) = output.as_deref().map(str::trim).filter(|s| !s.is_empty()) else {
+                return Ok(());
+            };
+            if !Path::new(o).is_absolute() {
                 return Err(ConfigParseError::Merge(
-                    "`sink.type: file` requires a non-empty `sink.output` path".into(),
+                    "`sink.output` must be an absolute path when `sink.type: file`; omit it to let daemon auto-generate a file under `[logend].worker-output-dir`".into(),
                 ));
             }
         }
         SinkConfig::Stdout => {}
     }
     Ok(())
+}
+
+fn default_file_output_path(output_base: &Path, worker_id: &str) -> PathBuf {
+    let id8 = worker_id.get(..8).unwrap_or(worker_id);
+    let date = Local::now().format("%Y%m%d");
+    output_base.join(format!("{id8}-{date}.log"))
+}
+
+/// daemon 在 `StartWorker` 前调用：补全缺失的 `sink.output`，并再次校验 file sink 约束。
+pub fn finalize_file_sink_output(
+    sink: &mut SinkConfig,
+    output_base: &Path,
+    worker_id: &str,
+) -> Result<(), ConfigParseError> {
+    let SinkConfig::File { output, .. } = sink else {
+        return Ok(());
+    };
+
+    let missing = output
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .is_none();
+    if missing {
+        *output = Some(
+            default_file_output_path(output_base, worker_id)
+                .to_string_lossy()
+                .into_owned(),
+        );
+    }
+    validate_sink(sink)
 }
 
 #[cfg(test)]
@@ -184,23 +220,30 @@ mod tests {
 
     /// 测试内容：`format_sink_summary` 对 stdout / file / kafka（含多 broker 与 headers）的摘要字符串。
     /// 输入：构造 `SinkConfig`：无 kafka；file 有无 max-size；kafka 单/双 broker；kafka 带 1 个 header。
-    /// 预期：依次为 `stdout`、`file: a.log`、带 max-size 的 file 行、`kafka: topic t @ h1:9092 +1 more`、`(+1 headers)` 后缀。
+    /// 预期：依次为 `stdout`、`file: (auto)`、`file: /tmp/a.log`、带 max-size 的 file 行、`kafka: topic t @ h1:9092 +1 more`、`(+1 headers)` 后缀。
     #[test]
     fn format_sink_summary_stdout_file_kafka() {
         assert_eq!(format_sink_summary(&SinkConfig::Stdout), "stdout");
         assert_eq!(
             format_sink_summary(&SinkConfig::File {
                 max_size_bytes: 0,
-                output: Some("a.log".into()),
+                output: None,
             }),
-            "file: a.log"
+            "file: (auto)"
+        );
+        assert_eq!(
+            format_sink_summary(&SinkConfig::File {
+                max_size_bytes: 0,
+                output: Some("/tmp/a.log".into()),
+            }),
+            "file: /tmp/a.log"
         );
         assert_eq!(
             format_sink_summary(&SinkConfig::File {
                 max_size_bytes: 100,
-                output: Some("a.log".into()),
+                output: Some("/tmp/a.log".into()),
             }),
-            "file: a.log (max-size: 100 bytes)"
+            "file: /tmp/a.log (max-size: 100 bytes)"
         );
         assert_eq!(
             format_sink_summary(&SinkConfig::Kafka {
@@ -223,5 +266,61 @@ mod tests {
             }),
             "kafka: topic t @ h1:9092 (+1 headers)"
         );
+    }
+
+    /// 测试内容：`sink.type: file` 省略 `output` 时允许由 daemon 自动生成默认文件。
+    /// 输入：`SinkConfig::File { output: None }`。
+    /// 预期：`validate_sink` 返回 `Ok(())`。
+    #[test]
+    fn validate_file_sink_allows_missing_output_for_daemon_default() {
+        let sink = SinkConfig::File {
+            max_size_bytes: 0,
+            output: None,
+        };
+        validate_sink(&sink).expect("daemon should auto-generate output path");
+    }
+
+    /// 测试内容：省略 `sink.output` 时由 daemon 生成默认绝对路径。
+    /// 输入：`output_base = /var/tmp/logkit`、worker id `12345678-...`、`SinkConfig::File { output: None }`。
+    /// 预期：`output` 被补成 `/var/tmp/logkit/12345678-YYYYMMDD.log`。
+    #[test]
+    fn finalize_file_sink_output_generates_default_file_under_worker_output_dir() {
+        let mut sink = SinkConfig::File {
+            max_size_bytes: 0,
+            output: None,
+        };
+
+        finalize_file_sink_output(
+            &mut sink,
+            Path::new("/var/tmp/logkit"),
+            "12345678-aaaa-bbbb-cccc-ddddeeeeffff",
+        )
+        .expect("finalize output");
+
+        let SinkConfig::File { output, .. } = sink else {
+            panic!("expected file sink");
+        };
+        let output = output.expect("generated output");
+        assert!(output.starts_with("/var/tmp/logkit/12345678-"));
+        assert!(output.ends_with(".log"));
+    }
+
+    /// 测试内容：显式相对 `sink.output` 在 finalize 阶段被拒绝。
+    /// 输入：`output = "logs/a.log"` 的 file sink。
+    /// 预期：`finalize_file_sink_output` 返回错误且信息含 absolute path。
+    #[test]
+    fn finalize_file_sink_output_rejects_relative_path() {
+        let mut sink = SinkConfig::File {
+            max_size_bytes: 0,
+            output: Some("logs/a.log".into()),
+        };
+
+        let err = finalize_file_sink_output(
+            &mut sink,
+            Path::new("/var/tmp/logkit"),
+            "12345678-aaaa-bbbb-cccc-ddddeeeeffff",
+        )
+        .expect_err("relative output should fail");
+        assert!(err.to_string().contains("absolute path"), "{err}");
     }
 }

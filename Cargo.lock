@@ -1624,10 +1624,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "kafka-ssl-gen"
+name = "kafka-protocol"
 version = "1.10.1"
 dependencies = [
+ "clap",
  "resolve-oem",
+ "serde_yaml",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -1719,14 +1722,11 @@ name = "logen"
 version = "1.10.1"
 dependencies = [
  "clap",
- "http",
- "hyper-util",
  "logen-config",
  "logen-dsl",
  "logen-proto",
  "tokio",
  "tonic",
- "tower",
 ]
 
 [[package]]
@@ -1742,10 +1742,15 @@ dependencies = [
 name = "logen-config"
 version = "1.10.1"
 dependencies = [
+ "http",
+ "hyper-util",
  "rust-embed",
  "serde",
  "thiserror 2.0.18",
+ "tokio",
  "toml",
+ "tonic",
+ "tower",
 ]
 
 [[package]]
@@ -1757,6 +1762,7 @@ dependencies = [
  "fake",
  "handlebars",
  "humantime",
+ "kafka-protocol",
  "logen-branch",
  "serde",
  "serde_json",
@@ -1788,9 +1794,8 @@ dependencies = [
  "futures-channel",
  "futures-util",
  "hostname",
- "http",
- "hyper-util",
  "java-ssl-pem",
+ "logen-config",
  "logen-dsl",
  "logen-proto",
  "prost",
@@ -1802,7 +1807,6 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tonic",
- "tower",
  "tracing",
  "uuid",
 ]
@@ -1814,6 +1818,7 @@ dependencies = [
  "clap",
  "http",
  "hyper-util",
+ "kafka-protocol",
  "libc",
  "logen-config",
  "logen-dsl",

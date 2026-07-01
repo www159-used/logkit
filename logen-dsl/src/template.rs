@@ -10,19 +10,7 @@ use crate::worker_config::{
     TemplateSlot,
 };
 use crate::worker_config::{validate_sink, WorkerConfig};
-use crate::FieldSpec;
-use crate::{ConfigParseError, Error};
-
-fn yaml_extension_ok(path: &Path) -> Result<(), ConfigParseError> {
-    let ext = path
-        .extension()
-        .and_then(|s| s.to_str())
-        .map(|e| e.to_ascii_lowercase());
-    if !matches!(ext.as_deref(), Some("yaml") | Some("yml")) {
-        return Err(ConfigParseError::PathNotYaml(path.display().to_string()));
-    }
-    Ok(())
-}
+use crate::{config_load::yaml_extension_ok, ConfigParseError, Error, FieldSpec};
 
 pub fn worker_config_to_yaml(cfg: &WorkerConfig) -> Result<String, serde_yaml::Error> {
     serde_yaml::to_string(cfg)
@@ -165,7 +153,7 @@ fields:
     fn parse_worker_config_rejects_bad_max_size_unit() {
         let raw = r#"sink:
   type: file
-  output: a.log
+  output: /tmp/a.log
   max-size: 12xyz
 template: "x"
 fields: {}
@@ -175,6 +163,38 @@ fields: {}
             e.to_string().contains("max-size") || e.to_string().contains("unknown"),
             "{e}"
         );
+    }
+
+    /// 测试内容：`parse_worker_config` 允许 `sink.type: file` 省略 `output` 交由 daemon 补默认值。
+    /// 输入：路径 `t.yaml`，`type: file` 且未写 `output`。
+    /// 预期：解析成功，且 `SinkConfig::File.output` 为 `None`。
+    #[test]
+    fn parse_worker_config_accepts_file_without_output() {
+        let raw = r#"sink:
+  type: file
+template: "x"
+fields: {}
+"#;
+        let c = parse_worker_config(Path::new("t.yaml"), raw).unwrap();
+        match c.sink {
+            crate::SinkConfig::File { output, .. } => assert!(output.is_none()),
+            other => panic!("expected file sink, got {other:?}"),
+        }
+    }
+
+    /// 测试内容：`parse_worker_config` 拒绝 `sink.type: file` 的相对 `output`。
+    /// 输入：路径 `t.yaml`，`output: logs/a.log`。
+    /// 预期：返回错误且信息含 absolute path。
+    #[test]
+    fn parse_worker_config_rejects_relative_file_output() {
+        let raw = r#"sink:
+  type: file
+  output: logs/a.log
+template: "x"
+fields: {}
+"#;
+        let e = parse_worker_config(Path::new("t.yaml"), raw).unwrap_err();
+        assert!(e.to_string().contains("absolute path"), "{e}");
     }
 
     /// 测试内容：`parse_worker_config` 在 `sink.type: kafka` 时校验 `sink.kafka.topic` 非空。

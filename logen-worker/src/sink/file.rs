@@ -14,16 +14,15 @@ pub struct FileLineSink {
 }
 
 impl FileLineSink {
-    /// `rel` 相对 **`output_base`**（嵌入 daemon 时为 `[logend].worker_output_dir`）。
-    pub fn open(output_base: &Path, rel: &str, max_size: u64) -> Result<Self, SinkError> {
-        let path = output_base.join(rel);
+    /// `path` 为 daemon 归一化后的最终绝对路径。
+    pub fn open(path: &Path, max_size: u64) -> Result<Self, SinkError> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).map_err(SinkError::from)?;
         }
         let f = OpenOptions::new()
             .create(true)
             .append(true)
-            .open(&path)
+            .open(path)
             .map_err(SinkError::from)?;
         Ok(Self {
             writer: BufWriter::new(f),

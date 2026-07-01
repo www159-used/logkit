@@ -344,8 +344,10 @@ kafka:
     /// 预期：分别得到 `KafkaAgentFormat::Pb` 与 `KafkaAgentFormat::Json`。
     #[test]
     fn deserialize_kafka_agent_format_json_and_pb() {
-        for (yaml_format, expected) in [("pb", KafkaAgentFormat::Pb), ("json", KafkaAgentFormat::Json)]
-        {
+        for (yaml_format, expected) in [
+            ("pb", KafkaAgentFormat::Pb),
+            ("json", KafkaAgentFormat::Json),
+        ] {
             let y = format!(
                 r#"
 kafka:

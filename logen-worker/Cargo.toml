@@ -10,9 +10,8 @@ async-trait = { workspace = true }
 thiserror = { workspace = true }
 base64 = { workspace = true }
 resolve-oem = { path = "../tools/resolve-oem" }
-http = { workspace = true }
-hyper-util = { workspace = true }
 java-ssl-pem = { path = "../java-ssl-pem" }
+logen-config = { path = "../logen-config" }
 logen-dsl = { path = "../logen-dsl" }
 logen-proto = { path = "../logen-proto" }
 prost = { workspace = true }
@@ -32,7 +31,6 @@ rdkafka = { version = "0.39", default-features = false, features = [
 serde_yaml = { workspace = true }
 tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "sync", "time"] }
 tonic = { workspace = true }
-tower = { workspace = true }
 tracing = { workspace = true }
 backon = "1.6.0"
 futures-channel = "0.3"

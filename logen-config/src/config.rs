@@ -12,11 +12,13 @@ use crate::LogenError;
 /// tonic 在 Unix 传输下仍需形式合法的 HTTP URI；不对该地址建 TCP。
 pub const LOCAL_GRPC_AUTHORITY_URI: &str = "http://127.0.0.1:1";
 
+/// logen TCP 约定端口：指定 `-H` / `[client].host` 且未写 `-P` / `port` 时使用。
+pub const CONVENTIONAL_CLIENT_TCP_PORT: u16 = 11159;
+
 /// [client] — `logen` 连接 `logend`（类似 MySQL `[client]`）。
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct ClientSection {
-    #[serde(default)]
-    pub transport: ClientTransport,
     #[serde(default)]
     pub host: Option<String>,
     #[serde(default)]
@@ -24,15 +26,24 @@ pub struct ClientSection {
     /// 覆盖 Unix 套接字路径（默认与 `[logend]` 的 UDS 相同）。
     #[serde(default)]
     pub socket: Option<String>,
+    /// `logen start` 时是否自动发现 Kafka 传输（client.conf / server.properties）；默认 **true**。
+    #[serde(default = "default_auto_kafka_protocol")]
+    pub auto_kafka_protocol: bool,
 }
 
-/// `logen` → `logend` 传输方式。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ClientTransport {
-    #[default]
-    Unix,
-    Tcp,
+fn default_auto_kafka_protocol() -> bool {
+    true
+}
+
+impl Default for ClientSection {
+    fn default() -> Self {
+        Self {
+            host: None,
+            port: None,
+            socket: None,
+            auto_kafka_protocol: default_auto_kafka_protocol(),
+        }
+    }
 }
 
 fn default_log_level() -> String {
@@ -41,6 +52,7 @@ fn default_log_level() -> String {
 
 /// [logend] — 守护进程、控制面 gRPC 与内嵌 worker 的全部服务端配置。
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct LogendSection {
     /// 单实例根目录（**多实例须使用不同路径**）。其下默认：`logend.sock`、`logend.pid`、`logend.log`。
     pub tmp_dir: String,
@@ -51,10 +63,13 @@ pub struct LogendSection {
     /// 覆盖 UDS 监听路径（默认 `{tmp_dir}/logend.sock`）。
     #[serde(default)]
     pub socket: Option<String>,
-    /// 可选 TCP 监听（如 `127.0.0.1:19407`）；省略或空则仅 UDS。
+    /// TCP 绑定地址（与 [`Self::port`] 成对配置；类似 mysqld `bind-address`）。
     #[serde(default)]
-    pub listen: Option<String>,
-    /// 造日志写入根目录（**必填**）；实例 YAML 的 `output` 相对此目录。
+    pub bind: Option<String>,
+    /// TCP 端口（与 [`Self::bind`] 成对配置；类似 mysqld `port`；代码无默认值）。
+    #[serde(default)]
+    pub port: Option<u16>,
+    /// 造日志写入根目录（**必填**，且必须为绝对路径）；实例 YAML 未写 `output` 时，daemon 在此目录下生成默认文件。
     pub worker_output_dir: String,
     pub heartbeat_timeout_secs: u64,
     pub heartbeat_interval_secs: u64,
@@ -73,20 +88,36 @@ pub struct LogenConfig {
     pub logend: LogendSection,
 }
 
-/// CLI / 环境变量对 `[client]` 的覆盖（`-S` / `-H` / `-P`）。
-#[derive(Debug, Clone, Default)]
+/// CLI / 环境变量对 `[client]` 的覆盖。
+#[derive(Debug, Clone, Copy, Default)]
 pub struct ClientOverrides<'a> {
     pub socket: Option<&'a Path>,
     pub host: Option<&'a str>,
     pub port: Option<u16>,
+    pub auto_kafka_protocol: Option<bool>,
 }
 
-/// 解析后的 client 连接参数，供 `logen` 建 tonic Channel。
+/// 解析后的 client 连接参数。
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ClientConnect {
-    pub transport: ClientTransport,
-    pub endpoint_uri: String,
-    pub unix_socket: Option<PathBuf>,
+pub enum ClientConnect {
+    Unix { socket: PathBuf },
+    Tcp { host: String, port: u16 },
+}
+
+impl ClientConnect {
+    /// Unix 模式下 tonic 使用的形式 URI（静态，不对该地址建 TCP）。
+    #[inline]
+    pub fn endpoint_uri(&self) -> &'static str {
+        LOCAL_GRPC_AUTHORITY_URI
+    }
+
+    /// TCP 模式的 `http://host:port/`（仅用于错误信息或测试）。
+    pub fn tcp_uri(&self) -> Option<String> {
+        match self {
+            Self::Tcp { host, port } => Some(format!("http://{host}:{port}/")),
+            Self::Unix { .. } => None,
+        }
+    }
 }
 
 impl LogendSection {
@@ -115,35 +146,47 @@ impl LogendSection {
         self.tmp_dir_path().join("logend.log")
     }
 
-    pub fn tcp_listen_addr(&self) -> Result<Option<SocketAddr>, LogenError> {
-        let Some(raw) = self.listen.as_deref() else {
-            return Ok(None);
-        };
-        let t = raw.trim();
-        if t.is_empty() {
-            return Ok(None);
+    /// 本机 worker 心跳用的 Unix 连接（与 `[client]` 远端设置无关）。
+    #[inline]
+    pub fn local_unix_connect(&self) -> ClientConnect {
+        ClientConnect::Unix {
+            socket: self.socket_path(),
         }
-        t.parse::<SocketAddr>()
-            .map(Some)
-            .map_err(|e| LogenError::MergedInvalid(format!("[logend].listen invalid {t:?}: {e}")))
+    }
+
+    pub fn tcp_listen_addr(&self) -> Result<Option<SocketAddr>, LogenError> {
+        let bind = self
+            .bind
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let port = self.port;
+        match (bind, port) {
+            (None, None) => Ok(None),
+            (Some(host), Some(port)) => {
+                let addr = format!("{host}:{port}");
+                addr.parse::<SocketAddr>().map(Some).map_err(|e| {
+                    LogenError::MergedInvalid(format!("[logend] bind+port invalid {addr:?}: {e}"))
+                })
+            }
+            (Some(_), None) => Err(LogenError::MergedInvalid(
+                "[logend].port required when bind is set".into(),
+            )),
+            (None, Some(_)) => Err(LogenError::MergedInvalid(
+                "[logend].bind required when port is set".into(),
+            )),
+        }
     }
 }
 
 impl LogenConfig {
-    #[inline]
-    pub fn worker_heartbeat_uri(&self) -> &'static str {
-        LOCAL_GRPC_AUTHORITY_URI
-    }
-
     pub fn resolve_client_connect(
         &self,
         ov: ClientOverrides<'_>,
     ) -> Result<ClientConnect, LogenError> {
         if let Some(path) = ov.socket {
-            return Ok(ClientConnect {
-                transport: ClientTransport::Unix,
-                endpoint_uri: LOCAL_GRPC_AUTHORITY_URI.to_string(),
-                unix_socket: Some(path.to_path_buf()),
+            return Ok(ClientConnect::Unix {
+                socket: path.to_path_buf(),
             });
         }
 
@@ -152,27 +195,15 @@ impl LogenConfig {
             .or(self.client.host.as_deref())
             .map(str::trim)
             .filter(|s| !s.is_empty());
-        let port = ov.port.or(self.client.port);
 
-        let use_tcp = matches!(self.client.transport, ClientTransport::Tcp)
-            || host.is_some()
-            || port.is_some();
-
-        if use_tcp {
-            let host = host.ok_or_else(|| {
-                LogenError::MergedInvalid(
-                    "[client].host required for tcp (or pass -H/--host)".into(),
-                )
-            })?;
-            let port = port.ok_or_else(|| {
-                LogenError::MergedInvalid(
-                    "[client].port required for tcp (or pass -P/--port)".into(),
-                )
-            })?;
-            return Ok(ClientConnect {
-                transport: ClientTransport::Tcp,
-                endpoint_uri: format!("http://{host}:{port}/"),
-                unix_socket: None,
+        if let Some(host) = host {
+            let port = ov
+                .port
+                .or(self.client.port)
+                .unwrap_or(CONVENTIONAL_CLIENT_TCP_PORT);
+            return Ok(ClientConnect::Tcp {
+                host: host.to_string(),
+                port,
             });
         }
 
@@ -185,11 +216,15 @@ impl LogenConfig {
             .map(PathBuf::from)
             .unwrap_or_else(|| self.logend.socket_path());
 
-        Ok(ClientConnect {
-            transport: ClientTransport::Unix,
-            endpoint_uri: LOCAL_GRPC_AUTHORITY_URI.to_string(),
-            unix_socket: Some(unix_socket),
+        Ok(ClientConnect::Unix {
+            socket: unix_socket,
         })
+    }
+
+    #[inline]
+    pub fn resolve_client_auto_kafka_protocol(&self, ov: ClientOverrides<'_>) -> bool {
+        ov.auto_kafka_protocol
+            .unwrap_or(self.client.auto_kafka_protocol)
     }
 }
 
@@ -230,7 +265,7 @@ pub fn load_merged(user_defaults: Option<&Path>) -> Result<LogenConfig, LogenErr
     let t = cfg.logend.tmp_dir.trim();
     if t.is_empty() {
         return Err(LogenError::MergedInvalid(
-            "[logend].tmp_dir must be non-empty (directory for logend.sock, logend.pid, logend.log)"
+            "[logend].tmp-dir must be non-empty (directory for logend.sock, logend.pid, logend.log)"
                 .into(),
         ));
     }
@@ -239,7 +274,12 @@ pub fn load_merged(user_defaults: Option<&Path>) -> Result<LogenConfig, LogenErr
     let out = cfg.logend.worker_output_dir.trim();
     if out.is_empty() {
         return Err(LogenError::MergedInvalid(
-            "[logend].worker_output_dir must be non-empty".into(),
+            "[logend].worker-output-dir must be non-empty".into(),
+        ));
+    }
+    if !Path::new(out).is_absolute() {
+        return Err(LogenError::MergedInvalid(
+            "[logend].worker-output-dir must be an absolute path".into(),
         ));
     }
     cfg.logend.worker_output_dir = out.to_string();
@@ -249,9 +289,93 @@ pub fn load_merged(user_defaults: Option<&Path>) -> Result<LogenConfig, LogenErr
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicU32, Ordering};
+
     use super::*;
 
-    /// 测试内容：未配置 `[logend].runtime_threads` 时保持默认行为。
+    static TEMP_SEQ: AtomicU32 = AtomicU32::new(0);
+
+    struct TempMerged {
+        _dir: PathBuf,
+        cfg: LogenConfig,
+    }
+
+    impl TempMerged {
+        fn load(content: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!(
+                "logen-config-{}-{}",
+                std::process::id(),
+                TEMP_SEQ.fetch_add(1, Ordering::Relaxed)
+            ));
+            std::fs::create_dir_all(&dir).expect("create temp dir");
+            let path = dir.join("defaults.toml");
+            std::fs::write(&path, content).expect("write defaults");
+            let cfg = load_merged(Some(path.as_path())).expect("merged config");
+            Self { _dir: dir, cfg }
+        }
+
+        fn load_err(content: &str) -> LogenError {
+            let dir = std::env::temp_dir().join(format!(
+                "logen-config-bad-{}-{}",
+                std::process::id(),
+                TEMP_SEQ.fetch_add(1, Ordering::Relaxed)
+            ));
+            std::fs::create_dir_all(&dir).expect("create temp dir");
+            let path = dir.join("defaults.toml");
+            std::fs::write(&path, content).expect("write defaults");
+            let err = load_merged(Some(path.as_path())).expect_err("config should fail");
+            let _ = std::fs::remove_file(path);
+            let _ = std::fs::remove_dir(dir);
+            err
+        }
+    }
+
+    impl Drop for TempMerged {
+        fn drop(&mut self) {
+            let path = self._dir.join("defaults.toml");
+            let _ = std::fs::remove_file(path);
+            let _ = std::fs::remove_dir(&self._dir);
+        }
+    }
+
+    /// 测试内容：内嵌默认 `[client].auto-kafka-protocol` 为 true。
+    /// 输入：`load_merged(None)`。
+    /// 预期：`auto_kafka_protocol == true`。
+    #[test]
+    fn client_auto_kafka_protocol_defaults_true() {
+        let cfg = load_merged(None).expect("defaults");
+        assert!(cfg.client.auto_kafka_protocol);
+    }
+
+    /// 测试内容：TOML 可显式关闭 `[client].auto-kafka-protocol`。
+    /// 输入：临时 TOML `auto-kafka-protocol = false`。
+    /// 预期：合并后为 false。
+    #[test]
+    fn client_auto_kafka_protocol_can_disable() {
+        let t = TempMerged::load(
+            r#"
+[client]
+auto-kafka-protocol = false
+"#,
+        );
+        assert!(!t.cfg.client.auto_kafka_protocol);
+    }
+
+    /// 测试内容：旧下划线 TOML 键不再作为规范写法接受。
+    /// 输入：临时 TOML `auto_kafka_protocol = false`。
+    /// 预期：`load_merged` 返回 `MergedInvalid`。
+    #[test]
+    fn client_auto_kafka_protocol_underscore_key_rejected() {
+        let err = TempMerged::load_err(
+            r#"
+[client]
+auto_kafka_protocol = false
+"#,
+        );
+        assert!(err.to_string().contains("unknown field"));
+    }
+
+    /// 测试内容：未配置 `[logend].runtime-threads` 时保持默认行为。
     /// 输入：仅加载内嵌 `conf.ref.toml`。
     /// 预期：`cfg.logend.runtime_threads` 为 `None`。
     #[test]
@@ -260,106 +384,247 @@ mod tests {
         assert_eq!(cfg.logend.runtime_threads, None);
     }
 
-    /// 测试内容：用户 TOML 可显式覆盖 `[logend].runtime_threads`。
-    /// 输入：临时文件仅含 `[logend].runtime_threads = 3`。
+    /// 测试内容：用户 TOML 可显式覆盖 `[logend].runtime-threads`。
+    /// 输入：临时文件仅含 `[logend].runtime-threads = 3`。
     /// 预期：合并后 `cfg.logend.runtime_threads == Some(3)`。
     #[test]
     fn load_merged_reads_explicit_runtime_threads() {
-        let dir = std::env::temp_dir().join(format!("logen-config-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).expect("create temp dir");
-        let path = dir.join("defaults.toml");
-        std::fs::write(
-            &path,
+        let t = TempMerged::load(
             r#"
 [logend]
-runtime_threads = 3
+runtime-threads = 3
 "#,
-        )
-        .expect("write defaults");
+        );
+        assert_eq!(t.cfg.logend.runtime_threads, Some(3));
+    }
 
-        let cfg = load_merged(Some(path.as_path())).expect("merged config");
-        assert_eq!(cfg.logend.runtime_threads, Some(3));
-        let _ = std::fs::remove_file(&path);
-        let _ = std::fs::remove_dir(&dir);
+    /// 测试内容：`[logend]` 旧下划线键不再接受。
+    /// 输入：临时 TOML `worker_output_dir = "./output"`。
+    /// 预期：`load_merged` 返回 `MergedInvalid`。
+    #[test]
+    fn logend_underscore_key_rejected() {
+        let err = TempMerged::load_err(
+            r#"
+[logend]
+worker_output_dir = "./output"
+"#,
+        );
+        assert!(err.to_string().contains("unknown field"));
+    }
+
+    /// 测试内容：`[logend].worker-output-dir` 允许绝对路径。
+    /// 输入：临时 TOML `worker-output-dir = "/var/tmp/logkit-output"`。
+    /// 预期：合并后保留该绝对路径。
+    #[test]
+    fn logend_worker_output_dir_accepts_absolute_path() {
+        let t = TempMerged::load(
+            r#"
+[logend]
+worker-output-dir = "/var/tmp/logkit-output"
+"#,
+        );
+        assert_eq!(t.cfg.logend.worker_output_dir, "/var/tmp/logkit-output");
+    }
+
+    /// 测试内容：`[logend].worker-output-dir` 拒绝相对路径。
+    /// 输入：临时 TOML `worker-output-dir = "./output"`。
+    /// 预期：`load_merged` 返回 `MergedInvalid` 且错误含 absolute path。
+    #[test]
+    fn logend_worker_output_dir_rejects_relative_path() {
+        let err = TempMerged::load_err(
+            r#"
+[logend]
+worker-output-dir = "./output"
+"#,
+        );
+        assert!(err.to_string().contains("absolute path"), "{err}");
     }
 
     /// 测试内容：默认 `[client]` 解析为本地 Unix 套接字。
     /// 输入：内嵌默认配置，无 CLI 覆盖。
-    /// 预期：transport=Unix，套接字为 `{tmp_dir}/logend.sock`。
+    /// 预期：解析为 Unix，套接字为 `{tmp_dir}/logend.sock`。
     #[test]
     fn resolve_client_connect_defaults_to_unix() {
         let cfg = load_merged(None).expect("defaults");
         let conn = cfg
             .resolve_client_connect(ClientOverrides::default())
             .expect("resolve");
-        assert_eq!(conn.transport, ClientTransport::Unix);
-        assert_eq!(conn.endpoint_uri, LOCAL_GRPC_AUTHORITY_URI);
+        assert_eq!(conn.endpoint_uri(), LOCAL_GRPC_AUTHORITY_URI);
+        match conn {
+            ClientConnect::Unix { socket } => {
+                assert_eq!(socket, PathBuf::from("/tmp/logend/logend.sock"));
+            }
+            _ => panic!("expected unix"),
+        }
+    }
+
+    /// 测试内容：仅 `-H` / `[client].host` 未指定 port 时使用约定端口 11159。
+    /// 输入：`ClientOverrides { host: Some("10.0.0.5"), .. }`。
+    /// 预期：`endpoint_uri` 为 `http://10.0.0.5:11159/`。
+    #[test]
+    fn resolve_client_connect_default_port_with_host_only() {
+        let cfg = load_merged(None).expect("defaults");
+        let conn = cfg
+            .resolve_client_connect(ClientOverrides {
+                host: Some("10.0.0.5"),
+                ..Default::default()
+            })
+            .expect("resolve");
         assert_eq!(
-            conn.unix_socket,
-            Some(PathBuf::from("/tmp/logend/logend.sock"))
+            conn.tcp_uri(),
+            Some(format!("http://10.0.0.5:{CONVENTIONAL_CLIENT_TCP_PORT}/"))
+        );
+        assert!(matches!(conn, ClientConnect::Tcp { .. }));
+    }
+
+    /// 测试内容：`[client]` 显式 port 不被约定默认值覆盖。
+    /// 输入：`host`、`port = 22222`。
+    /// 预期：`endpoint_uri` 使用 22222 而非 11159。
+    #[test]
+    fn resolve_client_connect_honors_explicit_port() {
+        let t = TempMerged::load(
+            r#"
+[client]
+host = "10.0.0.5"
+port = 22222
+"#,
+        );
+        let conn = t
+            .cfg
+            .resolve_client_connect(ClientOverrides::default())
+            .expect("resolve");
+        assert_eq!(conn.tcp_uri(), Some("http://10.0.0.5:22222/".to_string()));
+    }
+
+    /// 测试内容：TOML 仅写 `host` 时使用约定端口。
+    /// 输入：TOML `host`，无 `port`。
+    /// 预期：`endpoint_uri` 端口为 `CONVENTIONAL_CLIENT_TCP_PORT`。
+    #[test]
+    fn resolve_client_connect_host_only_uses_default_port() {
+        let t = TempMerged::load(
+            r#"
+[client]
+host = "10.0.0.5"
+"#,
+        );
+        let conn = t
+            .cfg
+            .resolve_client_connect(ClientOverrides::default())
+            .expect("resolve");
+        assert_eq!(
+            conn.tcp_uri(),
+            Some(format!("http://10.0.0.5:{CONVENTIONAL_CLIENT_TCP_PORT}/"))
         );
     }
 
-    /// 测试内容：`[client]` TCP 配置解析为 HTTP endpoint URI。
-    /// 输入：用户 TOML `transport=tcp`、`host`、`port`。
-    /// 预期：`endpoint_uri` 为 `http://10.0.0.5:19407/`。
+    /// 测试内容：仅配置 `[client].port` 时仍走 UDS。
+    /// 输入：内嵌默认 + `ClientOverrides { port: Some(11159), .. }`。
+    /// 预期：保持 Unix，不进入 TCP。
     #[test]
-    fn resolve_client_connect_tcp_from_config() {
-        let dir = std::env::temp_dir().join(format!("logen-config-tcp-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).expect("create temp dir");
-        let path = dir.join("client.toml");
-        std::fs::write(
-            &path,
-            r#"
-[client]
-transport = "tcp"
-host = "10.0.0.5"
-port = 19407
-"#,
-        )
-        .expect("write client");
-
-        let cfg = load_merged(Some(path.as_path())).expect("merged");
+    fn resolve_client_connect_port_alone_stays_unix() {
+        let cfg = load_merged(None).expect("defaults");
         let conn = cfg
-            .resolve_client_connect(ClientOverrides::default())
+            .resolve_client_connect(ClientOverrides {
+                port: Some(CONVENTIONAL_CLIENT_TCP_PORT),
+                ..Default::default()
+            })
             .expect("resolve");
-        assert_eq!(conn.transport, ClientTransport::Tcp);
-        assert_eq!(conn.endpoint_uri, "http://10.0.0.5:19407/");
-        assert_eq!(conn.unix_socket, None);
-        let _ = std::fs::remove_file(&path);
-        let _ = std::fs::remove_dir(&dir);
+        assert!(matches!(conn, ClientConnect::Unix { .. }));
     }
 
-    /// 测试内容：CLI `-S` 强制 Unix 并覆盖 `[client]` TCP 设置。
+    /// 测试内容：`[logend].bind` 与 `port` 成对解析为 TCP 监听地址。
+    /// 输入：`bind = "127.0.0.1"`、`port = CONVENTIONAL_CLIENT_TCP_PORT`。
+    /// 预期：`tcp_listen_addr()` 为 `127.0.0.1:11159`。
+    #[test]
+    fn logend_tcp_listen_addr_from_bind_and_port() {
+        let t = TempMerged::load(&format!(
+            r#"
+[logend]
+bind = "127.0.0.1"
+port = {CONVENTIONAL_CLIENT_TCP_PORT}
+"#
+        ));
+        let addr = t
+            .cfg
+            .logend
+            .tcp_listen_addr()
+            .expect("parse")
+            .expect("some addr");
+        assert_eq!(
+            addr,
+            format!("127.0.0.1:{CONVENTIONAL_CLIENT_TCP_PORT}")
+                .parse()
+                .unwrap()
+        );
+    }
+
+    /// 测试内容：仅配置 `[logend].port` 无 `bind` 时报错。
+    /// 输入：临时 TOML 仅 `port = CONVENTIONAL_CLIENT_TCP_PORT`。
+    /// 预期：`tcp_listen_addr()` 返回 `MergedInvalid`。
+    #[test]
+    fn logend_tcp_requires_bind_when_port_set() {
+        let t = TempMerged::load(&format!(
+            r#"
+[logend]
+port = {CONVENTIONAL_CLIENT_TCP_PORT}
+"#
+        ));
+        let err = t.cfg.logend.tcp_listen_addr().unwrap_err();
+        assert!(err.to_string().contains("bind required"));
+    }
+
+    /// 测试内容：CLI `-S` / `--socket` 强制 Unix 并覆盖 `[client]` TCP 设置。
     /// 输入：TCP 配置 + `ClientOverrides { socket: Some("/tmp/x.sock") }`。
-    /// 预期：transport=Unix，套接字为 `/tmp/x.sock`。
+    /// 预期：解析为 Unix，套接字为 `/tmp/x.sock`。
     #[test]
     fn resolve_client_connect_cli_socket_overrides_tcp() {
-        let dir = std::env::temp_dir().join(format!("logen-config-override-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).expect("create temp dir");
-        let path = dir.join("client.toml");
-        std::fs::write(
-            &path,
+        let t = TempMerged::load(
             r#"
 [client]
-transport = "tcp"
 host = "10.0.0.5"
-port = 19407
+port = 22222
 "#,
-        )
-        .expect("write client");
-
-        let cfg = load_merged(Some(path.as_path())).expect("merged");
+        );
         let sock = PathBuf::from("/tmp/x.sock");
-        let conn = cfg
+        let conn = t
+            .cfg
             .resolve_client_connect(ClientOverrides {
                 socket: Some(sock.as_path()),
                 ..Default::default()
             })
             .expect("resolve");
-        assert_eq!(conn.transport, ClientTransport::Unix);
-        assert_eq!(conn.unix_socket, Some(sock));
-        let _ = std::fs::remove_file(&path);
-        let _ = std::fs::remove_dir(&dir);
+        match conn {
+            ClientConnect::Unix { socket } => assert_eq!(socket, sock),
+            _ => panic!("expected unix"),
+        }
+    }
+
+    /// 测试内容：CLI 可显式关闭 Kafka 自动补全。
+    /// 输入：内嵌默认 + `ClientOverrides { auto_kafka_protocol: Some(false) }`。
+    /// 预期：命令行覆盖优先，结果为 false。
+    #[test]
+    fn resolve_client_auto_kafka_protocol_cli_false() {
+        let cfg = load_merged(None).expect("defaults");
+        assert!(!cfg.resolve_client_auto_kafka_protocol(ClientOverrides {
+            auto_kafka_protocol: Some(false),
+            ..Default::default()
+        }));
+    }
+
+    /// 测试内容：CLI 可显式开启 Kafka 自动补全并覆盖 TOML。
+    /// 输入：TOML `auto-kafka-protocol = false` + `ClientOverrides { auto_kafka_protocol: Some(true) }`。
+    /// 预期：命令行覆盖优先，结果为 true。
+    #[test]
+    fn resolve_client_auto_kafka_protocol_cli_true_overrides_toml() {
+        let t = TempMerged::load(
+            r#"
+[client]
+auto-kafka-protocol = false
+"#,
+        );
+        assert!(t.cfg.resolve_client_auto_kafka_protocol(ClientOverrides {
+            auto_kafka_protocol: Some(true),
+            ..Default::default()
+        }));
     }
 }

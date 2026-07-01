@@ -1,7 +1,6 @@
 //! `logen-worker`：造日志库；由 **`logend`** 进程内嵌入（[`EmbeddedWorker`]、`runtime` 内存配置运行入口）。
 
 use std::future::Future;
-use std::path::PathBuf;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 
@@ -17,12 +16,12 @@ pub mod sink;
 pub mod agent_fixtures;
 
 pub use runtime::WorkerHeartbeatEnv;
+pub use sink::kafka_agent::{
+    build_agent_message, build_runtime_agent_config, KafkaAgentMessage, RuntimeAgentConfig,
+};
 pub use sink::{
     build_line_sink, FileLineSink, KafkaConfigError, KafkaLineSink, LogLineSink, SinkError,
     StdoutLineSink,
-};
-pub use sink::kafka_agent::{
-    build_agent_message, build_runtime_agent_config, KafkaAgentMessage, RuntimeAgentConfig,
 };
 
 use runtime::{run_worker_with_config, spawn_heartbeat_task};
@@ -39,7 +38,6 @@ pub trait EmbeddedWorker: Send + Sync {
         worker_id: String,
         config_label: String,
         worker_config: WorkerConfig,
-        output_base: PathBuf,
         heartbeat: Option<WorkerHeartbeatEnv>,
     ) -> SpawnedWorkerTasks;
 }
@@ -79,7 +77,6 @@ impl EmbeddedWorker for TokioEmbeddedWorker {
         worker_id: String,
         config_label: String,
         worker_config: WorkerConfig,
-        output_base: PathBuf,
         heartbeat: Option<WorkerHeartbeatEnv>,
     ) -> SpawnedWorkerTasks {
         let events = Arc::new(AtomicU64::new(0));
@@ -98,7 +95,6 @@ impl EmbeddedWorker for TokioEmbeddedWorker {
                 worker_id.clone(),
                 config_label,
                 worker_config,
-                output_base,
                 events,
                 retry_total,
             )

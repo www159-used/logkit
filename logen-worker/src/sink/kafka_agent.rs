@@ -269,10 +269,9 @@ mod tests {
         let runtime_config =
             agent_fixtures::agent_runtime_config(NO_DOMAIN_YAML, KafkaAgentFormat::Json).unwrap();
         assert!(runtime_config.domain.is_empty());
-        let j = String::from_utf8(
-            build_agent_message(&runtime_config, "{}", 1, 1700000000000).payload,
-        )
-        .unwrap();
+        let j =
+            String::from_utf8(build_agent_message(&runtime_config, "{}", 1, 1700000000000).payload)
+                .unwrap();
         assert!(!j.contains("\"domain\""));
         assert!(j.contains("\"flag\":0"));
     }

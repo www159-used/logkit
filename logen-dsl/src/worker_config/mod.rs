@@ -14,7 +14,7 @@ pub use field_spec::FieldSpec;
 pub use kafka::{
     validate_agent_source_id, KafkaAgentConfig, KafkaAgentFormat, KafkaConfig, KafkaSinkMode,
 };
-pub use sink::{format_sink_summary, validate_sink, SinkConfig};
+pub use sink::{finalize_file_sink_output, format_sink_summary, validate_sink, SinkConfig};
 pub use slot::TemplateSlot;
 pub(crate) use slot::{
     new_logen_handlebars, register_logen_template, render_with_slots, slots_from_fields,

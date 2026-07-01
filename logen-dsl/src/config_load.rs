@@ -2,6 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
+use kafka_protocol::{document_needs_kafka_transport, kafka_sink_overlay, KafkaProtocolOptions};
 use serde_yaml::Value;
 
 use crate::config_merge::{flatten_body_to_root, merge_worker_documents};
@@ -11,7 +12,7 @@ use crate::ConfigParseError;
 const MAX_INCLUDE_DEPTH: usize = 16;
 const KEY_INCLUDE: &str = "include";
 
-fn yaml_extension_ok(path: &Path) -> Result<(), ConfigParseError> {
+pub(crate) fn yaml_extension_ok(path: &Path) -> Result<(), ConfigParseError> {
     let ext = path
         .extension()
         .and_then(|s| s.to_str())
@@ -118,8 +119,7 @@ fn take_include_list(doc: &mut Value) -> Result<Option<Vec<String>>, ConfigParse
     }
 }
 
-/// 从路径加载 worker 配置：展开 `include`，合并后反序列化为 [`WorkerConfig`]。
-pub fn load_worker_config(config_path: &Path) -> Result<WorkerConfig, ConfigParseError> {
+fn resolve_config_entry(config_path: &Path) -> Result<PathBuf, ConfigParseError> {
     yaml_extension_ok(config_path)?;
     let anchor = config_path
         .parent()
@@ -136,13 +136,72 @@ pub fn load_worker_config(config_path: &Path) -> Result<WorkerConfig, ConfigPars
                 .ok_or_else(|| ConfigParseError::Merge("config path has no file name".into()))?,
         )
     };
-    let entry = std::fs::canonicalize(&entry)
-        .map_err(|e| ConfigParseError::Io(entry.display().to_string(), e))?;
+    std::fs::canonicalize(&entry).map_err(|e| ConfigParseError::Io(entry.display().to_string(), e))
+}
 
+/// 读取本地实例 YAML 并展开 `include` / `body`，**不**反序列化为 [`WorkerConfig`]。
+pub fn read_worker_instance_yaml(config_path: &Path) -> Result<String, ConfigParseError> {
+    let entry = resolve_config_entry(config_path)?;
+    let mut stack = Vec::new();
+    let mut doc = load_document(&entry, &mut stack, 0)?;
+    flatten_body_to_root(&mut doc).map_err(ConfigParseError::Merge)?;
+    Ok(serde_yaml::to_string(&doc)?)
+}
+
+/// logend 侧唯一一次 [`WorkerConfig`] 解析入口（含可选 Kafka 自动补全）。
+pub fn parse_worker_instance_yaml(
+    raw: &str,
+    auto_kafka_protocol: bool,
+    kafka_protocol: KafkaProtocolOptions,
+) -> Result<WorkerConfig, ConfigParseError> {
+    let mut doc: Value = serde_yaml::from_str(raw)?;
+    if auto_kafka_protocol {
+        apply_kafka_transport_if_needed(&mut doc, &kafka_protocol)?;
+    }
+    let cfg: WorkerConfig = serde_yaml::from_value(doc)?;
+    validate_sink(&cfg.sink)?;
+    Ok(cfg)
+}
+
+/// 加载 worker 配置（不自动发现 Kafka 传输）。
+pub fn load_worker_config(config_path: &Path) -> Result<WorkerConfig, ConfigParseError> {
+    load_worker_config_inner(config_path, None)
+}
+
+/// 同 [`load_worker_config`]，并在 `sink.type: kafka` 缺 broker/security 时自动发现 Kafka 传输。
+pub fn load_worker_config_with_kafka_protocol(
+    config_path: &Path,
+    kafka_protocol: KafkaProtocolOptions,
+) -> Result<WorkerConfig, ConfigParseError> {
+    load_worker_config_inner(config_path, Some(kafka_protocol))
+}
+
+fn load_worker_config_inner(
+    config_path: &Path,
+    kafka_protocol: Option<KafkaProtocolOptions>,
+) -> Result<WorkerConfig, ConfigParseError> {
+    let entry = resolve_config_entry(config_path)?;
     let mut stack = Vec::new();
     let mut doc = load_document(&entry, &mut stack, 0)?;
 
+    if let Some(opts) = kafka_protocol {
+        apply_kafka_transport_if_needed(&mut doc, &opts)?;
+    }
+
     worker_config_from_document(&mut doc)
+}
+
+fn apply_kafka_transport_if_needed(
+    doc: &mut Value,
+    opts: &KafkaProtocolOptions,
+) -> Result<(), ConfigParseError> {
+    if !document_needs_kafka_transport(doc) {
+        return Ok(());
+    }
+    let existing = doc.get("sink").and_then(|s| s.get("kafka"));
+    let overlay = kafka_sink_overlay(opts, existing)?;
+    merge_worker_documents(doc, overlay);
+    Ok(())
 }
 
 /// 将已合并的 YAML 文档（须含 `body:`）转为 [`WorkerConfig`]。
@@ -157,10 +216,40 @@ pub fn worker_config_from_document(doc: &mut Value) -> Result<WorkerConfig, Conf
 mod tests {
     use std::path::PathBuf;
 
+    use kafka_protocol::KafkaProtocolOptions;
+
     use super::*;
 
     fn fixture_root() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/include")
+    }
+
+    /// 测试内容：`read_worker_instance_yaml` 展开 include 后仍含 template 与 sink。
+    /// 输入：fixtures/include/main.yaml。
+    /// 预期：返回 YAML 字符串含 `{{msg}}` 与 kafka topic。
+    #[test]
+    fn read_worker_instance_yaml_expands_include() {
+        let path = fixture_root().join("main.yaml");
+        let yaml = read_worker_instance_yaml(&path).expect("read yaml");
+        assert!(yaml.contains("{{msg}}"));
+        assert!(yaml.contains("app-logs"));
+    }
+
+    /// 测试内容：`parse_worker_instance_yaml` 从展开后的 YAML 一次性解析为 WorkerConfig。
+    /// 输入：fixtures/include/main.yaml 经 read 得到的 YAML 文本。
+    /// 预期：与 `load_worker_config` 等价的 template / kafka topic。
+    #[test]
+    fn parse_worker_instance_yaml_matches_load_worker_config() {
+        let path = fixture_root().join("main.yaml");
+        let yaml = read_worker_instance_yaml(&path).expect("read yaml");
+        let from_rpc = parse_worker_instance_yaml(&yaml, false, KafkaProtocolOptions::default())
+            .expect("parse yaml");
+        let direct = load_worker_config(&path).expect("load path");
+        assert_eq!(from_rpc.template, direct.template);
+        assert_eq!(
+            from_rpc.sink.kafka_section().and_then(|k| k.topic.as_deref()),
+            direct.sink.kafka_section().and_then(|k| k.topic.as_deref()),
+        );
     }
 
     #[test]
@@ -210,5 +299,27 @@ mod tests {
         let _ = std::fs::remove_file(&main);
         let cfg = result.expect("absolute include");
         assert!(cfg.template.contains("{{msg}}"));
+    }
+
+    /// 测试内容：已有 security.protocol 时跳过自动合并。
+    /// 输入：sink 含 PLAINTEXT 与 brokers。
+    /// 预期：`apply_kafka_transport_if_needed` 不修改文档。
+    #[test]
+    fn apply_skips_when_transport_complete() {
+        use kafka_protocol::KafkaProtocolOptions;
+
+        let mut doc: Value = serde_yaml::from_str(
+            r#"
+sink:
+  type: kafka
+  kafka:
+    security.protocol: PLAINTEXT
+    brokers: ["192.168.41.138:9092"]
+"#,
+        )
+        .unwrap();
+        let before = doc.clone();
+        apply_kafka_transport_if_needed(&mut doc, &KafkaProtocolOptions::default()).unwrap();
+        assert_eq!(doc, before);
     }
 }

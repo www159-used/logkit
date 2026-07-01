@@ -1,0 +1,20 @@
+[package]
+name = "kafka-protocol"
+description = "Discover Kafka transport (PLAINTEXT/SSL) from client.conf or server.properties"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+clap = { workspace = true }
+resolve-oem = { path = "../resolve-oem" }
+serde_yaml = { workspace = true }
+thiserror = { workspace = true }
+
+[lib]
+name = "kafka_protocol"
+path = "src/lib.rs"
+
+[[bin]]
+name = "kafka-protocol"
+path = "src/main.rs"
