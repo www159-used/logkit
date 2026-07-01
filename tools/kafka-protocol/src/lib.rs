@@ -153,7 +153,7 @@ pub fn parse_kv_line(line: &str) -> Option<(&str, &str)> {
 }
 
 fn emit_kafka_yaml_key(key: &str) -> bool {
-    key == "security.protocol" || key.starts_with("ssl.")
+    key == "security.protocol" || key.starts_with("ssl.") || key.starts_with("sasl.")
 }
 
 pub fn parse_brokers(value: &str) -> Vec<String> {
@@ -569,5 +569,28 @@ sink:
             resolve_brokers(&opts, &["192.168.41.138:9092".into()]).unwrap(),
             vec!["192.168.41.138:9092".to_string()]
         );
+    }
+
+    /// 测试内容：`sasl.*` 键从 client.conf 透传到 `kafka_props`（对齐 librdkafka 客户端配置键名）。
+    /// 输入：含 `sasl.mechanism=PLAIN` / `sasl.username` / `sasl.password` 的临时 client.conf。
+    /// 预期：`kafka_props` 含字面键名 `sasl.mechanism`、`sasl.username`、`sasl.password`。
+    #[test]
+    fn read_client_conf_passes_sasl_keys_through() {
+        let dir = std::env::temp_dir().join(format!("kafka-protocol-sasl-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("client.conf");
+        let mut f = fs::File::create(&path).unwrap();
+        writeln!(f, "security.protocol=SASL_PLAINTEXT").unwrap();
+        writeln!(f, "sasl.mechanism=PLAIN").unwrap();
+        writeln!(f, "sasl.username=alice").unwrap();
+        writeln!(f, "sasl.password=s3cret").unwrap();
+        let (_brokers, rows) = read_client_conf(&path).unwrap();
+        for key in ["sasl.mechanism", "sasl.username", "sasl.password"] {
+            assert!(
+                rows.iter().any(|(k, _)| k == key),
+                "expected kafka_props to contain {key}, got {rows:?}"
+            );
+        }
+        let _ = fs::remove_dir_all(&dir);
     }
 }
