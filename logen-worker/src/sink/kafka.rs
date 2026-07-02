@@ -138,7 +138,7 @@ fn format_produce_err(
     }
     if sasl_keys_in_yaml {
         s.push_str(
-            "\nNote: SASL-related fields are set but this worker only wires PLAINTEXT and SSL (no SASL); use a broker listener without SASL or extend SASL mapping.",
+            "\nNote: SASL-related fields are set. Ensure sasl.mechanism, sasl.username, and sasl.password are correct and the broker supports the mechanism.",
         );
     }
     if !tls_enabled && likely_encrypted_broker_config(k) {
@@ -354,16 +354,21 @@ fn kafka_transport_mode(k: &KafkaConfig) -> Result<KafkaTransportMode, KafkaConf
         None | Some("PLAINTEXT") => {
             if sasl {
                 return Err(cfg_err(
-                    "security.protocol is PLAINTEXT (or unset) but SASL fields are set; set security.protocol to SASL_PLAINTEXT/SASL_SSL and configure sasl.* for librdkafka (not fully wired in this worker yet).",
+                    "security.protocol is PLAINTEXT (or unset) but SASL fields are set; set security.protocol to SASL_PLAINTEXT or SASL_SSL.",
                 ));
             }
             Ok(KafkaTransportMode::Plaintext)
         }
-        Some("SSL") => Ok(KafkaTransportMode::Tls),
-        Some("SASL_PLAINTEXT") | Some("SASL_SSL") => Err(cfg_err(format!(
-            "security.protocol={:?}: SASL is not wired in this worker yet; use SSL or PLAINTEXT, or extend ClientConfig mapping.",
-            proto.as_deref().unwrap_or("")
-        ))),
+        Some("SSL") => {
+            if sasl {
+                return Err(cfg_err(
+                    "security.protocol is SSL but SASL fields are set; set security.protocol to SASL_SSL.",
+                ));
+            }
+            Ok(KafkaTransportMode::Tls)
+        }
+        Some("SASL_PLAINTEXT") => Ok(KafkaTransportMode::SaslPlaintext),
+        Some("SASL_SSL") => Ok(KafkaTransportMode::SaslTls),
         Some(other) => Err(cfg_err(format!("security.protocol: unsupported value {other:?}"))),
     }
 }
@@ -372,6 +377,35 @@ fn kafka_transport_mode(k: &KafkaConfig) -> Result<KafkaTransportMode, KafkaConf
 enum KafkaTransportMode {
     Plaintext,
     Tls,
+    SaslPlaintext,
+    SaslTls,
+}
+
+fn configure_librdkafka_sasl(
+    cfg: &mut ClientConfig,
+    k: &KafkaConfig,
+) -> Result<(), KafkaConfigError> {
+    if let Some(mech) = k.sasl_mechanism.as_deref() {
+        cfg.set("sasl.mechanism", mech.trim());
+    } else {
+        return Err(cfg_err(
+            "sasl.mechanism is required for SASL protocols (e.g. PLAIN, SCRAM-SHA-256, SCRAM-SHA-512)",
+        ));
+    }
+
+    if let Some(user) = k.sasl_username.as_deref() {
+        cfg.set("sasl.username", user);
+    }
+    if let Some(pass) = k.sasl_password.as_deref() {
+        cfg.set("sasl.password", pass);
+    }
+    
+    // librdkafka does not support Java's sasl.jaas.config directly.
+    if k.sasl_jaas_config.is_some() && k.sasl_username.is_none() {
+        tracing::warn!("sasl.jaas.config is set but sasl.username is missing. Note that librdkafka requires sasl.username and sasl.password directly.");
+    }
+
+    Ok(())
 }
 
 fn build_rdkafka_client_config(
@@ -390,11 +424,11 @@ fn build_rdkafka_client_config(
         .into());
     }
 
-    let tls_enabled = transport == KafkaTransportMode::Tls;
+    let tls_enabled = matches!(transport, KafkaTransportMode::Tls | KafkaTransportMode::SaslTls);
     if !tls_enabled && likely_encrypted_broker_config(k) {
         return Err(cfg_err(
-            "TLS-related ssl.* or security.protocol is set but security.protocol is not SSL (e.g. still PLAINTEXT). \
-             For TLS set security.protocol to SSL and supply trust/client material (PEM or JKS/P12 as documented).",
+            "TLS-related ssl.* is set but security.protocol is not SSL or SASL_SSL. \
+             For TLS set security.protocol to SSL/SASL_SSL and supply trust/client material (PEM or JKS/P12 as documented).",
         )
         .into());
     }
@@ -440,6 +474,15 @@ fn build_rdkafka_client_config(
             cfg.set("security.protocol", "ssl");
             super::kafka_jks::configure_librdkafka_ssl(&mut cfg, k)?;
         }
+        KafkaTransportMode::SaslPlaintext => {
+            cfg.set("security.protocol", "sasl_plaintext");
+            configure_librdkafka_sasl(&mut cfg, k)?;
+        }
+        KafkaTransportMode::SaslTls => {
+            cfg.set("security.protocol", "sasl_ssl");
+            super::kafka_jks::configure_librdkafka_ssl(&mut cfg, k)?;
+            configure_librdkafka_sasl(&mut cfg, k)?;
+        }
     }
 
     apply_kafka_extras(&mut cfg, &k.extras);
@@ -460,7 +503,7 @@ impl KafkaLineSink {
             owned_headers_from_kafka_cfg(k.headers.as_ref())?
         };
         let (producer, topic, transport) = create_future_producer(k)?;
-        let tls_enabled = transport == KafkaTransportMode::Tls;
+        let tls_enabled = matches!(transport, KafkaTransportMode::Tls | KafkaTransportMode::SaslTls);
         let runtime_agent_config = if k.mode == KafkaSinkMode::Agent {
             Some(kafka_agent::build_runtime_agent_config(k)?)
         } else {

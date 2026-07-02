@@ -68,4 +68,45 @@ ssl.endpoint.identification.algorithm: ""
 
 ### `sasl.*`
 
-不支持，会被忽略
+支持通过配置 `security.protocol: SASL_PLAINTEXT` 或 `SASL_SSL` 来启用 SASL 认证。
+
+| 键 | 说明 |
+|----|------|
+| `sasl.mechanism` | 认证机制，例如 `PLAIN`、`SCRAM-SHA-256`、`SCRAM-SHA-512` |
+| `sasl.username` | 用户名 |
+| `sasl.password` | 密码 |
+| `sasl.jaas.config` | 仅为兼容 Java 客户端而接受，**不会**传给 rdkafka。请直接使用 `sasl.username` 和 `sasl.password`。 |
+
+#### SASL 配置示例
+
+**SCRAM-SHA-256 (SASL_SSL)**
+
+```yaml
+sink:
+  type: kafka
+  kafka:
+    brokers:
+      - "kafka.example.com:9093"
+    topic: raw_message
+    security.protocol: SASL_SSL
+    sasl.mechanism: SCRAM-SHA-256
+    sasl.username: myuser
+    sasl.password: mypass
+    ssl.ca.location: /path/to/ca.crt
+    ssl.endpoint.identification.algorithm: ""
+```
+
+**PLAIN (SASL_PLAINTEXT)**
+
+```yaml
+sink:
+  type: kafka
+  kafka:
+    brokers:
+      - "kafka.example.com:9092"
+    topic: raw_message
+    security.protocol: SASL_PLAINTEXT
+    sasl.mechanism: PLAIN
+    sasl.username: myuser
+    sasl.password: mypass
+```
