@@ -11,7 +11,7 @@ members = [
     "logen-dsl",
     "logen-worker",
     "tools/resolve-oem",
-    "tools/kafka-protocol",
+    "kafka-protocol",
     "tools/mysql-local",
     "tools/pullout",
     "tools/jumpserver",
