@@ -12,7 +12,7 @@ tracing-appender = { workspace = true }
 clap = { workspace = true }
 http = { workspace = true }
 hyper-util = { workspace = true }
-kafka-protocol = { path = "../tools/kafka-protocol" }
+kafka-protocol = { path = "../kafka-protocol" }
 logen-config = { path = "../logen-config" }
 logen-dsl = { path = "../logen-dsl" }
 logen-proto = { path = "../logen-proto" }
