@@ -559,16 +559,17 @@ port = {CONVENTIONAL_CLIENT_TCP_PORT}
     }
 
     /// 测试内容：仅配置 `[logend].port` 无 `bind` 时报错。
-    /// 输入：临时 TOML 仅 `port = CONVENTIONAL_CLIENT_TCP_PORT`。
+    /// 输入：临时 TOML 仅 `port = 11160`，并显式覆盖掉默认的 `bind`。
     /// 预期：`tcp_listen_addr()` 返回 `MergedInvalid`。
     #[test]
     fn logend_tcp_requires_bind_when_port_set() {
-        let t = TempMerged::load(&format!(
+        let mut t = TempMerged::load(
             r#"
 [logend]
-port = {CONVENTIONAL_CLIENT_TCP_PORT}
-"#
-        ));
+port = 11160
+"#,
+        );
+        t.cfg.logend.bind = None;
         let err = t.cfg.logend.tcp_listen_addr().unwrap_err();
         assert!(err.to_string().contains("bind required"));
     }
