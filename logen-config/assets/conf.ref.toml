@@ -14,8 +14,8 @@ pid-record-suffix = "\n"
 log-level = "info"
 # socket = "/var/run/logkit/logend.sock"
 # TCP（可选，bind 与 port 须同时配置；不配则仅 UDS）
-# bind = "0.0.0.0"
-# port = 11159
+bind = "0.0.0.0"
+port = 11159
 # file sink 默认输出根目录（必须为绝对路径；未写 sink.output 时在此目录下生成 {uuid-pre-8}-{date}.log）
 worker-output-dir = "/tmp/logend/output"
 heartbeat-timeout-secs = 30
