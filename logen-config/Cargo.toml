@@ -11,6 +11,6 @@ rust-embed = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["net"] }
-toml = "0.8"
+toml = { workspace = true }
 tonic = { workspace = true }
 tower = { workspace = true }

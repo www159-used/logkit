@@ -15,29 +15,22 @@ logen-config = { path = "../logen-config" }
 logen-dsl = { path = "../logen-dsl" }
 logen-proto = { path = "../logen-proto" }
 prost = { workspace = true }
-fake = { version = "5", default-features = true }
-hostname = "0.4"
+fake = { workspace = true }
+hostname = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 uuid = { workspace = true }
-rdkafka = { version = "0.39", default-features = false, features = [
-  "cmake-build",
-  "libz",
-  "ssl-vendored",
-  "curl",
-  "curl-static",
-  "tokio",
-] }
+rdkafka = { workspace = true }
 serde_yaml = { workspace = true }
 tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "sync", "time"] }
 tonic = { workspace = true }
 tracing = { workspace = true }
-backon = "1.6.0"
-futures-channel = "0.3"
-futures-util = { version = "0.3", default-features = false, features = ["std", "alloc"] }
+backon = { workspace = true }
+futures-channel = { workspace = true }
+futures-util = { workspace = true }
 
 [dev-dependencies]
-criterion = "0.8.2"
+criterion = { workspace = true }
 logen-dsl = { path = "../logen-dsl" }
 
 [[bench]]

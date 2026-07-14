@@ -8,7 +8,7 @@ license.workspace = true
 [dependencies]
 clap = { workspace = true }
 resolve-oem = { path = "../resolve-oem" }
-rpassword = "7"
+rpassword = { workspace = true }
 
 [[bin]]
 name = "mysql_local"

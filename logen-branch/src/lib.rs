@@ -1,12 +1,11 @@
-//! 将分支权重在**构造时**整理为 [`BranchPicker`]，运行时只做 O(1) 抽样。
+//! 将分支权重在**构造时**整理为 [`BranchPicker`]，运行时只做抽样。
 //!
-//! 使用 [`rand_distr::WeightedIndex`]（别名表 / Walker 风格），
+//! 使用 [`rand::distr::weighted::WeightedIndex`]（累积权重 + 二分），
 //! 比每轮对 `w` 做线性扫描更稳，分支数较多时更合适。
 
-use rand::distributions::Distribution;
-use rand::thread_rng;
-use rand_distr::WeightedError;
-use rand_distr::WeightedIndex;
+use rand::distr::weighted::{Error as WeightedError, WeightedIndex};
+use rand::distr::Distribution;
+use rand::rng;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -44,7 +43,7 @@ impl BranchPicker {
 
     /// 按权重随机返回分支下标。
     pub fn choose(&self) -> usize {
-        self.index.sample(&mut thread_rng())
+        self.index.sample(&mut rng())
     }
 
     pub fn len(&self) -> usize {
@@ -60,6 +59,9 @@ impl BranchPicker {
 mod tests {
     use super::*;
 
+    /// 测试内容：空列表与零权重在构造期被拒绝。
+    /// 输入：空 slice；以及含 `0` 的权重表。
+    /// 预期：分别返回 `Empty` 与 `ZeroWeight`。
     #[test]
     fn rejects_empty_and_zero_weight() {
         assert!(matches!(BranchPicker::new(&[]), Err(BranchError::Empty)));
@@ -69,6 +71,9 @@ mod tests {
         ));
     }
 
+    /// 测试内容：高权重分支被抽中次数显著更多。
+    /// 输入：权重 `[1, 9]`，抽样 10000 次。
+    /// 预期：下标 1 的命中次数 > 下标 0 的 3 倍。
     #[test]
     fn heavy_branch_wins_more_often() {
         let picker = BranchPicker::new(&[1, 9]).unwrap();
