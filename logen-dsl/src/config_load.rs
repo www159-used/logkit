@@ -139,7 +139,7 @@ fn resolve_config_entry(config_path: &Path) -> Result<PathBuf, ConfigParseError>
     std::fs::canonicalize(&entry).map_err(|e| ConfigParseError::Io(entry.display().to_string(), e))
 }
 
-/// 读取本地实例 YAML 并展开 `include` / `body`，**不**反序列化为 [`WorkerConfig`]。
+/// 生产入口（CLI）：读取本地实例 YAML 并展开 `include` / `body`，**不**反序列化为 [`WorkerConfig`]。
 pub fn read_worker_instance_yaml(config_path: &Path) -> Result<String, ConfigParseError> {
     let entry = resolve_config_entry(config_path)?;
     let mut stack = Vec::new();
@@ -148,7 +148,7 @@ pub fn read_worker_instance_yaml(config_path: &Path) -> Result<String, ConfigPar
     Ok(serde_yaml::to_string(&doc)?)
 }
 
-/// logend 侧唯一一次 [`WorkerConfig`] 解析入口（含可选 Kafka 自动补全）。
+/// 生产入口（logend）：唯一一次 [`WorkerConfig`] 解析（含可选 Kafka 自动补全）。
 pub fn parse_worker_instance_yaml(
     raw: &str,
     auto_kafka_protocol: bool,
@@ -163,12 +163,15 @@ pub fn parse_worker_instance_yaml(
     Ok(cfg)
 }
 
-/// 加载 worker 配置（不自动发现 Kafka 传输）。
+/// 单测/本地：路径一站式加载（不自动发现 Kafka 传输）。生产请用 read + parse。
+#[doc(hidden)]
 pub fn load_worker_config(config_path: &Path) -> Result<WorkerConfig, ConfigParseError> {
     load_worker_config_inner(config_path, None)
 }
 
-/// 同 [`load_worker_config`]，并在 `sink.type: kafka` 缺 broker/security 时自动发现 Kafka 传输。
+/// 同 [`load_worker_config`]，并在缺传输配置时自动发现 Kafka。生产请用
+/// [`parse_worker_instance_yaml`] 的 `auto_kafka_protocol`。
+#[doc(hidden)]
 pub fn load_worker_config_with_kafka_protocol(
     config_path: &Path,
     kafka_protocol: KafkaProtocolOptions,
@@ -204,7 +207,8 @@ fn apply_kafka_transport_if_needed(
     Ok(())
 }
 
-/// 将已合并的 YAML 文档（须含 `body:`）转为 [`WorkerConfig`]。
+/// 单测/fixture：将已合并的 YAML 文档（须含 `body:`）转为 [`WorkerConfig`]。
+#[doc(hidden)]
 pub fn worker_config_from_document(doc: &mut Value) -> Result<WorkerConfig, ConfigParseError> {
     flatten_body_to_root(doc).map_err(ConfigParseError::Merge)?;
     let cfg: WorkerConfig = serde_yaml::from_value(doc.clone())?;

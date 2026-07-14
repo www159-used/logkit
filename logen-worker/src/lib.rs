@@ -111,12 +111,18 @@ impl EmbeddedWorker for TokioEmbeddedWorker {
 }
 
 /// **仅供集成测试** [`tests/kafka_probe`]：对集群发 metadata 请求并返回 `(broker 数, topic 元数据条目数)`。
+///
+/// 实现位于 `sink::kafka`，为 `pub(crate)`；集成测试 crate 无法直接引用，故在此做薄转发。
+/// 与 [`KafkaLineSink`] 使用相同的 librdkafka 客户端配置路径。**非稳定对外 API**。
 #[doc(hidden)]
 pub fn probe_kafka_ssl_cluster(k: &logen_dsl::KafkaConfig) -> Result<(usize, usize), SinkError> {
     sink::kafka::probe_kafka_ssl_cluster(k)
 }
 
 /// **仅供集成测试** [`tests/kafka_probe`]：按当前 TLS 配置向配置中的 topic **发送一条** UTF-8 文本。
+///
+/// 实现位于 `sink::kafka`，为 `pub(crate)`；集成测试 crate 无法直接引用，故在此做薄转发。
+/// 与 [`KafkaLineSink`] 使用相同的 librdkafka / TLS 材料路径。**非稳定对外 API**。
 #[doc(hidden)]
 pub fn produce_one_kafka_ssl_line(
     k: &logen_dsl::KafkaConfig,

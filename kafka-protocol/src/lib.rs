@@ -152,7 +152,7 @@ pub fn parse_kv_line(line: &str) -> Option<(&str, &str)> {
     Some((k, v))
 }
 
-fn emit_kafka_yaml_key(key: &str) -> bool {
+fn is_transport_prop(key: &str) -> bool {
     key == "security.protocol" || key.starts_with("ssl.") || key.starts_with("sasl.")
 }
 
@@ -228,7 +228,7 @@ fn read_client_conf_discovered(path: &Path) -> Result<KafkaDiscovered, KafkaProt
         if let Some((k, v)) = parse_kv_line(&line) {
             if k == "bootstrap.servers" {
                 brokers = parse_brokers(v);
-            } else if emit_kafka_yaml_key(k) {
+            } else if is_transport_prop(k) {
                 props.push((k.to_string(), v.to_string()));
             }
         }
@@ -379,21 +379,45 @@ fn kafka_mapping_from_discovered(
             .kafka_props
             .iter()
             .any(|(k, _)| k.starts_with("ssl."));
-        if has_ssl && !has_security {
-            kafka.insert(
-                Value::String("security.protocol".into()),
-                Value::String("SSL".into()),
-            );
+        let has_sasl = discovered
+            .kafka_props
+            .iter()
+            .any(|(k, _)| k.starts_with("sasl."));
+        if !has_security {
+            let inferred = if has_sasl && has_ssl {
+                Some("SASL_SSL")
+            } else if has_sasl {
+                Some("SASL_PLAINTEXT")
+            } else if has_ssl {
+                Some("SSL")
+            } else {
+                None
+            };
+            if let Some(proto) = inferred {
+                kafka.insert(
+                    Value::String("security.protocol".into()),
+                    Value::String(proto.into()),
+                );
+            }
         }
         for (k, v) in &discovered.kafka_props {
-            if k == "security.protocol" || k.starts_with("ssl.") {
+            if is_transport_prop(k) {
                 kafka.insert(Value::String(k.clone()), Value::String(v.clone()));
             }
         }
-    } else if !kafka_has_ssl_fields(existing_kafka) {
-        for (k, v) in &discovered.kafka_props {
-            if k.starts_with("ssl.") {
-                kafka.insert(Value::String(k.clone()), Value::String(v.clone()));
+    } else {
+        if !kafka_has_ssl_fields(existing_kafka) {
+            for (k, v) in &discovered.kafka_props {
+                if k.starts_with("ssl.") {
+                    kafka.insert(Value::String(k.clone()), Value::String(v.clone()));
+                }
+            }
+        }
+        if !kafka_has_sasl_fields(existing_kafka) {
+            for (k, v) in &discovered.kafka_props {
+                if k.starts_with("sasl.") {
+                    kafka.insert(Value::String(k.clone()), Value::String(v.clone()));
+                }
             }
         }
     }
@@ -458,6 +482,14 @@ fn kafka_has_ssl_fields(kafka: Option<&Value>) -> bool {
     };
     map.keys()
         .any(|k| k.as_str().is_some_and(|s| s.starts_with("ssl.")))
+}
+
+fn kafka_has_sasl_fields(kafka: Option<&Value>) -> bool {
+    let Some(Value::Mapping(map)) = kafka else {
+        return false;
+    };
+    map.keys()
+        .any(|k| k.as_str().is_some_and(|s| s.starts_with("sasl.")))
 }
 
 pub fn render_kafka_sink_yaml(opts: &KafkaProtocolOptions) -> Result<String, KafkaProtocolError> {
@@ -592,5 +624,80 @@ sink:
             );
         }
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// 测试内容：overlay 将 discovered 中的 `sasl.*` 写入 sink.kafka。
+    /// 输入：仅含 SASL 传输键的 `KafkaDiscovered`。
+    /// 预期：映射含 `SASL_PLAINTEXT` 与 username/password。
+    #[test]
+    fn overlay_merges_sasl_props_from_discovered() {
+        let discovered = KafkaDiscovered {
+            source: PathBuf::from("/tmp/client.conf"),
+            bootstrap_brokers: vec!["10.0.0.1:9092".into()],
+            kafka_props: vec![
+                ("security.protocol".into(), "SASL_PLAINTEXT".into()),
+                ("sasl.mechanism".into(), "PLAIN".into()),
+                ("sasl.username".into(), "alice".into()),
+                ("sasl.password".into(), "s3cret".into()),
+            ],
+        };
+        let kafka = kafka_mapping_from_discovered(
+            &KafkaProtocolOptions::default(),
+            &discovered,
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            kafka.get("security.protocol").and_then(|v| v.as_str()),
+            Some("SASL_PLAINTEXT")
+        );
+        assert_eq!(
+            kafka.get("sasl.mechanism").and_then(|v| v.as_str()),
+            Some("PLAIN")
+        );
+        assert_eq!(
+            kafka.get("sasl.username").and_then(|v| v.as_str()),
+            Some("alice")
+        );
+    }
+
+    /// 测试内容：已有 security.protocol 时仍可补齐缺失的 sasl.*。
+    /// 输入：existing 仅 `SASL_SSL`；discovered 含 sasl + ssl。
+    /// 预期：overlay 片段含 sasl.username，不覆盖 protocol。
+    #[test]
+    fn overlay_fills_sasl_when_protocol_already_set() {
+        let existing: Value = serde_yaml::from_str(
+            r#"
+security.protocol: SASL_SSL
+"#,
+        )
+        .unwrap();
+        let discovered = KafkaDiscovered {
+            source: PathBuf::from("/tmp/client.conf"),
+            bootstrap_brokers: vec!["10.0.0.1:9093".into()],
+            kafka_props: vec![
+                ("security.protocol".into(), "SSL".into()),
+                ("sasl.mechanism".into(), "SCRAM-SHA-256".into()),
+                ("sasl.username".into(), "bob".into()),
+                ("sasl.password".into(), "pw".into()),
+                ("ssl.ca.location".into(), "/ca.crt".into()),
+            ],
+        };
+        let kafka = kafka_mapping_from_discovered(
+            &KafkaProtocolOptions::default(),
+            &discovered,
+            Some(&existing),
+        )
+        .unwrap();
+        // 合并结果不含 existing 键（由调用方 deep-merge）；片段只带补齐项
+        assert!(kafka.get("security.protocol").is_none());
+        assert_eq!(
+            kafka.get("sasl.username").and_then(|v| v.as_str()),
+            Some("bob")
+        );
+        assert_eq!(
+            kafka.get("ssl.ca.location").and_then(|v| v.as_str()),
+            Some("/ca.crt")
+        );
     }
 }
