@@ -1,5 +1,5 @@
 # Reference defaults (embedded). Override with --defaults-file merged on top.
-# 约定 TCP 端口 11159：logen 指定 host（-H）且未写 port 时使用；logend 仍须显式 bind+port。
+# 约定 TCP 端口 11159：logen -H 未写 port 时使用；logend 默认同时监听 UDS + TCP（可删 bind/port 仅保留 UDS）。
 
 [client]
 # auto-kafka-protocol = true   # logen start 自动发现 Kafka（client.conf / server.properties）；false 时须在实例 YAML 手写 sink.kafka
@@ -13,7 +13,7 @@ tmp-dir = "/tmp/logend"
 pid-record-suffix = "\n"
 log-level = "info"
 # socket = "/var/run/logkit/logend.sock"
-# TCP（可选，bind 与 port 须同时配置；不配则仅 UDS）
+# TCP：与 UDS 并存；删掉 bind+port 则仅 UDS
 bind = "0.0.0.0"
 port = 11159
 # file sink 默认输出根目录（必须为绝对路径；未写 sink.output 时在此目录下生成 {uuid-pre-8}-{date}.log）

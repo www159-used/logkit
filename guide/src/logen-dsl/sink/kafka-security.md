@@ -38,7 +38,7 @@ ssl.endpoint.identification.algorithm: ""
 
 ### `security.protocol`
 
-目前仅支持 **`PLAINTEXT`**、**`SSL`**。
+支持 **`PLAINTEXT`**、**`SSL`**、**`SASL_PLAINTEXT`**、**`SASL_SSL`**。
 
 ### JKS 相关
 
@@ -79,34 +79,22 @@ ssl.endpoint.identification.algorithm: ""
 
 #### SASL 配置示例
 
-**SCRAM-SHA-256 (SASL_SSL)**
+**SCRAM-SHA-256（`SASL_SSL`）**
 
 ```yaml
-sink:
-  type: kafka
-  kafka:
-    brokers:
-      - "kafka.example.com:9093"
-    topic: raw_message
-    security.protocol: SASL_SSL
-    sasl.mechanism: SCRAM-SHA-256
-    sasl.username: myuser
-    sasl.password: mypass
-    ssl.ca.location: /path/to/ca.crt
-    ssl.endpoint.identification.algorithm: ""
+security.protocol: SASL_SSL
+sasl.mechanism: SCRAM-SHA-256
+sasl.username: myuser
+sasl.password: mypass
+ssl.ca.location: /path/to/ca.crt
+ssl.endpoint.identification.algorithm: ""
 ```
 
-**PLAIN (SASL_PLAINTEXT)**
+**PLAIN（`SASL_PLAINTEXT`）**
 
 ```yaml
-sink:
-  type: kafka
-  kafka:
-    brokers:
-      - "kafka.example.com:9092"
-    topic: raw_message
-    security.protocol: SASL_PLAINTEXT
-    sasl.mechanism: PLAIN
-    sasl.username: myuser
-    sasl.password: mypass
+security.protocol: SASL_PLAINTEXT
+sasl.mechanism: PLAIN
+sasl.username: myuser
+sasl.password: mypass
 ```

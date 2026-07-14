@@ -66,7 +66,7 @@ pub struct LogendSection {
     /// TCP 绑定地址（与 [`Self::port`] 成对配置；类似 mysqld `bind-address`）。
     #[serde(default)]
     pub bind: Option<String>,
-    /// TCP 端口（与 [`Self::bind`] 成对配置；类似 mysqld `port`；代码无默认值）。
+    /// TCP 端口（与 [`Self::bind`] 成对配置；类似 mysqld `port`；嵌入默认见 `conf.ref.toml`）。
     #[serde(default)]
     pub port: Option<u16>,
     /// 造日志写入根目录（**必填**，且必须为绝对路径）；实例 YAML 未写 `output` 时，daemon 在此目录下生成默认文件。

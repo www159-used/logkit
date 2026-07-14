@@ -287,6 +287,44 @@ pub struct KafkaConfig {
     pub extras: BTreeMap<String, Value>,
 }
 
+impl KafkaConfig {
+    /// trim + ASCII upper；空串视为未设置。
+    pub fn security_protocol_norm(&self) -> Option<String> {
+        self.security_protocol
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_ascii_uppercase())
+    }
+
+    /// 是否配置了任一 SASL 一等字段（含仅兼容的 `sasl.jaas.config`）。
+    pub fn has_sasl_material(&self) -> bool {
+        self.sasl_mechanism.is_some()
+            || self.sasl_jaas_config.is_some()
+            || self.sasl_username.is_some()
+            || self.sasl_password.is_some()
+    }
+
+    /// 是否配置了任一 SSL 一等字段（含仅兼容的 `ssl.protocol`）。
+    pub fn has_ssl_material(&self) -> bool {
+        self.ssl_endpoint_identification_algorithm.is_some()
+            || self.ssl_ca_pem.is_some()
+            || self.ssl_ca_location.is_some()
+            || self.ssl_truststore_location.is_some()
+            || self.ssl_certificate_pem.is_some()
+            || self.ssl_certificate_location.is_some()
+            || self.ssl_private_key_pem.is_some()
+            || self.ssl_key_location.is_some()
+            || self.ssl_key_pem.is_some()
+            || self.ssl_keystore_location.is_some()
+            || self.ssl_truststore_password.is_some()
+            || self.ssl_keystore_password.is_some()
+            || self.ssl_keystore_alias.is_some()
+            || self.ssl_protocol.is_some()
+            || self.ssl_enabled_protocols.is_some()
+    }
+}
+
 /// Agent 模式若配置 `source_id`，须为 **36 字符标准 UUID**（8-4-4-4-12，含连字符；十六进制大小写均可）。
 pub fn validate_agent_source_id(s: &str) -> bool {
     let s = s.trim();
@@ -511,5 +549,23 @@ kafka:
         assert_eq!(h.get("trace-id").and_then(|v| v.as_deref()), Some("abc-42"));
         assert_eq!(h.get("empty-value"), Some(&None));
         assert_eq!(h.get("count").and_then(|v| v.as_deref()), Some("7"));
+    }
+
+    /// 测试内容：`security_protocol_norm` / presence 与一等字段对齐。
+    /// 输入：含 SSL + SASL 字段的 `KafkaConfig`。
+    /// 预期：protocol 大写；`has_ssl_material` / `has_sasl_material` 为 true。
+    #[test]
+    fn kafka_config_presence_helpers() {
+        let k = KafkaConfig {
+            security_protocol: Some(" sasl_ssl ".into()),
+            sasl_username: Some("u".into()),
+            ssl_ca_location: Some("/ca.crt".into()),
+            ..Default::default()
+        };
+        assert_eq!(k.security_protocol_norm().as_deref(), Some("SASL_SSL"));
+        assert!(k.has_sasl_material());
+        assert!(k.has_ssl_material());
+        assert!(!KafkaConfig::default().has_sasl_material());
+        assert!(!KafkaConfig::default().has_ssl_material());
     }
 }

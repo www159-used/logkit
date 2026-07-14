@@ -16,6 +16,9 @@ pub fn worker_config_to_yaml(cfg: &WorkerConfig) -> Result<String, serde_yaml::E
     serde_yaml::to_string(cfg)
 }
 
+/// 单测：直接反序列化已展平的 `WorkerConfig` YAML（不走 `include`/`body`）。
+/// 生产请用 [`crate::parse_worker_instance_yaml`]。
+#[doc(hidden)]
 pub fn parse_worker_config(
     config_path: &Path,
     raw: &str,
