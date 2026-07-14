@@ -6,7 +6,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-jks = { version = "0.3.3", default-features = false, features = ["rand"] }
-p12-keystore = "0.3.0-rc4"
-pem = "3"
+jks = { workspace = true }
+p12-keystore = { workspace = true }
+pem = { workspace = true }
 thiserror = { workspace = true }

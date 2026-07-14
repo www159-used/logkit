@@ -8,18 +8,18 @@ license.workspace = true
 [dependencies]
 kafka-protocol = { path = "../kafka-protocol" }
 logen-branch = { path = "../logen-branch" }
-chrono = { version = "0.4", default-features = false, features = ["clock"] }
-fake = { version = "5", features = ["derive", "chrono", "uuid", "url"] }
-handlebars = "6"
+chrono = { workspace = true }
+fake = { workspace = true }
+handlebars = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 thiserror = { workspace = true }
-url = "2"
-humantime = "2.3.0"
+url = { workspace = true }
+humantime = { workspace = true }
 
 [dev-dependencies]
-criterion = "0.8.2"
+criterion = { workspace = true }
 
 [[bench]]
 name = "template_runner"
