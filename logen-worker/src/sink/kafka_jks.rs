@@ -14,7 +14,7 @@ fn path_ext_lower(s: &str) -> String {
         .to_ascii_lowercase()
 }
 
-fn nonempty<'a>(s: Option<&'a str>) -> Option<&'a str> {
+fn nonempty(s: Option<&str>) -> Option<&str> {
     s.map(str::trim).filter(|t| !t.is_empty())
 }
 

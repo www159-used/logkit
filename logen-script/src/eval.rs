@@ -65,11 +65,11 @@ pub fn eval_with_env(
     for stmt in &program.program.stmts {
         match stmt {
             Stmt::Let { name, value } => {
-                let v = eval_expr(value, &env, opts)?;
+                let v = eval_expr(value, env, opts)?;
                 env.insert(name.clone(), v);
             }
             Stmt::Expr(expr) => {
-                last = Some(eval_expr(expr, &env, opts)?);
+                last = Some(eval_expr(expr, env, opts)?);
             }
         }
     }

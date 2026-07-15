@@ -6,7 +6,9 @@ use proc_macro2::TokenStream as TokenStream2;
 use quote::{format_ident, quote};
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
-use syn::{braced, bracketed, parenthesized, parse_macro_input, Expr, LitInt, LitStr, Result, Token};
+use syn::{
+    braced, bracketed, parenthesized, parse_macro_input, Expr, LitInt, LitStr, Result, Token,
+};
 
 /// 无参 [`logen_model::FieldSpec`] 变体对应的 snake_case 名（`uuid_v4` → `UuidV4`）。
 const UNIT_FIELDS: &[&str] = &[
@@ -68,9 +70,18 @@ impl Parse for BodyPresetInput {
 enum FieldAst {
     Unit(syn::Ident),
     Timestamp(Option<LitStr>),
-    Integer { min: LitInt, max: LitInt },
-    Float { min: Expr, max: Expr },
-    Sentence { min: LitInt, max: LitInt },
+    Integer {
+        min: LitInt,
+        max: LitInt,
+    },
+    Float {
+        min: Box<Expr>,
+        max: Box<Expr>,
+    },
+    Sentence {
+        min: LitInt,
+        max: LitInt,
+    },
     OneOfLiterals(Vec<LitStr>),
     OneOfArms(Vec<OneOfArmAst>),
     Template {
@@ -149,7 +160,11 @@ fn parse_one_of_arm_rhs(w: LitInt, content: ParseStream<'_>) -> Result<OneOfArmA
             let FieldAst::Template { template, fields } = parse_template_call(&inner)? else {
                 unreachable!("parse_template_call returns Template");
             };
-            return Ok(OneOfArmAst::WeightedTemplate { w, template, fields });
+            return Ok(OneOfArmAst::WeightedTemplate {
+                w,
+                template,
+                fields,
+            });
         }
     }
     let v: LitStr = content.parse()?;
@@ -189,7 +204,10 @@ fn parse_field_call(key: &str, name: &syn::Ident, content: ParseStream<'_>) -> R
             let min: Expr = content.parse()?;
             content.parse::<Token![,]>()?;
             let max: Expr = content.parse()?;
-            Ok(FieldAst::Float { min, max })
+            Ok(FieldAst::Float {
+                min: Box::new(min),
+                max: Box::new(max),
+            })
         }
         "sentence" => {
             let min: LitInt = content.parse()?;
