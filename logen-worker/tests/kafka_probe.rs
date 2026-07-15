@@ -13,7 +13,7 @@ use std::path::PathBuf;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 
-use logen_dsl::KafkaConfig;
+use logen_model::KafkaConfig;
 use logen_worker::{probe_kafka_ssl_cluster, produce_one_kafka_ssl_line, KafkaLineSink};
 
 use crate::fixtures::kafka_config_from_kafka_asset_broker_yaml;

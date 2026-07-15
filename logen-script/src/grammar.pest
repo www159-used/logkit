@@ -1,0 +1,32 @@
+//! logen-script 语法（pest）。
+
+program = { SOI ~ stmt* ~ EOI }
+
+stmt = { let_stmt | expr_stmt }
+
+let_stmt = { ^"let" ~ ident ~ "=" ~ expr }
+expr_stmt = { expr }
+
+/// duration 须在 float/integer 之前，避免 `10ms` 被拆成数字。
+expr = { call | ident | template_lit | duration | float | integer | string }
+
+call = { ident ~ "(" ~ args? ~ ")" }
+
+args = { arg ~ ("," ~ arg)* ~ ","? }
+arg = { named_arg | expr }
+named_arg = { ident ~ ":" ~ expr }
+
+/// `` `…${c}…` ``：整段原始文本（含换行），再在 Rust 侧拆插值并 dedent。
+template_lit = @{ "`" ~ template_raw ~ "`" }
+template_raw = { (!"`" ~ ANY)* }
+
+duration = @{ ASCII_DIGIT+ ~ ("ms" | "us" | "ns" | "s" | "m" | "h") }
+/// `1.0` / `-3.14`（须含小数点）；须在 `integer` 之前匹配。
+float = @{ "-"? ~ ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT+ }
+integer = @{ "-"? ~ ASCII_DIGIT+ }
+string = ${ "\"" ~ string_char* ~ "\"" }
+string_char = @{ (!("\"" | "\\") ~ ANY) | ("\\" ~ ANY) }
+ident = @{ (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_")* }
+
+WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
+COMMENT = _{ "#" ~ (!"\n" ~ ANY)* }

@@ -1,4 +1,4 @@
-//! [`JavaSslPemError`]：Java 风格 TLS 材料 → PEM 文本过程中的失败原因。
+//! [`JavaSslPemError`]：JKS → PEM 过程中的失败原因。
 
 use std::io;
 use std::path::Path;
@@ -8,25 +8,12 @@ use thiserror::Error;
 /// `java-ssl-pem` crate 的统一错误类型（不依赖 Kafka / rdkafka）。
 #[derive(Debug, Error)]
 pub enum JavaSslPemError {
-    #[error("java-ssl-pem · trust · `{field}`: {detail}")]
-    TrustField { field: &'static str, detail: String },
-
-    #[error("java-ssl-pem · trust · {label} · `{path}`: {detail}")]
-    TrustPath {
-        label: &'static str,
-        path: String,
-        detail: String,
-    },
-
     #[error("java-ssl-pem · JKS · {role} · `{path}`: {detail}")]
     Jks {
         role: &'static str,
         path: String,
         detail: String,
     },
-
-    #[error("java-ssl-pem · PKCS#12 · `{path}`: {detail}")]
-    Pkcs12 { path: String, detail: String },
 
     #[error("java-ssl-pem · mTLS: {detail}")]
     ClientIdentity { detail: String },
@@ -41,10 +28,6 @@ pub enum JavaSslPemError {
         #[source]
         source: io::Error,
     },
-
-    /// 互斥字段同时出现、或 trust / identity 无法唯一解析时的配置错误。
-    #[error("java-ssl-pem · config: {detail}")]
-    Config { detail: String },
 }
 
 impl JavaSslPemError {

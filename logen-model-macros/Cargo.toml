@@ -1,0 +1,15 @@
+[package]
+name = "logen-model-macros"
+description = "Proc-macros for constructing logen-model BodyConfig / FieldSpec"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+heck = "0.5"
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "2", features = ["full"] }

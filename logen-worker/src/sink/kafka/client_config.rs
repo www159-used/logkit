@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use logen_dsl::{KafkaConfig, KafkaSinkMode};
+use logen_model::{KafkaConfig, KafkaSinkMode};
 use rdkafka::config::ClientConfig;
 use rdkafka::message::{Header, OwnedHeaders};
 use rdkafka::producer::FutureProducer;
@@ -66,7 +66,9 @@ fn effective_produce_topic(k: &KafkaConfig) -> String {
     }
 }
 
-pub(super) fn create_future_producer(k: &KafkaConfig) -> Result<(FutureProducer, String), SinkError> {
+pub(super) fn create_future_producer(
+    k: &KafkaConfig,
+) -> Result<(FutureProducer, String), SinkError> {
     let transport = kafka_transport_mode(k)?;
     let (cfg, topic) = build_rdkafka_client_config(k, transport)?;
     let producer: FutureProducer = cfg
@@ -171,7 +173,9 @@ fn delivery_timeout_ms_default(message_ms: u64) -> u64 {
     message_ms.saturating_add(5000).max(10_000)
 }
 
-pub(super) fn kafka_transport_mode(k: &KafkaConfig) -> Result<KafkaTransportMode, KafkaConfigError> {
+pub(super) fn kafka_transport_mode(
+    k: &KafkaConfig,
+) -> Result<KafkaTransportMode, KafkaConfigError> {
     let proto = k.security_protocol_norm();
     let sasl = k.has_sasl_material();
     match proto.as_deref() {
@@ -193,7 +197,9 @@ pub(super) fn kafka_transport_mode(k: &KafkaConfig) -> Result<KafkaTransportMode
         }
         Some("SASL_PLAINTEXT") => Ok(KafkaTransportMode::SaslPlaintext),
         Some("SASL_SSL") => Ok(KafkaTransportMode::SaslTls),
-        Some(other) => Err(cfg_err(format!("security.protocol: unsupported value {other:?}"))),
+        Some(other) => Err(cfg_err(format!(
+            "security.protocol: unsupported value {other:?}"
+        ))),
     }
 }
 
@@ -260,11 +266,14 @@ pub(super) fn build_rdkafka_client_config(
         .into());
     }
 
-    let tls_enabled = matches!(transport, KafkaTransportMode::Tls | KafkaTransportMode::SaslTls);
+    let tls_enabled = matches!(
+        transport,
+        KafkaTransportMode::Tls | KafkaTransportMode::SaslTls
+    );
     if !tls_enabled && k.has_ssl_material() {
         return Err(cfg_err(
             "TLS-related ssl.* is set but security.protocol is not SSL or SASL_SSL. \
-             For TLS set security.protocol to SSL/SASL_SSL and supply trust/client material (PEM or JKS/P12 as documented).",
+             For TLS set security.protocol to SSL/SASL_SSL and supply trust/client material (PEM or JKS as documented).",
         )
         .into());
     }

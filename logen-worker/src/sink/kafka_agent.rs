@@ -1,6 +1,6 @@
 use fake::faker::internet::en::Password;
 use fake::Fake;
-use logen_dsl::{validate_agent_source_id, KafkaAgentFormat, KafkaConfig, KafkaSinkMode};
+use logen_model::{validate_agent_source_id, KafkaAgentFormat, KafkaConfig, KafkaSinkMode};
 use logen_proto::EventInfo;
 use prost::Message;
 use uuid::Uuid;
@@ -253,7 +253,7 @@ fn build_event_info(
 
 #[cfg(test)]
 mod tests {
-    use logen_dsl::KafkaAgentFormat;
+    use logen_model::KafkaAgentFormat;
     use logen_proto::EventInfo;
     use prost::Message;
 

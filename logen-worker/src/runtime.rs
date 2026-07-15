@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use logen_config::{connect_client_channel, ClientConnect};
-use logen_dsl::{TemplateRunner, WorkerConfig};
+use logen_model::{TemplateRunner, WorkerConfig};
 use logen_proto::logen_client::LogenClient;
 use logen_proto::HeartbeatRequest;
 use tokio::runtime::Handle;

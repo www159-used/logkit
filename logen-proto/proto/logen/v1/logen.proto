@@ -7,7 +7,10 @@ service Logen {
   rpc Ping(PingRequest) returns (PingReply);
   rpc Echo(EchoRequest) returns (EchoReply);
   rpc ListWorkers(ListWorkersRequest) returns (ListWorkersReply);
-  rpc StartWorker(StartWorkerRequest) returns (StartWorkerReply);
+  rpc RunControlScript(RunControlScriptRequest) returns (RunControlScriptReply);
+  rpc OpenControlSession(OpenControlSessionRequest) returns (OpenControlSessionReply);
+  rpc EvalControlSession(EvalControlSessionRequest) returns (RunControlScriptReply);
+  rpc CloseControlSession(CloseControlSessionRequest) returns (CloseControlSessionReply);
   rpc StopWorker(StopWorkerRequest) returns (StopWorkerReply);
   rpc CatWorker(CatWorkerRequest) returns (CatWorkerReply);
   rpc Heartbeat(HeartbeatRequest) returns (HeartbeatReply);
@@ -33,11 +36,11 @@ message ListWorkersRequest {}
 
 message WorkerEntry {
   string id = 1;
-  // 展示标签（start 时的 config_label，非托管文件路径）
+  // 展示标签（控制脚本中 start 的 label 或来源标签，非托管文件路径）
   string config_path = 2;
   bool alive = 3;
   bool healthy = 4;
-  // 自实例 YAML 的 `sink:` 摘要（与嵌套 sink 一致）
+  // 自控制脚本 start 装配的 sink 摘要
   string sink_summary = 5;
 }
 
@@ -45,21 +48,35 @@ message ListWorkersReply {
   repeated WorkerEntry workers = 1;
 }
 
-message StartWorkerRequest {
-  // 实例 YAML 全文：客户端读取本地文件并展开 include 后填入；由 logend 统一 parse / 校验 / Kafka 补全
-  string instance_yaml = 1;
-  // 展示用标签，常为 `logen start` 传入的本地 YAML 路径
+message RunControlScriptRequest {
+  // 控制脚本全文（.logen）；由 logend 解释，必须显式调用 start(logen(...))。
+  string script = 1;
+  // 展示用来源标签，常为 `logen start` 传入的本地脚本路径。
   string config_label = 2;
   // 覆盖 TOML `[client].auto-kafka-protocol`；省略时由 logend 按 TOML 默认
   optional bool auto_kafka_protocol = 3;
-  // 远端 `-H` 时供 logend Kafka 自动补全 broker 主机；本地 UDS 通常省略
+  // 远端 `-H` 时供 worker Kafka 自动补全 broker 主机；本地 UDS 通常省略
   optional string kafka_broker_host = 4;
 }
 
-message StartWorkerReply {
-  string id = 1;
-  string status = 2;
+message RunControlScriptReply {
+  // 脚本最终值为 start(...) 返回的 worker id 时填写。
+  string worker_id = 1;
+  // 脚本中 stat() 等 builtin 的标准输出。
+  string output = 2;
+  // 执行状态摘要。
+  string status = 3;
 }
+
+message OpenControlSessionRequest {
+  string config_label = 1;
+  optional bool auto_kafka_protocol = 2;
+  optional string kafka_broker_host = 3;
+}
+message OpenControlSessionReply { string session_id = 1; }
+message EvalControlSessionRequest { string session_id = 1; string source = 2; }
+message CloseControlSessionRequest { string session_id = 1; }
+message CloseControlSessionReply {}
 
 message StopWorkerRequest {
   string id = 1;
@@ -76,7 +93,8 @@ message CatWorkerRequest {
 message CatWorkerReply {
   // 与 list 一致，为 config_label
   string config_path = 1;
-  string yaml = 2;
+  // 创建当前 worker 的控制脚本原文
+  string script = 2;
 }
 
 message HeartbeatRequest {

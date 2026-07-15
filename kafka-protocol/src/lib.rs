@@ -233,11 +233,47 @@ fn read_client_conf_discovered(path: &Path) -> Result<KafkaDiscovered, KafkaProt
             }
         }
     }
+    ensure_jks_keystore_alias(&mut props)?;
     Ok(KafkaDiscovered {
         source: path.to_path_buf(),
         bootstrap_brokers: brokers,
         kafka_props: props,
     })
+}
+
+/// 多私钥 JKS 且未写 `ssl.keystore.alias` 时，解析并写入（优先 `agent`）。
+fn ensure_jks_keystore_alias(props: &mut Vec<(String, String)>) -> Result<(), KafkaProtocolError> {
+    if props
+        .iter()
+        .any(|(k, v)| k == "ssl.keystore.alias" && !v.trim().is_empty())
+    {
+        return Ok(());
+    }
+    let Some(loc) = props
+        .iter()
+        .find(|(k, _)| k == "ssl.keystore.location")
+        .map(|(_, v)| v.trim().to_string())
+        .filter(|s| !s.is_empty())
+    else {
+        return Ok(());
+    };
+    let ext = Path::new(&loc)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if ext != "jks" {
+        return Ok(());
+    }
+    let password = props
+        .iter()
+        .find(|(k, _)| k == "ssl.keystore.password")
+        .map(|(_, v)| v.as_str())
+        .unwrap_or("");
+    let alias = java_ssl_pem::resolve_jks_key_alias(Path::new(&loc), password, None)
+        .map_err(|e| KafkaProtocolError::Conf(e.to_string()))?;
+    props.push(("ssl.keystore.alias".into(), alias));
+    Ok(())
 }
 
 fn read_server_properties_discovered(path: &Path) -> Result<KafkaDiscovered, KafkaProtocolError> {

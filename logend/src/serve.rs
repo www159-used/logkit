@@ -161,6 +161,7 @@ pub async fn run(
             client: cfg.client.clone(),
             embedded_worker,
             workers: Mutex::new(HashMap::new()),
+            sessions: crate::session::ControlSessionStore::default(),
         }),
     };
 

@@ -12,11 +12,12 @@ tracing-appender = { workspace = true }
 clap = { workspace = true }
 http = { workspace = true }
 hyper-util = { workspace = true }
-kafka-protocol = { path = "../kafka-protocol" }
 logen-config = { path = "../logen-config" }
-logen-dsl = { path = "../logen-dsl" }
 logen-proto = { path = "../logen-proto" }
+logen-script = { path = "../logen-script" }
 logen-worker = { path = "../logen-worker" }
+logen-model = { path = "../logen-model" }
+kafka-protocol = { path = "../kafka-protocol" }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["net", "rt-multi-thread", "sync"] }
 tokio-stream = { workspace = true }

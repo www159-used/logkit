@@ -1,4 +1,4 @@
-# logkit — 根工作区：logen（CLI）、logend、logen-dsl、logen-config、logen-proto。
+# logkit — 根工作区：logen（CLI）、logend、logen-model、logen-config、logen-proto。
 [workspace]
 resolver = "2"
 members = [
@@ -8,7 +8,9 @@ members = [
     "logen",
     "logend",
     "logen-branch",
-    "logen-dsl",
+    "logen-model",
+    "logen-model-macros",
+    "logen-script",
     "logen-worker",
     "tools/resolve-oem",
     "kafka-protocol",
@@ -43,13 +45,13 @@ http-body-util = "0.1"
 humantime = "2"
 hyper = { version = "1", features = ["server", "http1"] }
 hyper-util = { version = "0.1", features = ["full"] }
-jks = { version = "0.3.3", default-features = false, features = ["rand"] }
 libc = "0.2"
 libloading = "0.9"
 local-ip-address = "0.6"
 log = "0.4"
-p12-keystore = "0.3.1"
 pem = "3"
+pest = "2"
+pest_derive = "2"
 prost = "0.14"
 rand = "0.10"
 rdkafka = { version = "0.39", default-features = false, features = [

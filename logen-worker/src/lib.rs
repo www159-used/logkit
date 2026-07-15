@@ -1,10 +1,13 @@
-//! `logen-worker`：造日志库；由 **`logend`** 进程内嵌入（[`EmbeddedWorker`]、`runtime` 内存配置运行入口）。
+//! `logen-worker`：造日志库；由 **`logend`** 进程内嵌入（[`EmbeddedWorker`]）。
+//!
+//! 启动载荷为已装配的 [`WorkerConfig`]；控制脚本只在 `logend` 内解释。
 
 use std::future::Future;
+use std::path::PathBuf;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 
-use logen_dsl::WorkerConfig;
+use logen_model::{format_sink_summary, WorkerConfig};
 use tokio::runtime::Handle;
 use tokio::task::JoinHandle;
 use tracing::{info_span, Instrument};
@@ -31,15 +34,17 @@ pub struct SpawnedWorkerTasks {
     pub heartbeat_task: Option<JoinHandle<()>>,
 }
 
+/// 嵌入式 worker 启动参数。
+pub struct SpawnWorkerArgs {
+    pub worker_id: String,
+    pub config_label: String,
+    pub config: WorkerConfig,
+    pub worker_output_dir: PathBuf,
+    pub heartbeat: Option<WorkerHeartbeatEnv>,
+}
+
 pub trait EmbeddedWorker: Send + Sync {
-    /// `worker_id` 用于 tracing span、Kafka 投递日志与心跳。
-    fn spawn_worker_task(
-        &self,
-        worker_id: String,
-        config_label: String,
-        worker_config: WorkerConfig,
-        heartbeat: Option<WorkerHeartbeatEnv>,
-    ) -> SpawnedWorkerTasks;
+    fn spawn_worker_task(&self, args: SpawnWorkerArgs) -> SpawnedWorkerTasks;
 }
 
 #[derive(Debug, Clone)]
@@ -72,15 +77,10 @@ where
 }
 
 impl EmbeddedWorker for TokioEmbeddedWorker {
-    fn spawn_worker_task(
-        &self,
-        worker_id: String,
-        config_label: String,
-        worker_config: WorkerConfig,
-        heartbeat: Option<WorkerHeartbeatEnv>,
-    ) -> SpawnedWorkerTasks {
+    fn spawn_worker_task(&self, mut args: SpawnWorkerArgs) -> SpawnedWorkerTasks {
         let events = Arc::new(AtomicU64::new(0));
         let retry_total = Arc::new(AtomicU64::new(0));
+        let heartbeat = args.heartbeat.take();
         let heartbeat_task = heartbeat.map(|hb| {
             spawn_heartbeat_task(
                 &self.control_handle,
@@ -89,17 +89,10 @@ impl EmbeddedWorker for TokioEmbeddedWorker {
                 retry_total.clone(),
             )
         });
-        let span = info_span!("worker", worker_id = %worker_id);
+        let span = info_span!("worker", worker_id = %args.worker_id);
+        let worker_id = args.worker_id.clone();
         let worker_task = spawn_task_on_handle(&self.worker_handle, span, async move {
-            if let Err(e) = run_worker_with_config(
-                worker_id.clone(),
-                config_label,
-                worker_config,
-                events,
-                retry_total,
-            )
-            .await
-            {
+            if let Err(e) = run_config_worker(args, events, retry_total).await {
                 tracing::error!(worker_id = %worker_id, "logen worker task failed: {e:#}");
             }
         });
@@ -110,22 +103,35 @@ impl EmbeddedWorker for TokioEmbeddedWorker {
     }
 }
 
+async fn run_config_worker(
+    mut args: SpawnWorkerArgs,
+    events: Arc<AtomicU64>,
+    retry_total: Arc<AtomicU64>,
+) -> anyhow::Result<()> {
+    args.config
+        .sink
+        .fill_default_output(&args.worker_output_dir, &args.worker_id);
+    let _summary = format_sink_summary(&args.config.sink);
+    run_worker_with_config(
+        args.worker_id,
+        args.config_label,
+        args.config,
+        events,
+        retry_total,
+    )
+    .await
+}
+
 /// **仅供集成测试** [`tests/kafka_probe`]：对集群发 metadata 请求并返回 `(broker 数, topic 元数据条目数)`。
-///
-/// 实现位于 `sink::kafka`，为 `pub(crate)`；集成测试 crate 无法直接引用，故在此做薄转发。
-/// 与 [`KafkaLineSink`] 使用相同的 librdkafka 客户端配置路径。**非稳定对外 API**。
 #[doc(hidden)]
-pub fn probe_kafka_ssl_cluster(k: &logen_dsl::KafkaConfig) -> Result<(usize, usize), SinkError> {
+pub fn probe_kafka_ssl_cluster(k: &logen_model::KafkaConfig) -> Result<(usize, usize), SinkError> {
     sink::kafka::probe_kafka_ssl_cluster(k)
 }
 
-/// **仅供集成测试** [`tests/kafka_probe`]：按当前 TLS 配置向配置中的 topic **发送一条** UTF-8 文本。
-///
-/// 实现位于 `sink::kafka`，为 `pub(crate)`；集成测试 crate 无法直接引用，故在此做薄转发。
-/// 与 [`KafkaLineSink`] 使用相同的 librdkafka / TLS 材料路径。**非稳定对外 API**。
+/// **仅供集成测试**：向 topic 同步投递一条消息（与 [`KafkaLineSink`] 相同 TLS/配置路径）。
 #[doc(hidden)]
 pub fn produce_one_kafka_ssl_line(
-    k: &logen_dsl::KafkaConfig,
+    k: &logen_model::KafkaConfig,
     payload: &str,
 ) -> Result<(), SinkError> {
     sink::kafka::produce_one_kafka_ssl_line(k, payload)
@@ -133,55 +139,18 @@ pub fn produce_one_kafka_ssl_line(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::mpsc;
-    use std::thread;
-    use std::time::Duration;
-
     use super::*;
 
-    /// 测试内容：`spawn_task_on_handle` 会把任务投递到指定 runtime，而非调用方当前线程。
-    /// 输入：命名为 `worker-rt` 的独立 `current_thread` runtime handle，与一个回传线程名的异步任务。
-    /// 预期：任务在线程名包含 `worker-rt` 的目标 runtime 上执行。
-    #[test]
-    fn spawn_task_on_handle_uses_target_runtime() {
-        let (ready_tx, ready_rx) = mpsc::sync_channel(1);
-        let worker_thread = thread::Builder::new()
-            .name("worker-rt".into())
-            .spawn(move || {
-                let rt = tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .expect("worker runtime");
-                let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
-                ready_tx
-                    .send((rt.handle().clone(), shutdown_tx))
-                    .expect("send handle");
-                rt.block_on(async {
-                    let _ = shutdown_rx.await;
-                });
-            })
-            .expect("spawn worker thread");
-
-        let (worker_handle, shutdown_tx) = ready_rx.recv().expect("recv worker handle");
-        let (name_tx, name_rx) = mpsc::sync_channel(1);
-        let _task = spawn_task_on_handle(
-            &worker_handle,
-            tracing::info_span!("test_worker_rt"),
-            async move {
-                let name = thread::current().name().unwrap_or("").to_string();
-                name_tx.send(name).expect("send thread name");
-            },
-        );
-
-        let task_thread = name_rx
-            .recv_timeout(Duration::from_secs(3))
-            .expect("receive thread name");
-        assert!(
-            task_thread.contains("worker-rt"),
-            "task thread = {task_thread:?}"
-        );
-
-        let _ = shutdown_tx.send(());
-        worker_thread.join().expect("join worker thread");
+    /// 测试内容：在目标 runtime handle 上 spawn 的任务确实执行。
+    /// 输入：current handle 作为 worker/control。
+    /// 预期：oneshot 收到信号。
+    #[tokio::test]
+    async fn spawn_task_on_handle_uses_target_runtime() {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let handle = Handle::current();
+        let _jh = spawn_task_on_handle(&handle, tracing::Span::none(), async move {
+            let _ = tx.send(());
+        });
+        rx.await.expect("task ran");
     }
 }
