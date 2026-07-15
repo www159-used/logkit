@@ -21,4 +21,5 @@ sink:
     ssl.truststore.password: "vKFoWrbf_El1pCtcUVHZn0ygI5Mu8izQ"
     ssl.keystore.location: ../assets/keystore.jks
     ssl.keystore.password: "8c4804e1504aa139bd827c9c016f11d4cc7174a95352f5068a3cb2c1f4849e91"
+    ssl.keystore.alias: agent
     ssl.endpoint.identification.algorithm: ""

@@ -12,7 +12,7 @@ base64 = { workspace = true }
 resolve-oem = { path = "../tools/resolve-oem" }
 java-ssl-pem = { path = "../java-ssl-pem" }
 logen-config = { path = "../logen-config" }
-logen-dsl = { path = "../logen-dsl" }
+logen-model = { path = "../logen-model" }
 logen-proto = { path = "../logen-proto" }
 prost = { workspace = true }
 fake = { workspace = true }
@@ -31,7 +31,7 @@ futures-util = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
-logen-dsl = { path = "../logen-dsl" }
+logen-model = { path = "../logen-model" }
 
 [[bench]]
 name = "agent_message"

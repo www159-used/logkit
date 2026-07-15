@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 clap = { workspace = true }
+java-ssl-pem = { path = "../java-ssl-pem" }
 resolve-oem = { path = "../tools/resolve-oem" }
 serde_yaml = { workspace = true }
 thiserror = { workspace = true }

@@ -10,7 +10,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use backon::BackoffBuilder;
 use futures_util::stream::{FuturesUnordered, StreamExt};
-use logen_dsl::{KafkaConfig, KafkaSinkMode};
+use logen_model::{KafkaConfig, KafkaSinkMode};
 use rdkafka::error::KafkaError;
 use rdkafka::message::OwnedHeaders;
 use rdkafka::producer::future_producer::OwnedDeliveryResult;
@@ -20,14 +20,12 @@ use tokio::sync::mpsc;
 use super::context_id::next_context_id;
 use super::kafka_agent::{self, RuntimeAgentConfig};
 use super::{LogLineSink, SinkError};
-use client_config::{
-    create_future_producer, normalize_brokers, owned_headers_from_kafka_cfg,
-};
+use client_config::{create_future_producer, normalize_brokers, owned_headers_from_kafka_cfg};
 use produce::{
     build_future_record, delivery_timeout_backoff_builder, format_produce_err,
     is_message_timed_out_error, is_queue_full_error, line_record_from_owned_message,
     queue_full_backoff_builder, should_log_delivery_timeout_retry, should_log_queue_full_retry,
-    DELIVERY_TIMEOUT_RETRY_LIMIT, QUEUE_FULL_BACKOFF_MS_MAX, LineRecord,
+    LineRecord, DELIVERY_TIMEOUT_RETRY_LIMIT, QUEUE_FULL_BACKOFF_MS_MAX,
 };
 
 pub struct KafkaLineSink {
@@ -283,13 +281,13 @@ pub(crate) fn produce_one_kafka_ssl_line(k: &KafkaConfig, payload: &str) -> Resu
 
 #[cfg(test)]
 mod producer_profile_tests {
-    use super::*;
     use super::client_config::{
         build_rdkafka_client_config, configure_librdkafka_sasl, kafka_transport_mode,
         KafkaTransportMode, PRODUCER_BATCH_SIZE, PRODUCER_COMPRESSION, PRODUCER_LINGER_MS,
         PRODUCER_MESSAGE_MAX_BYTES, PRODUCER_QUEUE_MAX_KBYTES, PRODUCER_SOCKET_TIMEOUT_MS,
     };
-    use logen_dsl::KafkaConfig;
+    use super::*;
+    use logen_model::KafkaConfig;
     use rdkafka::config::ClientConfig;
     use rdkafka::types::RDKafkaErrorCode;
     use serde_yaml::Value;

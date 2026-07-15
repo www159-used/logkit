@@ -1,18 +1,20 @@
-//! logen — CLI：`ping` / `echo` / `list` / `start` / `stop` / `stat` / `cat`。
+//! logen — 控制脚本提交 CLI。
 
-use std::path::PathBuf;
+use std::io::Read;
+use std::path::{Path, PathBuf};
 
 use clap::{Parser, Subcommand};
 use logen_proto::logen_client::LogenClient;
 use logen_proto::{
-    CatWorkerRequest, EchoRequest, ListWorkersRequest, PingRequest, StartWorkerRequest,
-    StatWorkerRequest, StopWorkerRequest,
+    CloseControlSessionRequest, EvalControlSessionRequest, OpenControlSessionRequest,
+    RunControlScriptRequest,
 };
+use rustyline::error::ReadlineError;
+use rustyline::DefaultEditor;
 
 use logen_config::{
     connect_client_channel, load_merged, ClientConnect, ClientOverrides, LogenError,
 };
-use logen_dsl::read_worker_instance_yaml;
 
 #[derive(Parser)]
 #[command(
@@ -43,33 +45,74 @@ struct Cli {
     auto_kafka_protocol: Option<bool>,
 
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
 }
 
 #[derive(Subcommand)]
 enum Commands {
-    Ping,
-    Echo {
-        #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
-        text: Vec<String>,
+    Run {
+        /// 控制脚本（`.logen`；在远端 logend 内解释，须显式调用 `start(logen(...))`）。
+        #[arg(value_name = "CONFIG.logen|-")]
+        config: Option<String>,
+        /// 直接执行一段控制脚本。
+        #[arg(short = 'e', long, conflicts_with = "config", value_name = "SOURCE")]
+        source: Option<String>,
     },
-    #[command(aliases = ["ls"])]
-    List,
-    Start {
-        ///实例 YAML（单文件；见 [`logen_dsl`]）。
-        #[arg(required = true, value_name = "CONFIG.yaml")]
-        config: String,
-    },
-    Stop {
-        id: String,
-    },
-    Stat {
-        id_prefix: Option<String>,
-    },
-    /// 打印运行中 worker 实例的 YAML（id 支持唯一前缀，与 stop 相同）
-    Cat {
-        id: String,
-    },
+}
+
+/// 读取 `.logen` 控制脚本全文；拒绝 YAML 入口（硬切换，不兼容）。
+fn read_control_script(path: &Path) -> Result<String, LogenError> {
+    if path == Path::new("-") {
+        let mut source = String::new();
+        std::io::stdin()
+            .read_to_string(&mut source)
+            .map_err(|e| LogenError::Cli(format!("stdin: {e}")))?;
+        return Ok(source);
+    }
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if ext != "logen" {
+        return Err(LogenError::Cli(format!(
+            "run requires a .logen script (got {}); YAML instance configs are no longer accepted",
+            path.display()
+        )));
+    }
+    std::fs::read_to_string(path).map_err(|e| LogenError::Cli(format!("{}: {e}", path.display())))
+}
+
+fn run_source(
+    config: Option<String>,
+    source: Option<String>,
+) -> Result<(String, String), LogenError> {
+    match (config, source) {
+        (Some(path), None) => {
+            let source = read_control_script(Path::new(&path))?;
+            let label = if path == "-" { "(stdin)".into() } else { path };
+            Ok((source, label))
+        }
+        (None, Some(source)) => Ok((source, "(eval)".into())),
+        (None, None) => Err(LogenError::Cli(
+            "run requires CONFIG.logen, `-` for stdin, or --eval SOURCE".into(),
+        )),
+        (Some(_), Some(_)) => unreachable!("clap rejects conflicting run sources"),
+    }
+}
+
+fn kafka_broker_host(connect: &ClientConnect) -> Option<String> {
+    match connect {
+        ClientConnect::Tcp { host, .. } => Some(host.clone()),
+        ClientConnect::Unix { .. } => None,
+    }
+}
+
+fn print_control_reply(reply: logen_proto::RunControlScriptReply) {
+    print!("{}", reply.output);
+    if !reply.worker_id.is_empty() {
+        println!("{}\t{}", reply.worker_id, reply.status);
+    }
 }
 
 #[cfg(unix)]
@@ -104,106 +147,76 @@ async fn run() -> Result<(), LogenError> {
         .max_encoding_message_size(max_enc);
 
     match cli.command {
-        Commands::Ping => {
+        Some(Commands::Run { config, source }) => {
+            let (script, config_label) = run_source(config, source)?;
+            let kafka_broker_host = kafka_broker_host(&connect);
             let r = client
-                .ping(PingRequest {})
-                .await
-                .map_err(|s| LogenError::Grpc(s.to_string()))?;
-            println!("{}", r.into_inner().pong);
-        }
-        Commands::Echo { text } => {
-            let r = client
-                .echo(EchoRequest {
-                    message: text.join(" "),
-                })
-                .await
-                .map_err(|s| LogenError::Grpc(s.to_string()))?;
-            println!("{}", r.into_inner().message);
-        }
-        Commands::List => {
-            let r = client
-                .list_workers(ListWorkersRequest {})
-                .await
-                .map_err(|s| LogenError::Grpc(s.to_string()))?;
-            println!("id\talive\thealthy\tsink");
-            for s in r.into_inner().workers {
-                println!("{}\t{}\t{}\t{}", s.id, s.alive, s.healthy, s.sink_summary);
-            }
-        }
-        Commands::Stat { id_prefix } => {
-            let id_prefix = id_prefix.unwrap_or_default();
-            let r = client
-                .stat_worker(StatWorkerRequest { id_prefix })
-                .await
-                .map_err(|s| LogenError::Grpc(s.to_string()))?;
-            let list = r.into_inner().workers;
-            if list.is_empty() {
-                println!("(no matching workers)");
-                return Ok(());
-            }
-            for s in list {
-                println!("id:\t\t{}", s.id);
-                println!("config_path:\t{}", s.config_path);
-                println!("sink:\t\t{}", s.sink_summary);
-                println!("alive:\t\t{}", s.alive);
-                println!("healthy:\t{}", s.healthy);
-                println!(
-                    "eps:\t\t{:.3}\t(realtime est.: extrapolated total / uptime)",
-                    s.eps
-                );
-                println!(
-                    "eps_interval:\t{:.3}\t(last heartbeat window Δ/Δt)",
-                    s.eps_interval
-                );
-                println!("events_total:\t{}", s.log_events_total);
-                println!("events_est:\t{:.1}", s.log_events_estimated);
-                println!("retry_total:\t{}", s.retry_total);
-                println!("sec_since_hb:\t{:.3}", s.seconds_since_heartbeat);
-                println!("hb_timeout_s:\t{}", s.heartbeat_timeout_secs);
-                println!("hb_interval_s:\t{}", s.heartbeat_interval_secs);
-                println!();
-            }
-        }
-        Commands::Start { config } => {
-            let path = PathBuf::from(&config);
-            let instance_yaml = read_worker_instance_yaml(path.as_path())
-                .map_err(|e| LogenError::Cli(e.to_string()))?;
-            let kafka_broker_host = match &connect {
-                ClientConnect::Tcp { host, .. } => Some(host.clone()),
-                ClientConnect::Unix { .. } => None,
-            };
-            let r = client
-                .start_worker(StartWorkerRequest {
-                    instance_yaml,
-                    config_label: config,
+                .run_control_script(RunControlScriptRequest {
+                    script,
+                    config_label,
                     auto_kafka_protocol: cli.auto_kafka_protocol,
                     kafka_broker_host,
                 })
                 .await
                 .map_err(|s| LogenError::Grpc(s.to_string()))?;
-            let inner = r.into_inner();
-            println!("{}\t{}", inner.id, inner.status);
+            print_control_reply(r.into_inner());
         }
-        Commands::Stop { id } => {
-            if id.is_empty() {
-                return Err(LogenError::Cli("stop needs <id>".into()));
-            }
-            let r = client
-                .stop_worker(StopWorkerRequest { id })
+        None => {
+            let session = client
+                .open_control_session(OpenControlSessionRequest {
+                    config_label: "interactive".into(),
+                    auto_kafka_protocol: cli.auto_kafka_protocol,
+                    kafka_broker_host: kafka_broker_host(&connect),
+                })
                 .await
-                .map_err(|s| LogenError::Grpc(s.to_string()))?;
-            println!("{}", r.into_inner().status);
-        }
-        Commands::Cat { id } => {
-            if id.is_empty() {
-                return Err(LogenError::Cli("cat needs <id>".into()));
+                .map_err(|s| LogenError::Grpc(s.to_string()))?
+                .into_inner()
+                .session_id;
+            let mut editor = DefaultEditor::new()
+                .map_err(|e| LogenError::Cli(format!("interactive editor: {e}")))?;
+            loop {
+                match editor.readline("logen> ") {
+                    Ok(line) => {
+                        let source = line.trim();
+                        if source.is_empty() {
+                            continue;
+                        }
+                        if matches!(source, ":quit" | ":exit") {
+                            break;
+                        }
+                        if source == ":help" {
+                            println!(":help  :quit  :exit  :source FILE.logen");
+                            continue;
+                        }
+                        let source = if let Some(path) = source.strip_prefix(":source ") {
+                            read_control_script(Path::new(path.trim()))?
+                        } else {
+                            source.to_string()
+                        };
+                        let _ = editor.add_history_entry(&source);
+                        match client
+                            .eval_control_session(EvalControlSessionRequest {
+                                session_id: session.clone(),
+                                source,
+                            })
+                            .await
+                        {
+                            Ok(reply) => {
+                                print_control_reply(reply.into_inner());
+                            }
+                            Err(err) => eprintln!("{err}"),
+                        }
+                    }
+                    Err(ReadlineError::Interrupted) => continue,
+                    Err(ReadlineError::Eof) => break,
+                    Err(err) => return Err(LogenError::Cli(format!("interactive editor: {err}"))),
+                }
             }
-            let r = client
-                .cat_worker(CatWorkerRequest { id })
-                .await
-                .map_err(|s| LogenError::Grpc(s.to_string()))?;
-            let inner = r.into_inner();
-            print!("{}", inner.yaml);
+            let _ = client
+                .close_control_session(CloseControlSessionRequest {
+                    session_id: session,
+                })
+                .await;
         }
     }
     Ok(())

@@ -8,8 +8,8 @@ use tracing::{debug, info};
 pub struct RunningWorker {
     /// `logen start` 传入的展示标签（多为用户本地路径）
     pub config_label: String,
-    /// gRPC 投递的 YAML 全文（内存副本；`cat` 直接返回，不依赖托管文件是否仍存在）
-    pub instance_yaml: String,
+    /// 产生本 worker 的控制脚本全文（`cat` 直接返回）
+    pub control_script: String,
     pub worker_task: tokio::task::JoinHandle<()>,
     pub heartbeat_task: Option<tokio::task::JoinHandle<()>>,
     pub spawned_at: Instant,
@@ -17,7 +17,7 @@ pub struct RunningWorker {
     pub last_reported_log_events: u64,
     /// 上一心跳间隔内的 Δevents/Δt（采样）
     pub eps_interval: f64,
-    /// [`logen_dsl::format_sink_summary`]，与嵌套 `sink:` 一致
+    /// 启动时占位或后续刷新的 sink 摘要
     pub sink_summary: String,
     pub retry_total: u64,
 }

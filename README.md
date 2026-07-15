@@ -25,6 +25,6 @@ link依赖 **Zig**、`cargo-zigbuild`
 ## Benchmark
 
 ```bash
-cargo bench -p logen-dsl --bench template_runner
+cargo bench -p logen-model --bench template_runner
 cargo bench -p logen-worker --bench agent_message
 ```

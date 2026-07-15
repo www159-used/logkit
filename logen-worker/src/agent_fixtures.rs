@@ -1,6 +1,6 @@
 //! 编译期嵌入的 agent Kafka YAML fixture；供单测、bench 与集成测试 loader 共用。
 
-use logen_dsl::{worker_config_from_document, KafkaAgentFormat, KafkaConfig, WorkerConfig};
+use logen_model::{worker_config_from_document, KafkaAgentFormat, KafkaConfig, WorkerConfig};
 
 use crate::sink::kafka_agent::{build_runtime_agent_config, RuntimeAgentConfig};
 use crate::SinkError;

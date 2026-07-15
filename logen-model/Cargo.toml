@@ -1,0 +1,27 @@
+[package]
+name = "logen-model"
+description = "Worker instance domain model: WorkerConfig, template runner, sink validation"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+kafka-protocol = { path = "../kafka-protocol" }
+logen-branch = { path = "../logen-branch" }
+logen-model-macros = { path = "../logen-model-macros" }
+chrono = { workspace = true }
+fake = { workspace = true }
+handlebars = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+thiserror = { workspace = true }
+url = { workspace = true }
+humantime = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "template_runner"
+harness = false

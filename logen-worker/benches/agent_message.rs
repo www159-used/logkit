@@ -1,7 +1,7 @@
 use std::hint::black_box;
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use logen_dsl::KafkaAgentFormat;
+use logen_model::KafkaAgentFormat;
 use logen_worker::{agent_fixtures, build_agent_message};
 
 struct PayloadCase {

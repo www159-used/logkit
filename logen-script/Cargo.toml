@@ -1,0 +1,15 @@
+[package]
+name = "logen-script"
+description = "Imperative/functional script language for assembling logen worker config (parse → typecheck → eval)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+humantime = { workspace = true }
+kafka-protocol = { path = "../kafka-protocol" }
+logen-model = { path = "../logen-model" }
+pest = { workspace = true }
+pest_derive = { workspace = true }
+serde_yaml = { workspace = true }
+thiserror = { workspace = true }

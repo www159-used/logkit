@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 构建并本地预览仓库根 mdbook（含 logen-dsl 等章节）。
+# 构建并本地预览仓库根 mdbook（含 logen-model 等章节）。
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT}"

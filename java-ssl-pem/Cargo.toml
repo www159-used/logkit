@@ -1,12 +1,11 @@
 [package]
 name = "java-ssl-pem"
-description = "Java-style truststore/keystore (.jks, .p12) and PEM/DER sources → in-memory PEM text for TLS clients (Kafka-unrelated)."
+description = "Java-style truststore/keystore (.jks) → in-memory PEM text for TLS clients (Kafka-unrelated)."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
-jks = { workspace = true }
-p12-keystore = { workspace = true }
 pem = { workspace = true }
+sha1 = "0.10"
 thiserror = { workspace = true }

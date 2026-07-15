@@ -19,7 +19,7 @@ use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use logen_dsl::SinkConfig;
+use logen_model::SinkConfig;
 use tokio::sync::mpsc;
 
 #[async_trait]
@@ -28,7 +28,8 @@ pub trait LogLineSink: Send {
     async fn drain_lines(&mut self, line_rx: mpsc::Receiver<String>) -> Result<(), SinkError>;
 }
 
-/// 按 [`SinkConfig`] 构造行日志 sink（须已通过 [`validate_sink`](logen_dsl::validate_sink) 且 file `output` 已由 daemon 归一化）。
+/// 按 [`SinkConfig`] 构造行日志 sink（Kafka/stdout 等约束在 script / `finalize_worker_config` 侧保证；
+/// File 的缺省 `output` 由 [`SinkConfig::fill_default_output`](logen_model::SinkConfig::fill_default_output) 补全）。
 pub fn build_line_sink(
     sink: &SinkConfig,
     worker_id: &str,

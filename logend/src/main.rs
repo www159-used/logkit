@@ -2,7 +2,7 @@
 
 mod registry;
 mod serve;
-mod start_pipeline;
+mod session;
 mod svc;
 
 use std::path::PathBuf;

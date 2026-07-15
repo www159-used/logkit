@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use backon::ExponentialBuilder;
-use logen_dsl::KafkaConfig;
+use logen_model::KafkaConfig;
 use rdkafka::error::KafkaError;
 use rdkafka::message::{Message, OwnedHeaders, OwnedMessage};
 use rdkafka::producer::FutureRecord;
