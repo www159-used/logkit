@@ -155,7 +155,7 @@ fn read_der_length(data: &[u8]) -> Result<(usize, usize), JavaSslPemError> {
 
 fn derive_xor_key(salt: &[u8], pwd16: &[u8], length: usize) -> Vec<u8> {
     let digest_size = 20;
-    let rounds = (length + digest_size - 1) / digest_size;
+    let rounds = length.div_ceil(digest_size);
     let mut xor_key = vec![0u8; length];
     let mut digest = salt.to_vec();
     for i in 0..rounds {
@@ -216,11 +216,13 @@ fn decrypt_private_key(epki: &[u8], password: &str) -> Result<Vec<u8>, JavaSslPe
         detail: "EncryptedPrivateKeyInfo: truncated OID".into(),
     })? as usize;
     pos += 1;
-    let oid = epki.get(pos..pos + oid_len).ok_or_else(|| JavaSslPemError::Jks {
-        role: "key",
-        path: String::new(),
-        detail: "EncryptedPrivateKeyInfo: truncated OID body".into(),
-    })?;
+    let oid = epki
+        .get(pos..pos + oid_len)
+        .ok_or_else(|| JavaSslPemError::Jks {
+            role: "key",
+            path: String::new(),
+            detail: "EncryptedPrivateKeyInfo: truncated OID body".into(),
+        })?;
     if oid != KEY_PROTECTOR_OID {
         return Err(JavaSslPemError::Jks {
             role: "key",
@@ -240,11 +242,13 @@ fn decrypt_private_key(epki: &[u8], password: &str) -> Result<Vec<u8>, JavaSslPe
     pos += 1;
     let (octet_len, n) = read_der_length(&epki[pos..])?;
     pos += n;
-    let key_data = epki.get(pos..pos + octet_len).ok_or_else(|| JavaSslPemError::Jks {
-        role: "key",
-        path: String::new(),
-        detail: "EncryptedPrivateKeyInfo: truncated ciphertext".into(),
-    })?;
+    let key_data = epki
+        .get(pos..pos + octet_len)
+        .ok_or_else(|| JavaSslPemError::Jks {
+            role: "key",
+            path: String::new(),
+            detail: "EncryptedPrivateKeyInfo: truncated ciphertext".into(),
+        })?;
 
     if key_data.len() < SALT_LEN + 20 {
         return Err(JavaSslPemError::Jks {

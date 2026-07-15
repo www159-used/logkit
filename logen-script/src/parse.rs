@@ -264,11 +264,11 @@ mod tests {
     }
 
     /// 测试内容：解析 i64 / f64 字面量。
-    /// 输入：`-42` 与 `3.14`。
+    /// 输入：`-42` 与 `3.0`。
     /// 预期：Int / Float。
     #[test]
     fn parse_int_and_float() {
-        let p = parse_program("let a = -42\nlet b = 3.14\n").expect("parse");
+        let p = parse_program("let a = -42\nlet b = 3.0\n").expect("parse");
         match &p.stmts[0] {
             Stmt::Let {
                 value: Expr::Int(-42),
@@ -280,7 +280,7 @@ mod tests {
             Stmt::Let {
                 value: Expr::Float(f),
                 ..
-            } => assert!((*f - 3.14).abs() < 1e-9),
+            } => assert!((*f - 3.0).abs() < 1e-9),
             other => panic!("{other:?}"),
         }
     }
