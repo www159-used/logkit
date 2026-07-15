@@ -1339,7 +1339,7 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
 name = "java-ssl-pem"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "pem",
  "sha1",
@@ -1384,7 +1384,7 @@ dependencies = [
 
 [[package]]
 name = "jumpserver"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -1405,14 +1405,14 @@ dependencies = [
 
 [[package]]
 name = "kafka-agent-gen"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "uuid",
 ]
 
 [[package]]
 name = "kafka-protocol"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "clap",
  "java-ssl-pem",
@@ -1495,7 +1495,7 @@ checksum = "0ceec5bc11778974d1bcb055b18002eba7f4b3518b6a0081b3af5f21666da9ad"
 
 [[package]]
 name = "logen"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "clap",
  "logen-config",
@@ -1507,7 +1507,7 @@ dependencies = [
 
 [[package]]
 name = "logen-branch"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "rand",
  "thiserror",
@@ -1515,7 +1515,7 @@ dependencies = [
 
 [[package]]
 name = "logen-config"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "http",
  "hyper-util",
@@ -1530,7 +1530,7 @@ dependencies = [
 
 [[package]]
 name = "logen-model"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "chrono",
  "criterion",
@@ -1549,7 +1549,7 @@ dependencies = [
 
 [[package]]
 name = "logen-model-macros"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "heck",
  "proc-macro2",
@@ -1559,7 +1559,7 @@ dependencies = [
 
 [[package]]
 name = "logen-proto"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "prost",
  "tonic",
@@ -1569,7 +1569,7 @@ dependencies = [
 
 [[package]]
 name = "logen-script"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "humantime",
  "kafka-protocol",
@@ -1582,7 +1582,7 @@ dependencies = [
 
 [[package]]
 name = "logen-worker"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1612,7 +1612,7 @@ dependencies = [
 
 [[package]]
 name = "logend"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "clap",
  "http",
@@ -1707,7 +1707,7 @@ checksum = "1d87ecb2933e8aeadb3e3a02b828fed80a7528047e68b4f424523a0981a3a084"
 
 [[package]]
 name = "mysql-local"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "clap",
  "resolve-oem",
@@ -2160,7 +2160,7 @@ dependencies = [
 
 [[package]]
 name = "pullout"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "base64",
  "libloading",
@@ -2411,7 +2411,7 @@ dependencies = [
 
 [[package]]
 name = "resolve-oem"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "local-ip-address",
  "thiserror",
