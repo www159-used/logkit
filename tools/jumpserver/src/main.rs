@@ -91,11 +91,22 @@ async fn main() -> Result<()> {
         }));
     }
 
-    tokio::signal::ctrl_c().await?;
+    wait_shutdown_signal().await?;
     log::info!(target: "jumpserver", "shutting down");
     for h in handles {
         h.abort();
     }
 
+    Ok(())
+}
+
+/// Ctrl-C（SIGINT）或 systemd 默认的 SIGTERM。
+async fn wait_shutdown_signal() -> Result<()> {
+    use tokio::signal::unix::{signal, SignalKind};
+    let mut sigterm = signal(SignalKind::terminate())?;
+    tokio::select! {
+        r = tokio::signal::ctrl_c() => r?,
+        _ = sigterm.recv() => {}
+    }
     Ok(())
 }

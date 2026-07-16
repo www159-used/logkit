@@ -11,8 +11,8 @@ mod error;
 #[cfg(unix)]
 pub use client::connect_client_channel;
 pub use config::{
-    load_merged, ClientConnect, ClientOverrides, ClientSection, LogenConfig, LogendSection,
-    CONVENTIONAL_CLIENT_TCP_PORT, LOCAL_GRPC_AUTHORITY_URI,
+    load_merged, resolve_logkit_home, ClientConnect, ClientOverrides, ClientSection, LogenConfig,
+    LogendSection, CONVENTIONAL_CLIENT_TCP_PORT, LOCAL_GRPC_AUTHORITY_URI,
 };
 pub use error::LogenError;
 

@@ -1,0 +1,14 @@
+[Unit]
+Description=logkit control plane (logend)
+Documentation=https://github.com/wenkangwei/logkit
+After=network.target
+
+[Service]
+Type=simple
+Environment=LOGEN_DEFAULTS_FILE=/opt/logkit/etc/logend.toml
+ExecStart=/opt/logkit/bin/logend
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

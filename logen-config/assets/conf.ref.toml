@@ -1,23 +1,23 @@
 # Reference defaults (embedded). Override with --defaults-file merged on top.
 # 约定 TCP 端口 11159：logen -H 未写 port 时使用；logend 默认同时监听 UDS + TCP（可删 bind/port 仅保留 UDS）。
+#
+# 运行根目录默认 `$HOME/.logkit`（sock / log / output）；可用 `[logend].home` 覆盖。
 
 [client]
 # auto-kafka-protocol = true   # logen start 自动发现 Kafka（client.conf / server.properties）；false 时须在实例 YAML 手写 sink.kafka
 # host = "127.0.0.1"
 # port = 11159
-# socket = "/tmp/logend/logend.sock"
+# socket = "/home/you/.logkit/logend.sock"
 
 [logend]
-# 单实例根目录（sock / pid / logend.log 默认在其下）；多实例须不同 tmp-dir
-tmp-dir = "/tmp/logend"
-pid-record-suffix = "\n"
+# home = "/var/lib/logkit"   # 默认 $HOME/.logkit
 log-level = "info"
 # socket = "/var/run/logkit/logend.sock"
 # TCP：与 UDS 并存；删掉 bind+port 则仅 UDS
 bind = "0.0.0.0"
 port = 11159
-# file sink 默认输出根目录（必须为绝对路径；未写 sink.output 时在此目录下生成 {uuid-pre-8}-{date}.log）
-worker-output-dir = "/tmp/logend/output"
+# file sink 默认输出根目录（绝对路径；省略则为 {home}/output）
+# worker-output-dir = "/var/lib/logkit/output"
 heartbeat-timeout-secs = 30
 heartbeat-interval-secs = 1
 # runtime-threads = 4

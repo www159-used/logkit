@@ -1618,7 +1618,6 @@ dependencies = [
  "http",
  "hyper-util",
  "kafka-protocol",
- "libc",
  "logen-config",
  "logen-model",
  "logen-proto",

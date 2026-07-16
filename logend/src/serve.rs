@@ -1,4 +1,4 @@
-//! daemon 启动：pid、日志、UDS/TCP 监听。
+//! daemon 启动：日志、UDS/TCP 监听。
 
 use std::collections::HashMap;
 use std::fs;
@@ -18,17 +18,7 @@ use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, Env
 
 use crate::svc::{LogenSvc, LogenSvcState};
 
-struct PidFileGuard {
-    path: std::path::PathBuf,
-}
-
-impl Drop for PidFileGuard {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.path);
-    }
-}
-
-/// `{tmp_dir}/logend.log`（非阻塞写入）。`RUST_LOG` 优先于 `default_spec`。
+/// `{home}/logend.log`（非阻塞写入）。`RUST_LOG` 优先于 `default_spec`。
 fn init_daemon_logging(
     log_path: &Path,
     default_spec: &str,
@@ -65,17 +55,6 @@ fn init_daemon_logging(
     Ok(file_guard)
 }
 
-fn unix_process_exists(pid: u32) -> bool {
-    if pid == 0 {
-        return false;
-    }
-    let ret = unsafe { libc::kill(pid as libc::pid_t, 0) };
-    if ret == 0 {
-        return true;
-    }
-    std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
-}
-
 pub fn build_worker_runtime(logend: &LogendSection) -> Result<tokio::runtime::Runtime, LogenError> {
     let mut builder = tokio::runtime::Builder::new_multi_thread();
     builder.enable_all().thread_name("logend-worker-rt");
@@ -97,30 +76,14 @@ pub async fn run(
     fs::create_dir_all(worker_out_path)
         .map_err(|e| LogenError::unix_io(worker_out_path.to_path_buf(), e))?;
 
-    let pid_suffix = logend.pid_record_suffix.clone();
     let max_dec = logend.max_decoding_message_size_bytes as usize;
     let max_enc = logend.max_encoding_message_size_bytes as usize;
     let ping_reply = PingReply {
         pong: logend.ping_reply_text.clone(),
     };
 
-    let tmp_dir = logend.tmp_dir_path();
-    fs::create_dir_all(&tmp_dir).map_err(|e| LogenError::unix_io(tmp_dir.clone(), e))?;
-
-    let pid_path_buf = logend.pid_path();
-    if pid_path_buf.exists() {
-        let raw = fs::read_to_string(&pid_path_buf).unwrap_or_default();
-        let trimmed = raw.trim();
-        if let Ok(old) = trimmed.parse::<u32>() {
-            if unix_process_exists(old) {
-                return Err(LogenError::Cli(format!(
-                    "logend already running (pid {old}) under {}. Use a different [logend].tmp-dir for another instance, or stop the existing process.",
-                    tmp_dir.display()
-                )));
-            }
-        }
-        let _ = fs::remove_file(&pid_path_buf);
-    }
+    let home = logend.home_path();
+    fs::create_dir_all(&home).map_err(|e| LogenError::unix_io(home.clone(), e))?;
 
     let socket_path_buf = logend.socket_path();
     let log_path_buf = logend.log_path();
@@ -129,9 +92,9 @@ pub async fn run(
 
     let sock = socket_path_buf.as_path();
     info!(
-        "logend starting pid={} tmp-dir={} uds={} worker-output-dir={} log_file={} default_log_spec={} (RUST_LOG overrides if set)",
+        "logend starting pid={} home={} uds={} worker-output-dir={} log_file={} default_log_spec={} (RUST_LOG overrides if set)",
         std::process::id(),
-        tmp_dir.display(),
+        home.display(),
         sock.display(),
         worker_output_dir,
         log_path_buf.display(),
@@ -144,11 +107,6 @@ pub async fn run(
 
     let uds = UnixListener::bind(sock).map_err(|e| LogenError::unix_io(sock.to_path_buf(), e))?;
     let incoming = UnixListenerStream::new(uds);
-
-    let pid_body = format!("{}{}", std::process::id(), pid_suffix);
-    fs::write(pid_path_buf.as_path(), pid_body)
-        .map_err(|e| LogenError::write_file(pid_path_buf.to_string_lossy().into_owned(), e))?;
-    let _pid_guard = PidFileGuard { path: pid_path_buf };
 
     info!("listening for gRPC on {}", sock.display());
 

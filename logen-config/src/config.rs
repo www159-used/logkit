@@ -54,13 +54,14 @@ fn default_log_level() -> String {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct LogendSection {
-    /// 单实例根目录（**多实例须使用不同路径**）。其下默认：`logend.sock`、`logend.pid`、`logend.log`。
-    pub tmp_dir: String,
-    pub pid_record_suffix: String,
+    /// 运行根目录（`logend.sock` / `logend.log` 默认在其下）。
+    /// TOML 省略或空串时，在 [`load_merged`] 中解析为 **`$HOME/.logkit`**。
+    #[serde(default)]
+    pub home: String,
     /// 未设置 **`RUST_LOG`** 时作为 logend tracing 默认规格。
     #[serde(default = "default_log_level")]
     pub log_level: String,
-    /// 覆盖 UDS 监听路径（默认 `{tmp_dir}/logend.sock`）。
+    /// 覆盖 UDS 监听路径（默认 `{home}/logend.sock`）。
     #[serde(default)]
     pub socket: Option<String>,
     /// TCP 绑定地址（与 [`Self::port`] 成对配置；类似 mysqld `bind-address`）。
@@ -69,7 +70,8 @@ pub struct LogendSection {
     /// TCP 端口（与 [`Self::bind`] 成对配置；类似 mysqld `port`；嵌入默认见 `conf.ref.toml`）。
     #[serde(default)]
     pub port: Option<u16>,
-    /// 造日志写入根目录（**必填**，且必须为绝对路径）；实例 YAML 未写 `output` 时，daemon 在此目录下生成默认文件。
+    /// 造日志写入根目录（绝对路径；省略或空串时默认为 `{home}/output`）。
+    #[serde(default)]
     pub worker_output_dir: String,
     pub heartbeat_timeout_secs: u64,
     pub heartbeat_interval_secs: u64,
@@ -78,6 +80,28 @@ pub struct LogendSection {
     pub max_decoding_message_size_bytes: u32,
     pub max_encoding_message_size_bytes: u32,
     pub ping_reply_text: String,
+}
+
+/// 解析 logkit 运行根目录：显式绝对路径，或 **`$HOME/.logkit`**。
+pub fn resolve_logkit_home(override_home: Option<&str>) -> Result<PathBuf, LogenError> {
+    let trimmed = override_home.map(str::trim).filter(|s| !s.is_empty());
+    let path = if let Some(p) = trimmed {
+        PathBuf::from(p)
+    } else {
+        let home = std::env::var_os("HOME").ok_or_else(|| {
+            LogenError::MergedInvalid(
+                "[logend].home unset and environment variable HOME is missing; cannot resolve $HOME/.logkit"
+                    .into(),
+            )
+        })?;
+        PathBuf::from(home).join(".logkit")
+    };
+    if !path.is_absolute() {
+        return Err(LogenError::MergedInvalid(
+            "[logend].home must be an absolute path (or omit for $HOME/.logkit)".into(),
+        ));
+    }
+    Ok(path)
 }
 
 /// 合并后的全局配置（`[client]` + `[logend]`）。
@@ -122,8 +146,8 @@ impl ClientConnect {
 
 impl LogendSection {
     #[inline]
-    pub fn tmp_dir_path(&self) -> PathBuf {
-        PathBuf::from(self.tmp_dir.trim())
+    pub fn home_path(&self) -> PathBuf {
+        PathBuf::from(self.home.trim())
     }
 
     #[inline]
@@ -133,17 +157,12 @@ impl LogendSection {
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .map(PathBuf::from)
-            .unwrap_or_else(|| self.tmp_dir_path().join("logend.sock"))
-    }
-
-    #[inline]
-    pub fn pid_path(&self) -> PathBuf {
-        self.tmp_dir_path().join("logend.pid")
+            .unwrap_or_else(|| self.home_path().join("logend.sock"))
     }
 
     #[inline]
     pub fn log_path(&self) -> PathBuf {
-        self.tmp_dir_path().join("logend.log")
+        self.home_path().join("logend.log")
     }
 
     /// 本机 worker 心跳用的 Unix 连接（与 `[client]` 远端设置无关）。
@@ -262,27 +281,20 @@ pub fn load_merged(user_defaults: Option<&Path>) -> Result<LogenConfig, LogenErr
         .try_into()
         .map_err(|e| LogenError::MergedInvalid(e.to_string()))?;
 
-    let t = cfg.logend.tmp_dir.trim();
-    if t.is_empty() {
-        return Err(LogenError::MergedInvalid(
-            "[logend].tmp-dir must be non-empty (directory for logend.sock, logend.pid, logend.log)"
-                .into(),
-        ));
-    }
-    cfg.logend.tmp_dir = t.to_string();
+    let home = resolve_logkit_home(Some(cfg.logend.home.as_str()))?;
+    cfg.logend.home = home.to_string_lossy().into_owned();
 
     let out = cfg.logend.worker_output_dir.trim();
-    if out.is_empty() {
-        return Err(LogenError::MergedInvalid(
-            "[logend].worker-output-dir must be non-empty".into(),
-        ));
-    }
-    if !Path::new(out).is_absolute() {
-        return Err(LogenError::MergedInvalid(
-            "[logend].worker-output-dir must be an absolute path".into(),
-        ));
-    }
-    cfg.logend.worker_output_dir = out.to_string();
+    cfg.logend.worker_output_dir = if out.is_empty() {
+        home.join("output").to_string_lossy().into_owned()
+    } else {
+        if !Path::new(out).is_absolute() {
+            return Err(LogenError::MergedInvalid(
+                "[logend].worker-output-dir must be an absolute path".into(),
+            ));
+        }
+        out.to_string()
+    };
 
     Ok(cfg)
 }
@@ -442,20 +454,73 @@ worker-output-dir = "./output"
 
     /// 测试内容：默认 `[client]` 解析为本地 Unix 套接字。
     /// 输入：内嵌默认配置，无 CLI 覆盖。
-    /// 预期：解析为 Unix，套接字为 `{tmp_dir}/logend.sock`。
+    /// 预期：解析为 Unix，套接字为 `$HOME/.logkit/logend.sock`。
     #[test]
     fn resolve_client_connect_defaults_to_unix() {
         let cfg = load_merged(None).expect("defaults");
+        let expect = resolve_logkit_home(None)
+            .expect("HOME")
+            .join("logend.sock");
         let conn = cfg
             .resolve_client_connect(ClientOverrides::default())
             .expect("resolve");
         assert_eq!(conn.endpoint_uri(), LOCAL_GRPC_AUTHORITY_URI);
         match conn {
             ClientConnect::Unix { socket } => {
-                assert_eq!(socket, PathBuf::from("/tmp/logend/logend.sock"));
+                assert_eq!(socket, expect);
             }
             _ => panic!("expected unix"),
         }
+    }
+
+    /// 测试内容：省略 `[logend].home` 时落到 `$HOME/.logkit`，output 默认为其子目录。
+    /// 输入：仅内嵌默认。
+    /// 预期：`home` / `worker_output_dir` 为绝对路径且后者为 `{home}/output`。
+    #[test]
+    fn load_merged_defaults_home_under_user_home() {
+        let cfg = load_merged(None).expect("defaults");
+        let home = resolve_logkit_home(None).expect("HOME");
+        assert_eq!(cfg.logend.home_path(), home);
+        assert_eq!(
+            PathBuf::from(&cfg.logend.worker_output_dir),
+            home.join("output")
+        );
+    }
+
+    /// 测试内容：`[logend].home` 可覆盖默认根目录。
+    /// 输入：临时 TOML `home = "/var/lib/logkit-test"`。
+    /// 预期：sock/log 根与默认 output 均在该目录下。
+    #[test]
+    fn load_merged_honors_explicit_home() {
+        let t = TempMerged::load(
+            r#"
+[logend]
+home = "/var/lib/logkit-test"
+"#,
+        );
+        assert_eq!(t.cfg.logend.home, "/var/lib/logkit-test");
+        assert_eq!(
+            t.cfg.logend.socket_path(),
+            PathBuf::from("/var/lib/logkit-test/logend.sock")
+        );
+        assert_eq!(
+            t.cfg.logend.worker_output_dir,
+            "/var/lib/logkit-test/output"
+        );
+    }
+
+    /// 测试内容：相对路径的 `[logend].home` 被拒绝。
+    /// 输入：`home = "rel/logkit"`。
+    /// 预期：`MergedInvalid` 且提示 absolute。
+    #[test]
+    fn load_merged_rejects_relative_home() {
+        let err = TempMerged::load_err(
+            r#"
+[logend]
+home = "rel/logkit"
+"#,
+        );
+        assert!(err.to_string().contains("absolute path"), "{err}");
     }
 
     /// 测试内容：仅 `-H` / `[client].host` 未指定 port 时使用约定端口 11159。
