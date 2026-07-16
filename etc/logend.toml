@@ -1,0 +1,5 @@
+# 系统安装可选覆盖（sudo ./install.sh → /opt/logkit/etc/）。
+# 未设置 home 时，logend 使用默认 `$HOME/.logkit`（systemd 以 root 跑即为 /root/.logkit）。
+#
+# [logend]
+# home = "/var/lib/logkit"

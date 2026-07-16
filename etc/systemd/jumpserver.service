@@ -1,0 +1,16 @@
+[Unit]
+Description=logkit jumpserver (HTTP→HTTPS OEM mTLS proxy)
+Documentation=https://github.com/wenkangwei/logkit
+After=network.target
+
+[Service]
+Type=simple
+# 读 /opt/{oem}/cert；无 yotta 用户时 install.sh 会去掉 User/Group
+User=yotta
+Group=yotta
+ExecStart=/opt/logkit/tools/bin/jumpserver
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

@@ -69,11 +69,17 @@ artifact_profile_dir_name() {
   fi
 }
 
-# 将仓库 bin/install.sh 拷到发行包 **logkit/** 根目录（解压后在该目录执行 ./install.sh 写 ~/.bashrc）。
+# 将仓库 bin/install.sh 拷到发行包 **logkit/** 根目录（sudo ./install.sh → /opt + systemd）。
 copy_pack_install() {
   local dest_root="$1"
   cp "$ROOT/bin/install.sh" "$dest_root/install.sh"
   chmod +x "$dest_root/install.sh"
+}
+
+copy_pack_etc() {
+  local dest_root="$1"
+  mkdir -p "$dest_root/etc"
+  cp -R "$ROOT/etc/." "$dest_root/etc/"
 }
 
 copy_pack_license() {
@@ -118,7 +124,7 @@ pack_native_dir() {
   fi
   cp "$artifact_dir/logen" "$artifact_dir/logend" "$dist/bin/"
   copy_pack_tools "$dist" "$artifact_dir"
-  cp -R "$ROOT/etc/." "$dist/etc/"
+  copy_pack_etc "$dist"
   copy_pack_install "$dist"
   copy_pack_license "$dist"
   chmod +x "$dist/bin/logen" "$dist/bin/logend"
@@ -260,7 +266,7 @@ pack_linux_tarball() {
   fi
   cp "$artifact_dir/logen" "$artifact_dir/logend" "$stage/bin/"
   copy_pack_tools "$stage" "$artifact_dir"
-  cp -R "$ROOT/etc/." "$stage/etc/"
+  copy_pack_etc "$stage"
   copy_pack_install "$stage"
   copy_pack_license "$stage"
   chmod +x "$stage/bin/logen" "$stage/bin/logend"
