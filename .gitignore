@@ -9,6 +9,9 @@ guide/book/
 **/*.rs.bk
 *.pdb
 
+# VS Code extension package
+editors/vscode-logen/*.vsix
+
 # IDE / OS
 .DS_Store
 .idea/

@@ -146,9 +146,37 @@ jobs:
           name: logkit-dist-macos-arm
           path: dist/*.tar.gz
 
+  vscode-logen:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Ensure tag points to master history
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          git fetch origin master
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/master
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Package .vsix
+        run: |
+          set -euo pipefail
+          npm install -g @vscode/vsce
+          ./scripts/vscode-logen-pack.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: logkit-dist-vscode-logen
+          path: dist/*.vsix
+
   release:
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [linux-gnu, macos-arm]
+    needs: [linux-gnu, macos-arm, vscode-logen]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -159,6 +187,11 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: logkit-dist-macos-arm
+          path: release-assets
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: logkit-dist-vscode-logen
           path: release-assets
 
       - name: GitHub Release
