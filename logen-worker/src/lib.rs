@@ -122,21 +122,6 @@ async fn run_config_worker(
     .await
 }
 
-/// **仅供集成测试** [`tests/kafka_probe`]：对集群发 metadata 请求并返回 `(broker 数, topic 元数据条目数)`。
-#[doc(hidden)]
-pub fn probe_kafka_ssl_cluster(k: &logen_model::KafkaConfig) -> Result<(usize, usize), SinkError> {
-    sink::kafka::probe_kafka_ssl_cluster(k)
-}
-
-/// **仅供集成测试**：向 topic 同步投递一条消息（与 [`KafkaLineSink`] 相同 TLS/配置路径）。
-#[doc(hidden)]
-pub fn produce_one_kafka_ssl_line(
-    k: &logen_model::KafkaConfig,
-    payload: &str,
-) -> Result<(), SinkError> {
-    sink::kafka::produce_one_kafka_ssl_line(k, payload)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

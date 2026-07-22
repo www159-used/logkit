@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 prost = { workspace = true }
+semver = { workspace = true }
 tonic = { workspace = true }
 tonic-prost = { workspace = true }
 

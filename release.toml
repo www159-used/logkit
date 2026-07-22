@@ -1,6 +1,21 @@
+# 工作区发版（cargo-release）：
+#   cargo release minor --execute --no-confirm
+#   git push --follow-tags   # 若未自动 push
+#
+# 会同步 bump：
+#   - [workspace.package].version / Cargo.lock
+#   - editors/vscode-logen/package.json
+# 打 tag v{{version}} 后由 .github/workflows/pack.yml 产出 tar.gz + .vsix。
+
 publish = false
 tag-name = "v{{version}}"
 consolidate-commits = true
 pre-release-commit-message = "chore: release {{version}}"
 tag-message = "chore: release {{version}}"
 allow-branch = ["main", "master", "nigger"]
+
+[[pre-release-replacements]]
+file = "editors/vscode-logen/package.json"
+search = '"version": "{{current_version}}"'
+replace = '"version": "{{version}}"'
+exactly = 1

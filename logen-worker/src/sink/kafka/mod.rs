@@ -244,41 +244,6 @@ impl LogLineSink for KafkaLineSink {
     }
 }
 
-/// 集成测试：metadata 探针。
-pub(crate) fn probe_kafka_ssl_cluster(k: &KafkaConfig) -> Result<(usize, usize), SinkError> {
-    let (producer, _) = create_future_producer(k)?;
-    let meta = producer
-        .client()
-        .fetch_metadata(None, Duration::from_secs(30))
-        .map_err(|e| SinkError::Kafka(format!("fetch_metadata: {e}")))?;
-    Ok((meta.brokers().len(), meta.topics().len()))
-}
-
-/// 集成测试：发送一条并 flush。
-pub(crate) fn produce_one_kafka_ssl_line(k: &KafkaConfig, payload: &str) -> Result<(), SinkError> {
-    let (producer, topic) = create_future_producer(k)?;
-    let delivery = producer
-        .send_result(FutureRecord::<(), str>::to(topic.as_str()).payload(payload))
-        .map_err(|(e, _)| SinkError::Kafka(format!("kafka send: {e}")))?;
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|e| SinkError::Kafka(format!("tokio runtime: {e}")))?;
-    rt.block_on(async {
-        match delivery.await {
-            Ok(Ok(_)) => Ok(()),
-            Ok(Err((e, _))) => Err(SinkError::Kafka(format!("kafka delivery: {e}"))),
-            Err(_) => Err(SinkError::Kafka(
-                "kafka producer dropped before delivery".into(),
-            )),
-        }
-    })?;
-    producer
-        .flush(Duration::from_secs(30))
-        .map_err(|e| SinkError::Kafka(format!("kafka flush: {e}")))?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod producer_profile_tests {
     use super::client_config::{

@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use logen_config::{LogenConfig, LogenError, LogendSection};
 use logen_proto::logen_server::LogenServer;
-use logen_proto::PingReply;
+use logen_proto::{PingReply, ServerVersion};
 use logen_worker::EmbeddedWorker;
 use tokio::net::UnixListener;
 use tokio::sync::Mutex;
@@ -80,6 +80,10 @@ pub async fn run(
     let max_enc = logend.max_encoding_message_size_bytes as usize;
     let ping_reply = PingReply {
         pong: logend.ping_reply_text.clone(),
+        version: Some(ServerVersion {
+            logend_version: env!("CARGO_PKG_VERSION").into(),
+            logen_version: env!("CARGO_PKG_VERSION").into(),
+        }),
     };
 
     let home = logend.home_path();

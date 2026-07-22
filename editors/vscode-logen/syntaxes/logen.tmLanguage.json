@@ -1,0 +1,128 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "logen-script",
+  "scopeName": "source.logen",
+  "patterns": [
+    { "include": "#comment" },
+    { "include": "#template" },
+    { "include": "#string" },
+    { "include": "#duration" },
+    { "include": "#float" },
+    { "include": "#integer" },
+    { "include": "#let" },
+    { "include": "#named-arg" },
+    { "include": "#call-builtin" },
+    { "include": "#call" },
+    { "include": "#ident" }
+  ],
+  "repository": {
+    "comment": {
+      "name": "comment.line.number-sign.logen",
+      "match": "#.*$"
+    },
+    "let": {
+      "name": "meta.let.logen",
+      "match": "\\b(let)\\b\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*(=)",
+      "captures": {
+        "1": { "name": "keyword.control.let.logen" },
+        "2": { "name": "variable.other.logen" },
+        "3": { "name": "keyword.operator.assignment.logen" }
+      }
+    },
+    "named-arg": {
+      "match": "\\b([A-Za-z_][A-Za-z0-9_]*)\\s*(:)",
+      "captures": {
+        "1": { "name": "variable.parameter.logen" },
+        "2": { "name": "punctuation.separator.key-value.logen" }
+      }
+    },
+    "call-patterns": {
+      "patterns": [
+        { "include": "#comment" },
+        { "include": "#template" },
+        { "include": "#string" },
+        { "include": "#duration" },
+        { "include": "#float" },
+        { "include": "#integer" },
+        { "include": "#named-arg" },
+        { "include": "#call-builtin" },
+        { "include": "#call" },
+        { "include": "#ident" }
+      ]
+    },
+    "call-builtin": {
+      "begin": "\\b(logen|start|stop|stat|body|counter|uuid_v4|name_en|ipv4|url|url_path|hostname|domain_suffix|lorem_word|company_name|user_agent|username|timestamp|integer|float|sentence|kafka_sink|stdout_sink|preset_json|preset_cef|preset_leefv2|preset_cyberark|preset_firewall_winicssec|preset_ips_nsfocus|preset_exchange_tracking|preset_apache_access_xff|preset_apache_middleware)\\s*(\\()",
+      "beginCaptures": {
+        "1": { "name": "support.function.builtin.logen" },
+        "2": { "name": "punctuation.section.arguments.begin.logen" }
+      },
+      "end": "\\)",
+      "endCaptures": {
+        "0": { "name": "punctuation.section.arguments.end.logen" }
+      },
+      "patterns": [{ "include": "#call-patterns" }]
+    },
+    "call": {
+      "begin": "\\b([A-Za-z_][A-Za-z0-9_]*)\\s*(\\()",
+      "beginCaptures": {
+        "1": { "name": "entity.name.function.logen" },
+        "2": { "name": "punctuation.section.arguments.begin.logen" }
+      },
+      "end": "\\)",
+      "endCaptures": {
+        "0": { "name": "punctuation.section.arguments.end.logen" }
+      },
+      "patterns": [{ "include": "#call-patterns" }]
+    },
+    "ident": {
+      "name": "variable.other.logen",
+      "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b"
+    },
+    "duration": {
+      "name": "constant.numeric.duration.logen",
+      "match": "\\b\\d+(ms|us|ns|s|m|h)\\b"
+    },
+    "float": {
+      "name": "constant.numeric.float.logen",
+      "match": "\\b-?\\d+\\.\\d+\\b"
+    },
+    "integer": {
+      "name": "constant.numeric.integer.logen",
+      "match": "\\b-?\\d+\\b"
+    },
+    "string": {
+      "name": "string.quoted.double.logen",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.logen",
+          "match": "\\\\."
+        }
+      ]
+    },
+    "template": {
+      "name": "string.quoted.other.template.logen",
+      "begin": "`",
+      "end": "`",
+      "patterns": [
+        {
+          "name": "meta.interpolation.logen",
+          "begin": "\\$\\{",
+          "beginCaptures": {
+            "0": { "name": "punctuation.definition.template-expression.begin.logen" }
+          },
+          "end": "\\}",
+          "endCaptures": {
+            "0": { "name": "punctuation.definition.template-expression.end.logen" }
+          },
+          "patterns": [
+            { "include": "#call-builtin" },
+            { "include": "#call" },
+            { "include": "#ident" }
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "name": "logen",
+  "displayName": "logen-script",
+  "description": "Syntax highlighting for logkit logen-script (.logen)",
+  "version": "2.1.0",
+  "publisher": "logkit",
+  "license": "AGPL-3.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/www159-used/logkit.git",
+    "directory": "editors/vscode-logen"
+  },
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "scripts": {
+    "package": "vsce package --no-dependencies",
+    "publish:vsce": "vsce publish --no-dependencies",
+    "publish:ovsx": "ovsx publish --no-dependencies"
+  },
+  "contributes": {
+    "languages": [
+      {
+        "id": "logen",
+        "aliases": [
+          "logen-script",
+          "logen"
+        ],
+        "extensions": [
+          ".logen"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "logen",
+        "scopeName": "source.logen",
+        "path": "./syntaxes/logen.tmLanguage.json"
+      }
+    ]
+  }
+}

@@ -20,8 +20,17 @@ service Logen {
 
 message PingRequest {}
 
+// logend / logen 控制面版本（Console 按 semver 做特性判断）。
+message ServerVersion {
+  // logend crate semver，如 "2.1.0"
+  string logend_version = 1;
+  // monorepo 内 logen 包版本，通常与 logend 一致
+  string logen_version = 2;
+}
+
 message PingReply {
   string pong = 1;
+  ServerVersion version = 2;
 }
 
 message EchoRequest {

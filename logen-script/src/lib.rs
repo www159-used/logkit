@@ -238,6 +238,19 @@ let cfg = logen(body: body, sink: sink)
         assert!(!cfg.fields.is_empty());
     }
 
+    /// 测试内容：控制脚本使用 file_sink 启动 worker。
+    /// 输入：`start(logen(preset_json(), file_sink(...)))`。
+    /// 预期：宿主收到 start 调用且 sink 为 File。
+    #[test]
+    fn control_script_file_sink_starts_worker() {
+        let host = std::sync::Arc::new(TestControlHost::default());
+        let source =
+            r#"start(logen(preset_json(), file_sink(output: "/tmp/logkit-test.log")), label: "file")"#;
+        let result = run_control_script(source, host.clone()).expect("control eval");
+        assert!(matches!(result.value, Some(Value::Str(id)) if !id.is_empty()));
+        assert_eq!(host.calls.lock().unwrap().as_slice(), ["start:file"]);
+    }
+
     /// 测试内容：控制脚本通过宿主执行显式 start、stop、stat。
     /// 输入：`start(logen(...))` 返回 id 后传给 stop，最终调用 stat。
     /// 预期：宿主按顺序收到 start/stop/stat；最终值为 Unit 且统计进入输出缓冲。
