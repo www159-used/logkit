@@ -2,12 +2,62 @@ use crate::api::get_connection;
 use crate::components::{
     persist_flash, Breadcrumb, ConnectionForm, PageHeader, PageHeaderMain, PageShell, PageTitle,
 };
-use crate::i18n::{use_i18n, Msg};
+use crate::i18n::{use_i18n, I18n, Msg};
 use crate::model::{ConnectionId, LogendConnection};
 
 use leptos::prelude::*;
 use leptos_router::components::A;
 use leptos_router::hooks::{use_navigate, use_params_map};
+
+fn connection_form_handlers(
+    i18n: I18n,
+    navigate: impl Fn(&str, leptos_router::NavigateOptions) + Clone + Send + Sync + 'static,
+) -> (
+    StoredValue<impl Fn(LogendConnection) + 'static>,
+    StoredValue<impl Fn() + 'static>,
+) {
+    let on_saved = StoredValue::new({
+        let navigate = navigate.clone();
+        move |_conn: LogendConnection| {
+            persist_flash(i18n.t(Msg::ConnectionSaved));
+            navigate("/", Default::default());
+        }
+    });
+    let on_cancel = StoredValue::new({
+        let navigate = navigate.clone();
+        move || navigate("/", Default::default())
+    });
+    (on_saved, on_cancel)
+}
+
+#[component]
+pub fn ConnectionNewPage() -> impl IntoView {
+    let i18n = use_i18n();
+    let navigate = use_navigate();
+    let (initial, _) = signal(None::<LogendConnection>);
+    let (on_saved, on_cancel) = connection_form_handlers(i18n, navigate);
+
+    view! {
+        <PageShell>
+            <PageHeader>
+                <PageHeaderMain>
+                    <Breadcrumb>
+                        <A href="/">{move || i18n.t(Msg::Connections)}</A>
+                        " / "
+                        {move || i18n.t(Msg::NewConnection)}
+                    </Breadcrumb>
+                    <PageTitle>{move || i18n.t(Msg::NewConnection)}</PageTitle>
+                </PageHeaderMain>
+            </PageHeader>
+
+            <ConnectionForm
+                initial=initial
+                on_saved=move |conn| on_saved.with_value(|f| f(conn))
+                on_cancel=move || on_cancel.with_value(|f| f())
+            />
+        </PageShell>
+    }
+}
 
 #[component]
 pub fn ConnectionEditPage() -> impl IntoView {
@@ -35,18 +85,7 @@ pub fn ConnectionEditPage() -> impl IntoView {
         }
     });
 
-    let on_saved = StoredValue::new({
-        let navigate = navigate.clone();
-        move |_conn: LogendConnection| {
-            persist_flash(i18n.t(Msg::ConnectionSaved));
-            navigate("/", Default::default());
-        }
-    });
-
-    let on_cancel = StoredValue::new({
-        let navigate = navigate.clone();
-        move || navigate("/", Default::default())
-    });
+    let (on_saved, on_cancel) = connection_form_handlers(i18n, navigate);
 
     view! {
         <PageShell>

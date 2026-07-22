@@ -123,7 +123,7 @@ pub fn WorkerStartForm(
                             prop:checked=move || matches!(sink_kind.get(), WorkerSinkKind::Stdout)
                             on:change=move |_| set_sink_kind.set(WorkerSinkKind::Stdout)
                         />
-                        "stdout"
+                        {move || i18n.t(Msg::SinkStdout)}
                     </label>
                     <label class="radio">
                         <input
@@ -141,7 +141,7 @@ pub fn WorkerStartForm(
                                 })
                             }
                         />
-                        "file"
+                        {move || i18n.t(Msg::SinkFile)}
                     </label>
                     <Show when=move || !supports_file_sink.get()>
                         <p class="muted">{move || i18n.t(Msg::SinkFileRequiresMinLogend)}</p>
@@ -156,7 +156,7 @@ pub fn WorkerStartForm(
                                 set_kafka_mode.set(KafkaWebMode::Common);
                             }
                         />
-                        "Kafka"
+                        {move || i18n.t(Msg::SinkKafka)}
                     </label>
                 </fieldset>
 

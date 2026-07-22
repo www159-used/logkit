@@ -1,5 +1,5 @@
 use crate::i18n::{I18n, Msg};
-use crate::model::{ConnectionId, WorkerSummary, WorkerStatusKey};
+use crate::model::{ConnectionId, WorkerSummary};
 
 use leptos::prelude::*;
 use leptos_router::components::A;
@@ -21,7 +21,7 @@ pub fn WorkersList(
                 let detail_href = worker_detail_href(connection_id, &w.id);
                 let status_class = w.status_class().to_string();
                 let status_key = w.status_label_key();
-                let status_label = worker_status_label(i18n, status_key);
+                let status_label = i18n.worker_status_label(status_key);
                 let label = w.config_label.clone();
                 let id = w.id.clone();
                 let sink = w.sink_summary.clone();
@@ -57,13 +57,5 @@ pub fn WorkersList(
                 }
             }).collect_view()}
         </ul>
-    }
-}
-
-fn worker_status_label(i18n: I18n, key: WorkerStatusKey) -> &'static str {
-    match key {
-        WorkerStatusKey::Stopped => i18n.t(Msg::StatusStopped),
-        WorkerStatusKey::Healthy => i18n.t(Msg::StatusHealthy),
-        WorkerStatusKey::Unhealthy => i18n.t(Msg::StatusUnhealthy),
     }
 }

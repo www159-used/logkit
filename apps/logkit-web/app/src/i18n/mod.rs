@@ -26,7 +26,6 @@ impl Locale {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Msg {
     PageNotFound,
-    AppSubtitle,
     AddConnection,
     LoadingConnections,
     NoConnections,
@@ -36,10 +35,8 @@ pub enum Msg {
     Workers,
     Connections,
     Back,
-    Refresh,
     LoadingWorkers,
     NoWorkers,
-    ColLabel,
     ColStatus,
     ColEvents,
     Stop,
@@ -128,8 +125,6 @@ pub fn translate(locale: Locale, key: Msg) -> &'static str {
     match (locale, key) {
         (Locale::Zh, Msg::PageNotFound) => "未找到页面",
         (Locale::En, Msg::PageNotFound) => "Page not found",
-        (Locale::Zh, Msg::AppSubtitle) => "管理本机或远端 logend 连接",
-        (Locale::En, Msg::AppSubtitle) => "Manage local or remote logend connections",
         (Locale::Zh, Msg::AddConnection) => "添加连接",
         (Locale::En, Msg::AddConnection) => "Add connection",
         (Locale::Zh, Msg::LoadingConnections) => "加载连接…",
@@ -148,8 +143,6 @@ pub fn translate(locale: Locale, key: Msg) -> &'static str {
         (Locale::En, Msg::Connections) => "Connections",
         (Locale::Zh, Msg::Back) => "返回连接",
         (Locale::En, Msg::Back) => "Back to connections",
-        (Locale::Zh, Msg::Refresh) => "刷新",
-        (Locale::En, Msg::Refresh) => "Refresh",
         (Locale::Zh, Msg::LoadingWorkers) => "加载 worker…",
         (Locale::En, Msg::LoadingWorkers) => "Loading workers…",
         (Locale::Zh, Msg::NoWorkers) => "当前 logend 上没有 worker。",
@@ -188,8 +181,6 @@ pub fn translate(locale: Locale, key: Msg) -> &'static str {
         (Locale::En, Msg::ThreadsOptional) => "Threads",
         (Locale::Zh, Msg::ScriptLabel) => "标签",
         (Locale::En, Msg::ScriptLabel) => "Label",
-        (Locale::Zh, Msg::ColLabel) => "标签",
-        (Locale::En, Msg::ColLabel) => "Label",
         (Locale::Zh, Msg::ColStatus) => "状态",
         (Locale::En, Msg::ColStatus) => "Status",
         (Locale::Zh, Msg::ColEvents) => "事件",
@@ -337,6 +328,15 @@ impl I18n {
     /// 取当前语言的文案；在 view 里请写 `move || i18n.t(Msg::…)` 以订阅语言切换。
     pub fn t(&self, key: Msg) -> &'static str {
         translate(self.locale.get(), key)
+    }
+
+    pub fn worker_status_label(&self, key: crate::model::WorkerStatusKey) -> &'static str {
+        use crate::model::WorkerStatusKey;
+        match key {
+            WorkerStatusKey::Stopped => self.t(Msg::StatusStopped),
+            WorkerStatusKey::Healthy => self.t(Msg::StatusHealthy),
+            WorkerStatusKey::Unhealthy => self.t(Msg::StatusUnhealthy),
+        }
     }
 }
 

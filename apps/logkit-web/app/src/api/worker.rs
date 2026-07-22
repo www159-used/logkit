@@ -8,6 +8,26 @@ use crate::model::build_control_script;
 use super::support::{client, err, map_workers};
 
 #[server]
+pub async fn load_connection_for_worker(
+    connection_id: ConnectionId,
+) -> Result<(LogendConnection, LogendServerVersion), ServerFnError> {
+    #[cfg(feature = "ssr")]
+    {
+        let conn = client()?.get(connection_id.into()).map_err(err)?;
+        let ping = client()?.ping(connection_id.into()).await.map_err(err)?;
+        Ok((
+            LogendConnection::from(conn),
+            ping.server_version.into(),
+        ))
+    }
+    #[cfg(not(feature = "ssr"))]
+    {
+        let _ = connection_id;
+        Err(ServerFnError::ServerError("SSR only".into()))
+    }
+}
+
+#[server]
 pub async fn load_workers_page(
     connection_id: ConnectionId,
 ) -> Result<(LogendConnection, Vec<WorkerSummary>, LogendServerVersion), ServerFnError> {
@@ -73,7 +93,7 @@ pub async fn load_worker_detail(
     {
         let conn = client()?.get(connection_id.into()).map_err(err)?;
         let workers = client()?
-            .stat_workers(connection_id.into(), "")
+            .stat_workers(connection_id.into(), &worker_id)
             .await
             .map_err(err)?;
         let worker = workers

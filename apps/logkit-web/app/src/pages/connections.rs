@@ -1,7 +1,7 @@
 use crate::api::{
     delete_connection, list_connections, ping_saved_connection,
 };
-use crate::components::{ConnectionsList, EmptyState, PageShell, use_toast};
+use crate::components::{ConnectionsList, EmptyState, PageShell, clear_toast_resource_error, toast_resource_error, use_toast};
 use crate::i18n::{use_i18n, Msg};
 use crate::model::{ConnectionId, LogendConnection};
 
@@ -20,11 +20,15 @@ pub fn ConnectionsPage() -> impl IntoView {
     );
 
     let toast_for_effect = toast.clone();
+    let last_err = StoredValue::new(None::<String>);
     Effect::new(move |_| {
-        if let Some(Ok(list)) = connections_res.get() {
-            set_connections.set(list.clone());
-        } else if let Some(Err(e)) = connections_res.get() {
-            toast_for_effect.error(e.to_string());
+        match connections_res.get() {
+            Some(Ok(list)) => {
+                clear_toast_resource_error(&last_err);
+                set_connections.set(list.clone());
+            }
+            Some(Err(e)) => toast_resource_error(&toast_for_effect, &last_err, e),
+            None => {}
         }
     });
 

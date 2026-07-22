@@ -18,7 +18,10 @@ pub use layout::{
     Breadcrumb, EmptyState, PageHeader, PageHeaderActions, PageHeaderMain, PageShell,
     PageSubtitle, PageTitle, SectionHeading,
 };
-pub use toast::{persist_flash, provide_toast, use_toast, ToastHost};
+pub use toast::{
+    clear_toast_resource_error, persist_flash, provide_toast, toast_resource_error, use_toast,
+    ToastHost,
+};
 pub use connection_form::ConnectionForm;
 pub use eps_chart::{push_eps_sample, EpsChart};
 pub use worker_form::WorkerStartForm;

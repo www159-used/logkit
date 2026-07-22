@@ -1,4 +1,4 @@
-use crate::api::load_workers_page;
+use crate::api::load_connection_for_worker;
 use crate::components::{
     persist_flash, workers_href, Breadcrumb, PageHeader, PageHeaderMain, PageShell, PageSubtitle,
     PageTitle, WorkerStartForm,
@@ -27,7 +27,7 @@ pub fn WorkerNewPage() -> impl IntoView {
                 "missing connection id".into(),
             ));
         };
-        load_workers_page(id).await.map(|(conn, _, version)| (conn, version))
+        load_connection_for_worker(id).await
     });
 
     Effect::new(move |_| {
@@ -51,7 +51,7 @@ pub fn WorkerNewPage() -> impl IntoView {
             let Some(id) = connection_id() else {
                 return;
             };
-            let msg = format_start_message(result);
+            let msg = result.flash_message();
             persist_flash(&msg);
             navigate(&workers_href(id), Default::default());
         }
@@ -113,22 +113,5 @@ pub fn WorkerNewPage() -> impl IntoView {
                 }}
             </Suspense>
         </PageShell>
-    }
-}
-
-fn format_start_message(result: StartWorkerResult) -> String {
-    if result.worker_id.is_empty() {
-        if result.output.trim().is_empty() {
-            result.status
-        } else {
-            format!("{}\n{}", result.output.trim(), result.status)
-        }
-    } else {
-        format!(
-            "{} → {} ({})",
-            result.worker_id,
-            result.status,
-            result.output.trim()
-        )
     }
 }

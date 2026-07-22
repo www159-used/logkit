@@ -1,7 +1,7 @@
 use crate::api::{load_worker_detail};
 use crate::components::{
-    use_toast, workers_href, Breadcrumb, EpsChart, PageHeader, PageHeaderMain, PageShell,
-    PageSubtitle, PageTitle, SectionHeading, push_eps_sample,
+    clear_toast_resource_error, toast_resource_error, use_toast, workers_href, Breadcrumb, EpsChart,
+    PageHeader, PageHeaderMain, PageShell, PageSubtitle, PageTitle, SectionHeading, push_eps_sample,
 };
 use crate::i18n::{use_i18n, Msg};
 use crate::model::{ConnectionId, LogendConnection, WorkerSummary};
@@ -47,14 +47,16 @@ pub fn WorkerDetailPage() -> impl IntoView {
     });
 
     let toast_for_detail = toast.clone();
+    let last_err = StoredValue::new(None::<String>);
     Effect::new(move |_| {
         match detail_res.get() {
             Some(Ok((conn, w))) => {
+                clear_toast_resource_error(&last_err);
                 set_connection.set(Some(conn));
                 set_eps_history.update(|h| push_eps_sample(h, w.eps));
                 set_worker.set(Some(w));
             }
-            Some(Err(e)) => toast_for_detail.error(e.to_string()),
+            Some(Err(e)) => toast_resource_error(&toast_for_detail, &last_err, e),
             None => {}
         }
     });
@@ -96,11 +98,7 @@ pub fn WorkerDetailPage() -> impl IntoView {
                 <p class="muted">{move || i18n.t(Msg::LoadingWorker)}</p>
             }>
                 {move || worker.get().map(|w| {
-                    let status_label = match w.status_label_key() {
-                        crate::model::WorkerStatusKey::Stopped => i18n.t(Msg::StatusStopped),
-                        crate::model::WorkerStatusKey::Healthy => i18n.t(Msg::StatusHealthy),
-                        crate::model::WorkerStatusKey::Unhealthy => i18n.t(Msg::StatusUnhealthy),
-                    };
+                    let status_label = i18n.worker_status_label(w.status_label_key());
                     view! {
                         <section class="card worker-status-card">
                             <div class="card-head">

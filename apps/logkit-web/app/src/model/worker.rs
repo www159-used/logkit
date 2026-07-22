@@ -24,6 +24,25 @@ pub struct StartWorkerResult {
     pub status: String,
 }
 
+impl StartWorkerResult {
+    pub fn flash_message(&self) -> String {
+        if self.worker_id.is_empty() {
+            if self.output.trim().is_empty() {
+                self.status.clone()
+            } else {
+                format!("{}\n{}", self.output.trim(), self.status)
+            }
+        } else {
+            format!(
+                "{} → {} ({})",
+                self.worker_id,
+                self.status,
+                self.output.trim()
+            )
+        }
+    }
+}
+
 impl WorkerSummary {
     pub fn status_label_key(&self) -> WorkerStatusKey {
         if !self.alive {

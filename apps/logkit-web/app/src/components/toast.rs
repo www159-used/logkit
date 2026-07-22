@@ -6,10 +6,9 @@ pub const FLASH_STORAGE_KEY: &str = "logkit-flash";
 pub enum ToastKind {
     Success,
     Error,
-    Info,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 struct ToastMessage {
     text: String,
     kind: ToastKind,
@@ -37,10 +36,6 @@ impl Toast {
         self.show(text, ToastKind::Error);
     }
 
-    pub fn info(&self, text: impl Into<String>) {
-        self.show(text, ToastKind::Info);
-    }
-
     pub fn dismiss(&self) {
         self.set_active.set(None);
     }
@@ -64,6 +59,24 @@ pub fn persist_flash(text: &str) {
     crate::browser_storage::write(FLASH_STORAGE_KEY, text);
 }
 
+/// 轮询/Resource 失败时避免相同错误文案重复弹出 toast。
+pub fn toast_resource_error(
+    toast: &Toast,
+    last: &StoredValue<Option<String>>,
+    err: impl ToString,
+) {
+    let msg = err.to_string();
+    if last.with_value(|s| s.as_deref() == Some(msg.as_str())) {
+        return;
+    }
+    last.set_value(Some(msg.clone()));
+    toast.error(msg);
+}
+
+pub fn clear_toast_resource_error(last: &StoredValue<Option<String>>) {
+    last.set_value(None);
+}
+
 #[component]
 pub fn ToastHost() -> impl IntoView {
     let toast = use_toast();
@@ -81,14 +94,28 @@ pub fn ToastHost() -> impl IntoView {
         }
     });
 
+    let dismiss_epoch = StoredValue::new(0u64);
+
     Effect::new(move |prev: Option<Option<ToastMessage>>| {
         let current = active.get();
-        if prev.is_some() && current.is_some() {
+        let prev_msg = prev.flatten();
+        let is_new = match (&prev_msg, &current) {
+            (_, None) => false,
+            (None, Some(_)) => true,
+            (Some(old), Some(new)) => old.text != new.text || old.kind != new.kind,
+        };
+        if is_new {
+            dismiss_epoch.update_value(|e| *e += 1);
             #[cfg(feature = "hydrate")]
             {
+                let epoch = dismiss_epoch.get_value();
                 let set_active = set_active.clone();
                 leptos::leptos_dom::helpers::set_timeout(
-                    move || set_active.set(None),
+                    move || {
+                        if dismiss_epoch.get_value() == epoch {
+                            set_active.set(None);
+                        }
+                    },
                     std::time::Duration::from_secs(5),
                 );
             }
@@ -104,7 +131,6 @@ pub fn ToastHost() -> impl IntoView {
                     let kind_class = match msg.kind {
                         ToastKind::Success => "toast toast-success",
                         ToastKind::Error => "toast toast-error",
-                        ToastKind::Info => "toast toast-info",
                     };
                     view! {
                         <div class=kind_class>

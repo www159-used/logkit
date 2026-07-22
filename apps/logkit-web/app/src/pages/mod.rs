@@ -1,13 +1,11 @@
-mod connection_edit;
-mod connection_new;
+mod connection_form;
 mod connections;
 mod settings;
 mod worker_detail;
 mod worker_new;
 mod workers;
 
-pub use connection_edit::ConnectionEditPage;
-pub use connection_new::ConnectionNewPage;
+pub use connection_form::{ConnectionEditPage, ConnectionNewPage};
 pub use connections::ConnectionsPage;
 pub use settings::SettingsPage;
 pub use worker_detail::WorkerDetailPage;

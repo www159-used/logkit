@@ -1,7 +1,7 @@
 use crate::api::{load_workers_page, stop_connection_worker};
 use crate::components::{
-    use_toast, worker_new_href, EmptyState, PageHeader, PageHeaderActions, PageHeaderMain,
-    PageShell, PageSubtitle, PageTitle, WorkersList,
+    clear_toast_resource_error, toast_resource_error, use_toast, worker_new_href, EmptyState,
+    PageHeader, PageHeaderActions, PageHeaderMain, PageShell, PageSubtitle, PageTitle, WorkersList,
 };
 use crate::i18n::{use_i18n, Msg};
 use crate::model::{ConnectionId, LogendConnection, LogendServerVersion, WorkerSummary};
@@ -40,14 +40,16 @@ pub fn WorkersPage() -> impl IntoView {
     );
 
     let toast_for_effect = toast.clone();
+    let last_err = StoredValue::new(None::<String>);
     Effect::new(move |_| {
         match workers_res.get() {
             Some(Ok((conn, list, version))) => {
+                clear_toast_resource_error(&last_err);
                 set_connection.set(Some(conn));
                 set_workers.set(list);
                 set_server_version.set(version);
             }
-            Some(Err(e)) => toast_for_effect.error(e.to_string()),
+            Some(Err(e)) => toast_resource_error(&toast_for_effect, &last_err, e),
             None => {}
         }
     });
