@@ -25,6 +25,7 @@ pub use config_load::{
     worker_config_from_document,
 };
 pub use error::{ConfigParseError, Error};
+pub use human_size::parse_human_size_bytes;
 pub use logen_model_macros::body_preset;
 pub use worker_config::{
     format_sink_summary, validate_agent_source_id, validate_sink, BodyConfig, FieldSpec,

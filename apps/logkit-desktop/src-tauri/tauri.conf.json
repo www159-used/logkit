@@ -1,0 +1,48 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Logkit",
+  "version": "2.1.0",
+  "identifier": "com.logkit.console",
+  "build": {
+    "frontendDist": "../../../target/site",
+    "devUrl": "http://127.0.0.1:3000",
+    "beforeDevCommand": "bash -c 'cd \"$(git rev-parse --show-toplevel)\" && cargo leptos watch'",
+    "beforeBuildCommand": "bash -c 'cd \"$(git rev-parse --show-toplevel)\" && cargo leptos build --release'"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Logkit",
+        "width": 960,
+        "height": 720,
+        "resizable": true,
+        "hiddenTitle": true,
+        "titleBarStyle": "Overlay",
+        "trafficLightPosition": {
+          "x": 14,
+          "y": 16
+        }
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "resources": {
+      "../../../target/site": "site/",
+      "../../../target/site/pkg": "site/pkg/",
+      "../../../Cargo.toml": "./"
+    }
+  }
+}

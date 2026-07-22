@@ -33,7 +33,6 @@ pub fn build_http_client(material: &TlsMaterial, insecure: bool) -> Result<reqwe
         reqwest::Identity::from_pem(&identity_pem).context("parse client cert/key PEM")?;
 
     let mut builder = reqwest::Client::builder()
-        .use_rustls_tls()
         .identity(identity)
         .redirect(reqwest::redirect::Policy::none());
 
@@ -41,7 +40,7 @@ pub fn build_http_client(material: &TlsMaterial, insecure: bool) -> Result<reqwe
         builder = builder.danger_accept_invalid_certs(true);
     } else {
         let ca = reqwest::Certificate::from_pem(&material.ca_pem).context("parse CA PEM")?;
-        builder = builder.add_root_certificate(ca);
+        builder = builder.tls_certs_only([ca]);
     }
 
     builder.build().context("build HTTPS client")

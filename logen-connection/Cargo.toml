@@ -1,0 +1,16 @@
+[package]
+name = "logen-connection"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Console-side logend connection client (local CRUD + logend gRPC proxy)"
+
+[dependencies]
+logen-config = { path = "../logen-config" }
+logen-proto = { path = "../logen-proto" }
+serde = { workspace = true }
+thiserror = { workspace = true }
+rusqlite = { workspace = true }
+tokio = { workspace = true, features = ["rt", "macros"] }
+tonic = { workspace = true }
+uuid = { workspace = true, features = ["v4", "serde"] }

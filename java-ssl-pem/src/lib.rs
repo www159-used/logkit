@@ -91,10 +91,8 @@ mod tests {
 
     use super::*;
 
-    fn worker_assets() -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("..")
-            .join("assets")
+    fn fixture_assets() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
     }
 
     /// 与 `logen-worker/tests/fixtures/kafka_asset_broker.yaml` 中口令一致。
@@ -103,12 +101,12 @@ mod tests {
         "8c4804e1504aa139bd827c9c016f11d4cc7174a95352f5068a3cb2c1f4849e91";
 
     /// 测试内容：`truststore.jks` / `keystore.jks` 魔数。
-    /// 输入：仓库 `assets/` 下两个 JKS fixture。
+    /// 输入：`tests/fixtures/` 下两个 JKS fixture。
     /// 预期：文件头为 `FEEDFEED`。
     #[test]
     fn assets_jks_magic() {
         for name in ["keystore.jks", "truststore.jks"] {
-            let path = worker_assets().join(name);
+            let path = fixture_assets().join(name);
             assert!(path.is_file(), "missing fixture {}", path.display());
             let mut f = std::fs::File::open(&path).unwrap();
             let mut b = [0u8; 4];
@@ -122,7 +120,7 @@ mod tests {
     /// 预期：`ca_pem` 含 CERTIFICATE 块。
     #[test]
     fn materialize_jks_trust_only() {
-        let trust_p = worker_assets()
+        let trust_p = fixture_assets()
             .join("truststore.jks")
             .to_string_lossy()
             .into_owned();
@@ -146,7 +144,7 @@ mod tests {
     /// 预期：ca / cert / key 均为非空 PEM。
     #[test]
     fn materialize_typed_jks_trust_and_jks_identity() {
-        let assets = worker_assets();
+        let assets = fixture_assets();
         let trust_p = assets.join("truststore.jks").to_string_lossy().into_owned();
         let key_p = assets.join("keystore.jks").to_string_lossy().into_owned();
         assert!(Path::new(&trust_p).is_file());
@@ -174,11 +172,11 @@ mod tests {
     }
 
     /// 测试内容：多私钥且未指定 alias 时自动选 `agent`。
-    /// 输入：仓库 `assets/keystore.jks`（含 agent 等）。
+    /// 输入：`tests/fixtures/keystore.jks`（含 agent 等）。
     /// 预期：`resolve_jks_key_alias` 返回 `agent`（忽略大小写）。
     #[test]
     fn resolve_alias_prefers_agent_when_multiple() {
-        let key_p = worker_assets().join("keystore.jks");
+        let key_p = fixture_assets().join("keystore.jks");
         let alias = resolve_jks_key_alias(&key_p, FIXTURE_KEYSTORE_PASSWORD, None).expect("alias");
         assert_eq!(alias.to_lowercase(), "agent");
     }
@@ -188,7 +186,7 @@ mod tests {
     /// 预期：返回 `server`。
     #[test]
     fn resolve_alias_honors_explicit() {
-        let key_p = worker_assets().join("keystore.jks");
+        let key_p = fixture_assets().join("keystore.jks");
         let alias =
             resolve_jks_key_alias(&key_p, FIXTURE_KEYSTORE_PASSWORD, Some("server")).expect("alias");
         assert_eq!(alias.to_lowercase(), "server");

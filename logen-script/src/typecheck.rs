@@ -196,6 +196,23 @@ pub fn builtin_sigs() -> &'static [BuiltinSig] {
         ret: Type::Sink,
         allow_positional: true,
     };
+    const FILE_SINK: BuiltinSig = BuiltinSig {
+        name: "file_sink",
+        params: &[
+            Param {
+                name: "output",
+                ty: Type::Str,
+                optional: true,
+            },
+            Param {
+                name: "max_size",
+                ty: Type::Str,
+                optional: true,
+            },
+        ],
+        ret: Type::Sink,
+        allow_positional: false,
+    };
     const LOGEN: BuiltinSig = BuiltinSig {
         name: "logen",
         params: &[
@@ -296,6 +313,7 @@ pub fn builtin_sigs() -> &'static [BuiltinSig] {
         SENTENCE,
         KAFKA_SINK,
         STDOUT_SINK,
+        FILE_SINK,
         LOGEN,
         START,
         STOP,

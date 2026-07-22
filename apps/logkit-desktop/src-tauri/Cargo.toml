@@ -1,0 +1,25 @@
+[package]
+name = "logkit-desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "logkit_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build.workspace = true
+
+[dependencies]
+logkit-web-app = { path = "../../logkit-web/app", default-features = false, features = ["ssr"] }
+leptos = { workspace = true, features = ["ssr"] }
+axum.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+serde.workspace = true
+serde_json.workspace = true
+log.workspace = true
+tauri.workspace = true
+tauri-plugin-log.workspace = true
+tauri-plugin-shell.workspace = true
+tauri-plugin-process.workspace = true

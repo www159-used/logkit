@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
 
-use logen_model::{BodyConfig, FieldSpec, KafkaConfig, SinkConfig, WorkerConfig};
+use logen_model::{validate_sink, BodyConfig, FieldSpec, KafkaConfig, SinkConfig, WorkerConfig};
 
 use crate::ast::{Arg, Expr, Stmt};
 use crate::preset::preset_by_name;
@@ -312,6 +312,16 @@ fn call_builtin(
             let brokers = optional_str(&bound, "brokers");
             Ok(Value::Sink(build_kafka_sink(&topic, brokers.as_deref())?))
         }
+        "file_sink" => {
+            let output = optional_str(&bound, "output").and_then(non_empty_str);
+            let max_size_bytes = parse_max_size_param(&bound, "max_size")?;
+            let sink = SinkConfig::File {
+                max_size_bytes,
+                output,
+            };
+            validate_sink(&sink).map_err(|e| ScriptError::eval_msg(e.to_string()))?;
+            Ok(Value::Sink(sink))
+        }
         "start" => {
             let config = require_config(&bound, "config")?.into_worker_config();
             let label = optional_str(&bound, "label").or_else(|| optional_pos_str(&bound, 1));
@@ -518,6 +528,45 @@ fn require_config(bound: &HashMap<String, Value>, key: &str) -> Result<ConfigVal
             other.ty()
         ))),
         None => Err(ScriptError::eval_msg(format!("missing Config `{key}`"))),
+    }
+}
+
+fn non_empty_str(s: String) -> Option<String> {
+    let t = s.trim();
+    if t.is_empty() {
+        None
+    } else {
+        Some(t.to_string())
+    }
+}
+
+fn parse_max_size_param(
+    bound: &HashMap<String, Value>,
+    key: &str,
+) -> Result<u64, ScriptError> {
+    match bound.get(key) {
+        None => Ok(0),
+        Some(Value::Int(n)) => {
+            if *n < 0 {
+                return Err(ScriptError::eval_msg(format!(
+                    "{key}: must be non-negative, got {n}"
+                )));
+            }
+            Ok(*n as u64)
+        }
+        Some(Value::Str(s)) => {
+            let s = s.trim();
+            if s.is_empty() {
+                Ok(0)
+            } else {
+                logen_model::parse_human_size_bytes(s)
+                    .map_err(ScriptError::eval_msg)
+            }
+        }
+        Some(other) => Err(ScriptError::eval_msg(format!(
+            "{key}: expected Int or Str, got {:?}",
+            other.ty()
+        ))),
     }
 }
 
