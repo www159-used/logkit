@@ -19,3 +19,4 @@ file = "editors/vscode-logen/package.json"
 search = '"version": "{{current_version}}"'
 replace = '"version": "{{version}}"'
 exactly = 1
+package = "logen"

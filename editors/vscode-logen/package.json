@@ -2,7 +2,7 @@
   "name": "logen",
   "displayName": "logen-script",
   "description": "Syntax highlighting for logkit logen-script (.logen)",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "publisher": "logkit",
   "license": "AGPL-3.0",
   "repository": {
