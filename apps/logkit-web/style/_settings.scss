@@ -1,0 +1,80 @@
+.settings-section {
+  margin-bottom: 1rem;
+}
+
+.settings-heading,
+.section-heading {
+  margin: 0 0 0.85rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.settings-fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.settings-option {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+.about-name {
+  margin: 0 0 0.35rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.about-desc {
+  margin: 0 0 0.85rem;
+  font-size: 0.9rem;
+}
+
+.about-list,
+.desc-list {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.45rem 1rem;
+  font-size: 0.9rem;
+
+  dt {
+    margin: 0;
+    color: var(--muted);
+    font-weight: 500;
+  }
+
+  dd {
+    margin: 0;
+    word-break: break-word;
+
+    a {
+      color: var(--accent);
+      text-decoration: none;
+
+      &:hover {
+        text-decoration: underline;
+      }
+    }
+  }
+}
+
+.about-runtime-desktop,
+.about-runtime-web {
+  display: none;
+}
+
+.tauri .about-runtime-desktop {
+  display: inline;
+}
+
+html:not(.tauri) .about-runtime-web {
+  display: inline;
+}

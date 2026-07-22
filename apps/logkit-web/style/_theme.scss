@@ -1,0 +1,61 @@
+@mixin theme-light {
+  color-scheme: light;
+  --bg: #f4f4f5;
+  --surface: #ffffff;
+  --border: #d4d4d8;
+  --text: #18181b;
+  --muted: #71717a;
+  --accent: #007acc;
+  --accent-hover: #006bb3;
+  --danger: #dc2626;
+  --local: #0d9488;
+  --remote: #ca8a04;
+  --healthy: #16a34a;
+  --banner-bg: rgba(0, 122, 204, 0.08);
+  --banner-border: rgba(0, 122, 204, 0.25);
+  --btn-hover-bg: rgba(0, 0, 0, 0.04);
+  --btn-hover-border: #a1a1aa;
+  --danger-hover-bg: rgba(220, 38, 38, 0.08);
+}
+
+@mixin theme-dark {
+  color-scheme: dark;
+  --bg: #1e1e1e;
+  --surface: #252526;
+  --border: #3c3c3c;
+  --text: #cccccc;
+  --muted: #858585;
+  --accent: #007acc;
+  --accent-hover: #1a8ad4;
+  --danger: #f14c4c;
+  --local: #4ec9b0;
+  --remote: #dcdcaa;
+  --healthy: #89d185;
+  --banner-bg: rgba(0, 122, 204, 0.15);
+  --banner-border: rgba(0, 122, 204, 0.35);
+  --btn-hover-bg: rgba(255, 255, 255, 0.04);
+  --btn-hover-border: #555555;
+  --danger-hover-bg: rgba(241, 76, 76, 0.12);
+}
+
+[data-theme="light"] {
+  @include theme-light;
+}
+
+[data-theme="dark"] {
+  @include theme-dark;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]):not([data-theme="light"]),
+  [data-theme="system"] {
+    @include theme-light;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-theme="dark"]),
+  [data-theme="system"] {
+    @include theme-dark;
+  }
+}

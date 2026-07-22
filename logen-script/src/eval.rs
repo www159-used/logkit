@@ -5,7 +5,10 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
 
-use logen_model::{validate_sink, BodyConfig, FieldSpec, KafkaConfig, SinkConfig, WorkerConfig};
+use logen_model::{
+    validate_sink, BodyConfig, FieldSpec, KafkaAgentConfig, KafkaAgentFormat, KafkaConfig,
+    KafkaSinkMode, SinkConfig, WorkerConfig,
+};
 
 use crate::ast::{Arg, Expr, Stmt};
 use crate::preset::preset_by_name;
@@ -307,11 +310,7 @@ fn call_builtin(
             Ok(Value::Field(FieldSpec::Sentence { min, max }))
         }
         "stdout_sink" => Ok(Value::Sink(SinkConfig::Stdout)),
-        "kafka_sink" => {
-            let topic = require_str(&bound, "topic")?;
-            let brokers = optional_str(&bound, "brokers");
-            Ok(Value::Sink(build_kafka_sink(&topic, brokers.as_deref())?))
-        }
+        "kafka_sink" => Ok(Value::Sink(build_kafka_sink(&bound)?)),
         "file_sink" => {
             let output = optional_str(&bound, "output").and_then(non_empty_str);
             let max_size_bytes = parse_max_size_param(&bound, "max_size")?;
@@ -570,9 +569,64 @@ fn parse_max_size_param(
     }
 }
 
-fn build_kafka_sink(topic: &str, brokers: Option<&str>) -> Result<SinkConfig, ScriptError> {
-    let brokers = match brokers {
-        None => None,
+fn build_kafka_sink(bound: &HashMap<String, Value>) -> Result<SinkConfig, ScriptError> {
+    let mode = match optional_str(bound, "mode")
+        .unwrap_or_else(|| "common".into())
+        .as_str()
+    {
+        "common" => KafkaSinkMode::Common,
+        "agent" => KafkaSinkMode::Agent,
+        other => {
+            return Err(ScriptError::eval_msg(format!(
+                "mode: expected `common` or `agent`, got `{other}`"
+            )));
+        }
+    };
+
+    let brokers = parse_brokers(optional_str(bound, "brokers").as_deref())?;
+
+    let mut kafka = KafkaConfig {
+        mode,
+        brokers,
+        ..Default::default()
+    };
+
+    match mode {
+        KafkaSinkMode::Common => {
+            let topic = require_str(bound, "topic")?;
+            kafka.topic = Some(topic);
+        }
+        KafkaSinkMode::Agent => {
+            let mut agent = KafkaAgentConfig::default();
+            if let Some(format) = optional_str(bound, "format") {
+                agent.format = match format.as_str() {
+                    "json" => KafkaAgentFormat::Json,
+                    "pb" => KafkaAgentFormat::Pb,
+                    other => {
+                        return Err(ScriptError::eval_msg(format!(
+                            "format: expected `json` or `pb`, got `{other}`"
+                        )));
+                    }
+                };
+            }
+            agent.source_id = optional_str(bound, "source_id").and_then(non_empty_str);
+            agent.appname = optional_str(bound, "appname").and_then(non_empty_str);
+            agent.tag = optional_str(bound, "tag").and_then(non_empty_str);
+            agent.domain = optional_str(bound, "domain").and_then(non_empty_str);
+            kafka.agent = Some(agent);
+        }
+    }
+
+    let sink = SinkConfig::Kafka {
+        kafka: Some(Box::new(kafka)),
+    };
+    validate_sink(&sink).map_err(|e| ScriptError::eval_msg(e.to_string()))?;
+    Ok(sink)
+}
+
+fn parse_brokers(raw: Option<&str>) -> Result<Option<Vec<String>>, ScriptError> {
+    match raw {
+        None => Ok(None),
         Some(b) => {
             let list: Vec<String> = b
                 .split(',')
@@ -583,16 +637,9 @@ fn build_kafka_sink(topic: &str, brokers: Option<&str>) -> Result<SinkConfig, Sc
             if list.is_empty() {
                 return Err(ScriptError::eval_msg("brokers: empty"));
             }
-            Some(list)
+            Ok(Some(list))
         }
-    };
-    Ok(SinkConfig::Kafka {
-        kafka: Some(Box::new(KafkaConfig {
-            topic: Some(topic.into()),
-            brokers,
-            ..Default::default()
-        })),
-    })
+    }
 }
 
 fn eval_last_config(

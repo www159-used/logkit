@@ -1,5 +1,46 @@
 struct ServerTask(tauri::async_runtime::JoinHandle<()>);
 
+fn install_app_menu(app: &tauri::App) -> tauri::Result<()> {
+    use tauri::menu::{AboutMetadata, MenuBuilder, SubmenuBuilder};
+
+    let about = AboutMetadata {
+        name: Some("Logkit".into()),
+        version: Some(env!("CARGO_PKG_VERSION").into()),
+        copyright: Some("Copyright © Logkit contributors".into()),
+        icon: app.default_window_icon().cloned(),
+        ..Default::default()
+    };
+
+    let app_menu = SubmenuBuilder::new(app, "Logkit")
+        .about(Some(about))
+        .separator()
+        .services()
+        .separator()
+        .hide()
+        .hide_others()
+        .show_all()
+        .separator()
+        .quit()
+        .build()?;
+
+    let edit_menu = SubmenuBuilder::new(app, "Edit")
+        .undo()
+        .redo()
+        .separator()
+        .cut()
+        .copy()
+        .paste()
+        .select_all()
+        .build()?;
+
+    let menu = MenuBuilder::new(app)
+        .items(&[&app_menu, &edit_menu])
+        .build()?;
+
+    app.set_menu(menu)?;
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -7,6 +48,8 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
+            install_app_menu(app)?;
+
             #[cfg(not(debug_assertions))]
             {
                 use leptos::prelude::get_configuration;

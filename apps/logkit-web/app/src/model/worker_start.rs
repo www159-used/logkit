@@ -12,6 +12,32 @@ pub struct WorkerStartForm {
     pub label: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum KafkaWebMode {
+    Common,
+    Agent,
+}
+
+impl Default for KafkaWebMode {
+    fn default() -> Self {
+        Self::Common
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum KafkaWebAgentFormat {
+    Json,
+    Pb,
+}
+
+impl Default for KafkaWebAgentFormat {
+    fn default() -> Self {
+        Self::Json
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum WorkerSinkKind {
@@ -23,8 +49,16 @@ pub enum WorkerSinkKind {
         max_size: String,
     },
     Kafka {
+        #[serde(default)]
+        mode: KafkaWebMode,
         topic: String,
         brokers: String,
+        #[serde(default)]
+        agent_format: KafkaWebAgentFormat,
+        source_id: String,
+        appname: String,
+        tag: String,
+        domain: String,
     },
 }
 
@@ -40,6 +74,19 @@ pub const BODY_PRESETS: &[&str] = &[
     "preset_apache_access_xff",
     "preset_apache_middleware",
 ];
+
+pub fn default_kafka_sink() -> WorkerSinkKind {
+    WorkerSinkKind::Kafka {
+        mode: KafkaWebMode::Common,
+        topic: String::new(),
+        brokers: String::new(),
+        agent_format: KafkaWebAgentFormat::Json,
+        source_id: String::new(),
+        appname: String::new(),
+        tag: "ww".into(),
+        domain: String::new(),
+    }
+}
 
 pub fn build_control_script(form: &WorkerStartForm) -> Result<String, String> {
     if !BODY_PRESETS.contains(&form.body_preset.as_str()) {
@@ -66,22 +113,25 @@ pub fn build_control_script(form: &WorkerStartForm) -> Result<String, String> {
                 ),
             }
         }
-        WorkerSinkKind::Kafka { topic, brokers } => {
-            let topic = topic.trim();
-            if topic.is_empty() {
-                return Err("kafka topic is required".into());
-            }
-            let brokers = brokers.trim();
-            if brokers.is_empty() {
-                format!("kafka_sink(topic: {})", script_string(topic))
-            } else {
-                format!(
-                    "kafka_sink(topic: {}, brokers: {})",
-                    script_string(topic),
-                    script_string(brokers)
-                )
-            }
-        }
+        WorkerSinkKind::Kafka {
+            mode,
+            topic,
+            brokers,
+            agent_format,
+            source_id,
+            appname,
+            tag,
+            domain,
+        } => build_kafka_sink_expr(
+            *mode,
+            topic,
+            brokers,
+            *agent_format,
+            source_id,
+            appname,
+            tag,
+            domain,
+        )?,
     };
 
     let mut logen_args = format!("{}(), {sink_expr}", form.body_preset);
@@ -109,6 +159,54 @@ pub fn build_control_script(form: &WorkerStartForm) -> Result<String, String> {
         )
     };
     Ok(script)
+}
+
+fn build_kafka_sink_expr(
+    mode: KafkaWebMode,
+    topic: &str,
+    brokers: &str,
+    agent_format: KafkaWebAgentFormat,
+    source_id: &str,
+    appname: &str,
+    tag: &str,
+    domain: &str,
+) -> Result<String, String> {
+    let brokers = brokers.trim();
+    if brokers.is_empty() {
+        return Err("kafka brokers is required".into());
+    }
+
+    let mut args = Vec::new();
+    push_script_str_arg(&mut args, "brokers", brokers);
+
+    match mode {
+        KafkaWebMode::Common => {
+            let topic = topic.trim();
+            if topic.is_empty() {
+                return Err("kafka topic is required".into());
+            }
+            args.insert(0, format!("topic: {}", script_string(topic)));
+        }
+        KafkaWebMode::Agent => {
+            args.insert(0, r#"mode: "agent""#.into());
+            if agent_format == KafkaWebAgentFormat::Pb {
+                args.push(r#"format: "pb""#.into());
+            }
+            push_script_str_arg(&mut args, "source_id", source_id);
+            push_script_str_arg(&mut args, "appname", appname);
+            push_script_str_arg(&mut args, "tag", tag);
+            push_script_str_arg(&mut args, "domain", domain);
+        }
+    }
+
+    Ok(format!("kafka_sink({})", args.join(", ")))
+}
+
+fn push_script_str_arg(args: &mut Vec<String>, key: &str, value: &str) {
+    let value = value.trim();
+    if !value.is_empty() {
+        args.push(format!("{key}: {}", script_string(value)));
+    }
 }
 
 fn script_string(raw: &str) -> String {
@@ -180,7 +278,7 @@ mod tests {
         assert!(s.contains("file_sink()"));
     }
 
-    /// 测试内容：kafka sink 表单生成带 topic 与 brokers 的脚本。
+    /// 测试内容：common kafka sink 表单生成带 topic 与 brokers 的脚本。
     /// 输入：preset_cef、kafka topic/brokers。
     /// 预期：脚本含 kafka_sink 命名参数。
     #[test]
@@ -188,8 +286,14 @@ mod tests {
         let form = WorkerStartForm {
             body_preset: "preset_cef".into(),
             sink_kind: WorkerSinkKind::Kafka {
+                mode: KafkaWebMode::Common,
                 topic: "logs".into(),
                 brokers: "127.0.0.1:9092".into(),
+                agent_format: KafkaWebAgentFormat::Json,
+                source_id: String::new(),
+                appname: String::new(),
+                tag: String::new(),
+                domain: String::new(),
             },
             rate: String::new(),
             threads: None,
@@ -198,5 +302,34 @@ mod tests {
         let s = build_control_script(&form).unwrap();
         assert!(s.contains("preset_cef()"));
         assert!(s.contains("kafka_sink(topic: \"logs\", brokers: \"127.0.0.1:9092\")"));
+    }
+
+    /// 测试内容：agent kafka sink 表单生成 mode/format/source_id 等参数。
+    /// 输入：agent 模式、brokers、source_id、appname、tag。
+    /// 预期：脚本含 mode agent 与 agent 字段，且无 topic。
+    #[test]
+    fn build_kafka_agent_script() {
+        let form = WorkerStartForm {
+            body_preset: "preset_json".into(),
+            sink_kind: WorkerSinkKind::Kafka {
+                mode: KafkaWebMode::Agent,
+                topic: String::new(),
+                brokers: "127.0.0.1:9092".into(),
+                agent_format: KafkaWebAgentFormat::Json,
+                source_id: "550e8400-e29b-41d4-a716-446655440000".into(),
+                appname: "app_demo".into(),
+                tag: "ww".into(),
+                domain: String::new(),
+            },
+            rate: "1s".into(),
+            threads: None,
+            label: "agent".into(),
+        };
+        let s = build_control_script(&form).unwrap();
+        assert!(s.contains(r#"mode: "agent""#));
+        assert!(s.contains("brokers: \"127.0.0.1:9092\""));
+        assert!(s.contains("source_id: \"550e8400-e29b-41d4-a716-446655440000\""));
+        assert!(s.contains("appname: \"app_demo\""));
+        assert!(!s.contains("topic:"));
     }
 }

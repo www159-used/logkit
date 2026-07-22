@@ -8,6 +8,19 @@ use logen_connection::LogendConnection as CoreConn;
 use super::support::{client, err, map_connections};
 
 #[server]
+pub async fn get_connection(id: ConnectionId) -> Result<LogendConnection, ServerFnError> {
+    #[cfg(feature = "ssr")]
+    {
+        Ok(client()?.get(id.into()).map_err(err)?.into())
+    }
+    #[cfg(not(feature = "ssr"))]
+    {
+        let _ = id;
+        Err(ServerFnError::ServerError("SSR only".into()))
+    }
+}
+
+#[server]
 pub async fn list_connections() -> Result<Vec<LogendConnection>, ServerFnError> {
     #[cfg(feature = "ssr")]
     {

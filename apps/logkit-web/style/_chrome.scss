@@ -1,0 +1,82 @@
+.chrome {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 0.75rem 1.25rem 0;
+}
+
+// Tauri macOS：Overlay 标题栏下为红绿灯与顶栏留白，并支持拖动窗口。
+.tauri.platform-macos {
+  .chrome {
+    max-width: none;
+    margin: 0;
+    padding-top: calc(env(titlebar-area-height, 28px) + 0.75rem);
+    padding-left: calc(env(titlebar-area-x, 14px) + env(titlebar-area-width, 66px) + 0.75rem);
+    padding-right: 1.25rem;
+    -webkit-app-region: drag;
+    user-select: none;
+    background: var(--bg);
+  }
+
+  .chrome-link,
+  .chrome-actions,
+  .chrome-icon-btn {
+    -webkit-app-region: no-drag;
+  }
+}
+
+.chrome-drag {
+  flex: 1;
+  min-width: 0;
+  min-height: 1.5rem;
+}
+
+.chrome-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.chrome-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  text-decoration: none;
+  line-height: 0;
+
+  &:hover {
+    color: var(--text);
+    background: var(--btn-hover-bg);
+  }
+}
+
+.chrome-icon-btn-primary {
+  background: var(--accent);
+  color: #fff;
+
+  &:hover {
+    background: var(--accent-hover);
+    color: #fff;
+  }
+}
+
+.chrome-icon-btn-active {
+  color: var(--accent);
+  background: var(--banner-bg);
+}
+
+.chrome-icon {
+  display: block;
+}

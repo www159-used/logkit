@@ -1,6 +1,9 @@
 use crate::api::start_connection_worker;
 use crate::i18n::{use_i18n, Msg};
-use crate::model::{ConnectionId, StartWorkerResult, WorkerSinkKind, WorkerStartForm, BODY_PRESETS};
+use crate::model::{
+    ConnectionId, KafkaWebAgentFormat, KafkaWebMode, StartWorkerResult, WorkerSinkKind,
+    WorkerStartForm, BODY_PRESETS, default_kafka_sink,
+};
 
 use leptos::prelude::*;
 
@@ -24,13 +27,30 @@ pub fn WorkerStartForm(
     let (sink_kind, set_sink_kind) = signal(WorkerSinkKind::Stdout);
     let (file_output, set_file_output) = signal(String::new());
     let (file_max_size, set_file_max_size) = signal(String::new());
+    let (kafka_mode, set_kafka_mode) = signal(KafkaWebMode::Common);
     let (kafka_topic, set_kafka_topic) = signal(String::new());
     let (kafka_brokers, set_kafka_brokers) = signal(String::new());
-    let (rate, set_rate) = signal("1ms".to_string());
+    let (kafka_agent_format, set_kafka_agent_format) = signal(KafkaWebAgentFormat::Json);
+    let (kafka_source_id, set_kafka_source_id) = signal(String::new());
+    let (kafka_appname, set_kafka_appname) = signal(String::new());
+    let (kafka_tag, set_kafka_tag) = signal("ww".to_string());
+    let (kafka_domain, set_kafka_domain) = signal(String::new());
+    let (rate, set_rate) = signal("1s".to_string());
     let (threads, set_threads) = signal(String::new());
     let (label, set_label) = signal(String::new());
     let (error, set_error) = signal(String::new());
     let (submitting, set_submitting) = signal(false);
+
+    let kafka_sink_from_fields = move || WorkerSinkKind::Kafka {
+        mode: kafka_mode.get(),
+        topic: kafka_topic.get(),
+        brokers: kafka_brokers.get(),
+        agent_format: kafka_agent_format.get(),
+        source_id: kafka_source_id.get(),
+        appname: kafka_appname.get(),
+        tag: kafka_tag.get(),
+        domain: kafka_domain.get(),
+    };
 
     let on_submit = {
         let on_started = on_started.clone();
@@ -42,9 +62,13 @@ pub fn WorkerStartForm(
             set_error.set(String::new());
             set_submitting.set(true);
             let on_started = on_started.clone();
+            let sink_kind = match sink_kind.get() {
+                WorkerSinkKind::Kafka { .. } => kafka_sink_from_fields(),
+                other => other,
+            };
             let form = WorkerStartForm {
                 body_preset: body_preset.get(),
-                sink_kind: sink_kind.get(),
+                sink_kind,
                 rate: rate.get(),
                 threads: if threads.get().trim().is_empty() {
                     None
@@ -72,8 +96,6 @@ pub fn WorkerStartForm(
 
     view! {
         <form class="form card worker-flow" on:submit=on_submit>
-            <h2 class="form-title">{move || i18n.t(Msg::NewWorker)}</h2>
-
             <section class="flow-section">
                 <h3 class="flow-heading">{move || i18n.t(Msg::FlowBody)}</h3>
                 <label class="field">
@@ -101,7 +123,7 @@ pub fn WorkerStartForm(
                             prop:checked=move || matches!(sink_kind.get(), WorkerSinkKind::Stdout)
                             on:change=move |_| set_sink_kind.set(WorkerSinkKind::Stdout)
                         />
-                        {move || i18n.t(Msg::SinkStdout)}
+                        "stdout"
                     </label>
                     <label class="radio">
                         <input
@@ -119,7 +141,7 @@ pub fn WorkerStartForm(
                                 })
                             }
                         />
-                        {move || i18n.t(Msg::SinkFile)}
+                        "file"
                     </label>
                     <Show when=move || !supports_file_sink.get()>
                         <p class="muted">{move || i18n.t(Msg::SinkFileRequiresMinLogend)}</p>
@@ -130,15 +152,14 @@ pub fn WorkerStartForm(
                             name="sink"
                             prop:checked=move || matches!(sink_kind.get(), WorkerSinkKind::Kafka { .. })
                             on:change=move |_| {
-                                set_sink_kind.set(WorkerSinkKind::Kafka {
-                                    topic: kafka_topic.get(),
-                                    brokers: kafka_brokers.get(),
-                                })
+                                set_sink_kind.set(default_kafka_sink());
+                                set_kafka_mode.set(KafkaWebMode::Common);
                             }
                         />
-                        {move || i18n.t(Msg::SinkKafka)}
+                        "Kafka"
                     </label>
                 </fieldset>
+
                 <Show when=move || matches!(sink_kind.get(), WorkerSinkKind::File { .. })>
                     <label class="field">
                         <span>{move || i18n.t(Msg::FileOutput)}</span>
@@ -173,40 +194,131 @@ pub fn WorkerStartForm(
                         />
                     </label>
                 </Show>
+
                 <Show when=move || matches!(sink_kind.get(), WorkerSinkKind::Kafka { .. })>
-                    <label class="field">
-                        <span>{move || i18n.t(Msg::KafkaTopic)}</span>
-                        <input
-                            type="text"
-                            prop:value=move || kafka_topic.get()
-                            on:input=move |ev| {
-                                let topic = event_target_value(&ev);
-                                set_kafka_topic.set(topic.clone());
-                                set_sink_kind.set(WorkerSinkKind::Kafka {
-                                    topic,
-                                    brokers: kafka_brokers.get(),
-                                });
-                            }
-                            required=move || matches!(sink_kind.get(), WorkerSinkKind::Kafka { .. })
-                            placeholder="logs"
-                        />
-                    </label>
+                    <fieldset class="field">
+                        <span>{move || i18n.t(Msg::KafkaMode)}</span>
+                        <label class="radio">
+                            <input
+                                type="radio"
+                                name="kafka_mode"
+                                prop:checked=move || kafka_mode.get() == KafkaWebMode::Common
+                                on:change=move |_| {
+                                    set_kafka_mode.set(KafkaWebMode::Common);
+                                    set_sink_kind.set(kafka_sink_from_fields());
+                                }
+                            />
+                            {move || i18n.t(Msg::KafkaModeCommon)}
+                        </label>
+                        <label class="radio">
+                            <input
+                                type="radio"
+                                name="kafka_mode"
+                                prop:checked=move || kafka_mode.get() == KafkaWebMode::Agent
+                                on:change=move |_| {
+                                    set_kafka_mode.set(KafkaWebMode::Agent);
+                                    set_sink_kind.set(kafka_sink_from_fields());
+                                }
+                            />
+                            {move || i18n.t(Msg::KafkaModeAgent)}
+                        </label>
+                    </fieldset>
+
+                    <Show when=move || kafka_mode.get() == KafkaWebMode::Common>
+                        <label class="field">
+                            <span>{move || i18n.t(Msg::KafkaTopic)}</span>
+                            <input
+                                type="text"
+                                prop:value=move || kafka_topic.get()
+                                on:input=move |ev| {
+                                    set_kafka_topic.set(event_target_value(&ev));
+                                    set_sink_kind.set(kafka_sink_from_fields());
+                                }
+                                placeholder="logs"
+                            />
+                        </label>
+                    </Show>
+
                     <label class="field">
                         <span>{move || i18n.t(Msg::KafkaBrokers)}</span>
                         <input
                             type="text"
                             prop:value=move || kafka_brokers.get()
                             on:input=move |ev| {
-                                let brokers = event_target_value(&ev);
-                                set_kafka_brokers.set(brokers.clone());
-                                set_sink_kind.set(WorkerSinkKind::Kafka {
-                                    topic: kafka_topic.get(),
-                                    brokers,
-                                });
+                                set_kafka_brokers.set(event_target_value(&ev));
+                                set_sink_kind.set(kafka_sink_from_fields());
                             }
+                            required=move || matches!(sink_kind.get(), WorkerSinkKind::Kafka { .. })
                             placeholder="127.0.0.1:9092"
                         />
                     </label>
+
+                    <Show when=move || kafka_mode.get() == KafkaWebMode::Agent>
+                        <label class="field">
+                            <span>{move || i18n.t(Msg::KafkaAgentFormat)}</span>
+                            <select
+                                prop:value=move || match kafka_agent_format.get() {
+                                    KafkaWebAgentFormat::Json => "json",
+                                    KafkaWebAgentFormat::Pb => "pb",
+                                }
+                                on:change=move |ev| {
+                                    set_kafka_agent_format.set(match event_target_value(&ev).as_str() {
+                                        "pb" => KafkaWebAgentFormat::Pb,
+                                        _ => KafkaWebAgentFormat::Json,
+                                    });
+                                    set_sink_kind.set(kafka_sink_from_fields());
+                                }
+                            >
+                                <option value="json">{move || i18n.t(Msg::KafkaAgentFormatJson)}</option>
+                                <option value="pb">{move || i18n.t(Msg::KafkaAgentFormatPb)}</option>
+                            </select>
+                        </label>
+                        <label class="field">
+                            <span>{move || i18n.t(Msg::KafkaAgentSourceId)}</span>
+                            <input
+                                type="text"
+                                prop:value=move || kafka_source_id.get()
+                                on:input=move |ev| {
+                                    set_kafka_source_id.set(event_target_value(&ev));
+                                    set_sink_kind.set(kafka_sink_from_fields());
+                                }
+                                placeholder="550e8400-e29b-41d4-a716-446655440000"
+                            />
+                        </label>
+                        <label class="field">
+                            <span>{move || i18n.t(Msg::KafkaAgentAppname)}</span>
+                            <input
+                                type="text"
+                                prop:value=move || kafka_appname.get()
+                                on:input=move |ev| {
+                                    set_kafka_appname.set(event_target_value(&ev));
+                                    set_sink_kind.set(kafka_sink_from_fields());
+                                }
+                            />
+                        </label>
+                        <label class="field">
+                            <span>{move || i18n.t(Msg::KafkaAgentTag)}</span>
+                            <input
+                                type="text"
+                                prop:value=move || kafka_tag.get()
+                                on:input=move |ev| {
+                                    set_kafka_tag.set(event_target_value(&ev));
+                                    set_sink_kind.set(kafka_sink_from_fields());
+                                }
+                            />
+                        </label>
+                        <label class="field">
+                            <span>{move || i18n.t(Msg::KafkaAgentDomain)}</span>
+                            <input
+                                type="text"
+                                prop:value=move || kafka_domain.get()
+                                on:input=move |ev| {
+                                    set_kafka_domain.set(event_target_value(&ev));
+                                    set_sink_kind.set(kafka_sink_from_fields());
+                                }
+                            />
+                        </label>
+                    </Show>
                 </Show>
             </section>
 
@@ -218,7 +330,7 @@ pub fn WorkerStartForm(
                         type="text"
                         prop:value=move || rate.get()
                         on:input=move |ev| set_rate.set(event_target_value(&ev))
-                        placeholder="1ms"
+                        placeholder="1s"
                     />
                 </label>
                 <label class="field">

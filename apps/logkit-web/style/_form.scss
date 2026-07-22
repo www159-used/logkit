@@ -1,0 +1,82 @@
+.form {
+  margin-bottom: 1.5rem;
+}
+
+.form-title {
+  margin: 0 0 1rem;
+  font-size: 1.1rem;
+}
+
+.form-hint {
+  margin: -0.5rem 0 1rem;
+  font-size: 0.85rem;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 0.85rem;
+  border: 0;
+  padding: 0;
+
+  span {
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+
+  input[type="text"],
+  input[type="number"],
+  select {
+    width: 100%;
+    padding: 0.55rem 0.65rem;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text);
+    font-size: 0.95rem;
+  }
+}
+
+.flow-section {
+  margin-bottom: 1.25rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+
+  &:last-of-type {
+    border-bottom: 0;
+    padding-bottom: 0;
+  }
+}
+
+.flow-heading {
+  margin: 0 0 0.75rem;
+  font-size: 0.95rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.worker-flow .form-title {
+  margin-bottom: 1.25rem;
+}
+
+.textarea {
+  width: 100%;
+  padding: 0.55rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  resize: vertical;
+}
+
+.radio {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.35rem;
+  font-size: 0.95rem;
+}

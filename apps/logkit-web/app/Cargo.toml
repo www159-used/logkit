@@ -12,11 +12,12 @@ leptos_axum = { workspace = true, optional = true, features = ["default"] }
 axum = { workspace = true, optional = true }
 tower-http = { workspace = true, optional = true, features = ["cors"] }
 logen-connection = { path = "../../../logen-connection", optional = true }
-logen-proto = { path = "../../../logen-proto" }
+semver = { workspace = true }
 serde = { workspace = true }
 uuid = { workspace = true, features = ["v4", "serde", "js"] }
 cfg-if.workspace = true
-web-sys = { version = "0.3", optional = true, features = ["Window", "Storage", "Document", "Element", "MediaQueryList"] }
+plotters = { version = "0.3", default-features = false, features = ["svg_backend", "line_series"] }
+web-sys = { version = "0.3", optional = true, features = ["Window", "Storage", "Document", "Element", "MediaQueryList", "MediaQueryListEvent"] }
 wasm-bindgen = { workspace = true, optional = true }
 
 [features]

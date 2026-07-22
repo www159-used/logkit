@@ -1,4 +1,4 @@
-use logen_proto::version_support;
+use crate::version_support;
 use serde::{Deserialize, Serialize};
 
 /// logend Ping 返回的服务端版本（与 [`logen_connection::LogendServerVersion`] 字段对齐）。

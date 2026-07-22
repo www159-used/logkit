@@ -1,0 +1,50 @@
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1rem 1.1rem;
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.35rem;
+
+  h2 {
+    margin: 0;
+    font-size: 1.1rem;
+  }
+}
+
+.badge {
+  font-size: 0.75rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+}
+
+.badge-local {
+  color: var(--local);
+  border-color: color-mix(in srgb, var(--local) 35%, transparent);
+}
+
+.badge-remote {
+  color: var(--remote);
+  border-color: color-mix(in srgb, var(--remote) 35%, transparent);
+}
+
+.badge-healthy {
+  color: var(--healthy);
+  border-color: color-mix(in srgb, var(--healthy) 35%, transparent);
+}
+
+.badge-unhealthy {
+  color: var(--remote);
+  border-color: color-mix(in srgb, var(--remote) 35%, transparent);
+}
+
+.badge-stopped {
+  color: var(--muted);
+}

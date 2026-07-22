@@ -179,10 +179,40 @@ pub fn builtin_sigs() -> &'static [BuiltinSig] {
             Param {
                 name: "topic",
                 ty: Type::Str,
-                optional: false,
+                optional: true,
             },
             Param {
                 name: "brokers",
+                ty: Type::Str,
+                optional: true,
+            },
+            Param {
+                name: "mode",
+                ty: Type::Str,
+                optional: true,
+            },
+            Param {
+                name: "format",
+                ty: Type::Str,
+                optional: true,
+            },
+            Param {
+                name: "source_id",
+                ty: Type::Str,
+                optional: true,
+            },
+            Param {
+                name: "appname",
+                ty: Type::Str,
+                optional: true,
+            },
+            Param {
+                name: "tag",
+                ty: Type::Str,
+                optional: true,
+            },
+            Param {
+                name: "domain",
                 ty: Type::Str,
                 optional: true,
             },

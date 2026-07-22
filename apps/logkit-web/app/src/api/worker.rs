@@ -41,7 +41,7 @@ pub async fn start_connection_worker(
             if !ping.server_version.supports_file_sink() {
                 return Err(ServerFnError::ServerError(format!(
                     "当前 logend 版本过旧，不支持 file_sink。请升级 logend 至 {} 及以上（本仓库 cargo build -p logend --release）。",
-                    logen_proto::version_support::MIN_LOGEND_FILE_SINK
+                    crate::version_support::MIN_LOGEND_FILE_SINK
                 )));
             }
         }
@@ -60,6 +60,31 @@ pub async fn start_connection_worker(
     #[cfg(not(feature = "ssr"))]
     {
         let _ = (connection_id, form);
+        Err(ServerFnError::ServerError("SSR only".into()))
+    }
+}
+
+#[server]
+pub async fn load_worker_detail(
+    connection_id: ConnectionId,
+    worker_id: String,
+) -> Result<(LogendConnection, WorkerSummary), ServerFnError> {
+    #[cfg(feature = "ssr")]
+    {
+        let conn = client()?.get(connection_id.into()).map_err(err)?;
+        let workers = client()?
+            .stat_workers(connection_id.into(), "")
+            .await
+            .map_err(err)?;
+        let worker = workers
+            .into_iter()
+            .find(|w| w.id == worker_id)
+            .ok_or_else(|| err(format!("worker not found: {worker_id}")))?;
+        Ok((LogendConnection::from(conn), WorkerSummary::from(worker)))
+    }
+    #[cfg(not(feature = "ssr"))]
+    {
+        let _ = (connection_id, worker_id);
         Err(ServerFnError::ServerError("SSR only".into()))
     }
 }

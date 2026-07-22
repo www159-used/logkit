@@ -1,16 +1,23 @@
 #![recursion_limit = "256"]
 
 mod api;
+mod app_info;
 mod browser_storage;
 mod components;
 mod i18n;
 mod model;
 mod pages;
+mod poll;
+mod refresh;
 mod theme;
+mod version_support;
 
-pub use pages::{ConnectionsPage, SettingsPage, WorkersPage};
+pub use pages::{
+    ConnectionEditPage, ConnectionNewPage, ConnectionsPage, SettingsPage, WorkerDetailPage,
+    WorkerNewPage, WorkersPage,
+};
 
-use components::AppChrome;
+use components::{provide_toast, AppChrome, ToastHost};
 use i18n::provide_i18n;
 use leptos::hydration::{AutoReload, HydrationScripts};
 use leptos::prelude::*;
@@ -20,6 +27,7 @@ use leptos_router::{
     path,
 };
 use theme::provide_theme;
+use refresh::provide_refresh_interval;
 
 pub fn shell(options: LeptosOptions) -> impl IntoView {
     view! {
@@ -54,10 +62,13 @@ pub fn App() -> impl IntoView {
     provide_meta_context();
     provide_i18n();
     provide_theme();
+    provide_refresh_interval();
+    provide_toast();
 
     view! {
         <Router>
             <AppChrome/>
+            <ToastHost/>
             <main class="shell">
                 <Routes fallback=|| {
                     let i18n = i18n::use_i18n();
@@ -68,6 +79,10 @@ pub fn App() -> impl IntoView {
                     }
                 }>
                     <Route path=path!("settings") view=SettingsPage/>
+                    <Route path=path!("connections/new") view=ConnectionNewPage/>
+                    <Route path=path!("connections/:id/edit") view=ConnectionEditPage/>
+                    <Route path=path!("c/:id/workers/new") view=WorkerNewPage/>
+                    <Route path=path!("c/:id/workers/:worker_id") view=WorkerDetailPage/>
                     <Route path=path!("c/:id/workers") view=WorkersPage/>
                     <Route path=path!("") view=ConnectionsPage/>
                 </Routes>

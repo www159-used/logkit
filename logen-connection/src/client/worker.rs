@@ -17,6 +17,11 @@ pub struct WorkerSummary {
     pub eps: f64,
     pub log_events_total: u64,
     pub retry_total: u64,
+    pub seconds_since_heartbeat: f64,
+    pub heartbeat_timeout_secs: u64,
+    pub heartbeat_interval_secs: u64,
+    pub eps_interval: f64,
+    pub log_events_estimated: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -79,6 +84,11 @@ pub(super) async fn stat_workers(
             eps: w.eps,
             log_events_total: w.log_events_total,
             retry_total: w.retry_total,
+            seconds_since_heartbeat: w.seconds_since_heartbeat,
+            heartbeat_timeout_secs: w.heartbeat_timeout_secs,
+            heartbeat_interval_secs: w.heartbeat_interval_secs,
+            eps_interval: w.eps_interval,
+            log_events_estimated: w.log_events_estimated,
         })
         .collect())
 }

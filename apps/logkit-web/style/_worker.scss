@@ -1,0 +1,47 @@
+.worker-list .worker-card .sink {
+  margin: 0.35rem 0 0;
+}
+
+.worker-status-card {
+  margin-bottom: 1rem;
+}
+
+.worker-metrics {
+  margin-top: 0.5rem;
+}
+
+.worker-chart-section {
+  margin-top: 1.25rem;
+}
+
+.eps-chart-wrap {
+  padding: 0.75rem 1rem 1rem;
+}
+
+.chart-head {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 0.35rem;
+}
+
+.chart-latest {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.eps-chart {
+  width: 100%;
+  overflow: hidden;
+
+  svg {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+}
+
+.chart-empty {
+  margin: 0;
+  padding: 2rem 0;
+  text-align: center;
+}
