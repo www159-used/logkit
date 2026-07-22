@@ -19,3 +19,11 @@ editors/vscode-logen/*.vsix
 *.swp
 *.swo
 *~
+
+# Tauri：build 时由 tauri_build 再生（capabilities 的 $schema 仍指向本地 gen/schemas/）
+apps/logkit-desktop/src-tauri/gen/
+
+# Tauri icons：仅提交源图；bundle 前跑 apps/logkit-desktop/scripts/prepare-icons.sh
+apps/logkit-desktop/src-tauri/icons/**
+!apps/logkit-desktop/src-tauri/icons/icon-legacy.png
+!apps/logkit-desktop/src-tauri/icons/icon-source.png
